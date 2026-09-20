@@ -8,3 +8,4 @@ data/
 runs/
 .evidence/
 .venv/
+.pytest_cache/
