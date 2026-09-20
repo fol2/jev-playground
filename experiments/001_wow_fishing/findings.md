@@ -372,3 +372,137 @@ This demonstrates the requested five-minute 100% trial in the calibrated scene;
 it does not establish a universal success rate. Earlier failures are not erased
 or combined into this run. Test B remains unstarted. The task's caffeinate process
 was stopped afterwards; no runner or fishing helper remains active.
+
+
+## Test B preparation and shared inventory correction (20 September, later session)
+
+Test B now asks Jev to choose equipment and action-bar preparation as well as
+WAIT/REEL/ABSTAIN during fishing. It keeps the same capture, tracking, input and
+loot checks. The requested target remains one pre-go followed by a perfect
+five-minute background interval.
+
+The first pre-go (`test_b_20260920T215409Z_b591e9`) used one Jev request. From
+the equipped weapon tooltip it selected EQUIP_ROD (0.99 probability), but the
+old fixed bag slot no longer held the rod. No cast occurred. The call took
+1.061 seconds and reported 478 input / 48 output tokens.
+
+The shared pre-go now tries the previous slot, then searches a bounded default
+10-column, five-row combined-bag grid by hovering and reading tooltips. This
+serves both policies. Test A `test_a_20260920T215646Z_816a91` found the rod at
+window-relative (0.8641, 0.824), equipped it, verified equipment and selected
+page 2 in 26.4 seconds. This proves movement between bag slots is handled in
+the calibrated layout; it does not prove arbitrary bag/window rearrangement.
+
+That run then failed three float acquisitions. Saved frames showed the actual
+float around crop (340, 62), above the previous water corridor. The current
+view needed window-relative y 0.17–0.40 instead of 0.25–0.40. The x range remains
+0.42–0.62. This is an explicit scene calibration, not automatic water recognition.
+
+The next trial (`test_a_20260920T215838Z_96121e`) collected one fish, then stopped
+at 47.02 seconds on an unverified retrieval. The trace showed a real dip and
+return, but the last two accepted recovery observations moved from y 50.14 to
+52.3913. Input dispatch took approximately 0.222 seconds. A moving target at
+dispatch is the leading explanation; the evidence alone cannot exclude a dropped
+input. The shared recovery check now also requires less than one crop-pixel
+movement between observations, for two consecutive accepted frames. A regression
+using that trace failed before this change and passed afterwards.
+
+### First live comparison
+
+The subsequent rules trial `test_a_20260920T220144Z_3e9c7d` completed 315.20
+seconds with one pre-go and 14/16 verified loot cycles. One cast failed the
+single-frame channel confirmation; its saved JPEG visibly contains the fishing
+bar and an independent OCR read returned 釣魚. Another cast timed out. Neither
+failure is excluded. This changed-scene result is not the earlier 15/15 result.
+A possible bounded multi-frame confirmation improvement was identified but
+deferred to keep the shared executor unchanged during this comparison.
+
+A foreground-start attempt (`test_b_20260920T220800Z_fd4386`) correctly stopped
+before pre-go or provider calls because WoW was foreground. Chrome was then
+raised before the next background test. No blocked app was operated.
+
+Test B `test_b_20260920T220921Z_5ad174` completed its whole preparation in 28.99
+seconds: EQUIP_ROD, EQUIP, PAGE_TWO and READY. The rod was found in its moved
+bag slot. Its first cast falsely reeled after ordinary upward movement, and the
+run stopped at 7.60 seconds with no loot. Six calls were made, including four
+pre-go decisions. This demonstrates preparation, not successful autonomous fishing.
+
+The false-positive sequence moved upwards by approximately 1.29 pixels without
+a tracking gap, but Jev chose REEL with probability 0.75. Re-expressing coordinates
+as relative displacements still yielded 0.74; adding an English description of
+direction and scale also yielded 0.74. The same described representation gave
+WAIT 0.97 for a quiet sample and REEL 0.93 for an observed bite. These six
+fixture requests are development probes, not held-out accuracy estimates. Their
+inputs and responses remain in `jev_relative_fixture_check` and
+`jev_described_fixture_check` under the local run directory.
+
+The live policy now abstains from REEL unless its probability is at least 0.90.
+This threshold separates the observed development examples; it needs fresh live
+evaluation. No Test A verdict or `fish_has_bitten` label is supplied to Jev. The
+shared tracker and actuator were not changed for this prompt/threshold revision.
+
+The 0.90 live trial (`test_b_20260920T221302Z_b757f6`) stopped after 73.57
+seconds: one catch, one timeout and two acquisition failures, with 36 provider
+requests. The missed bite produced REEL 0.86. The first acquisition failure
+placed the new float within 15 crop pixels of the previous float retained in the
+pre-cast background reference; the second placed it beyond the right edge of the
+water corridor. Both were visible in the saved images.
+
+Shared corrections before the next comparison:
+
+- Sample the static-scene reference 150 ms after casting, after the old float
+  clears and before the new one lands. Retain this frame as `cast-clear.jpg`.
+- Extend the calibrated corridor's right edge to window x 0.67.
+- Re-read a failed channel confirmation up to twice, 200 ms apart, without
+  issuing another cast key.
+
+Test B's pilot threshold became 0.85. Broad change scheduling now wakes at more
+than 1.5 pixels of vertical displacement, a tracking gap, or 50% area variation,
+plus quiet-state checks every four seconds. This remains broader than A's bite
+predicate. It reduces requests for ordinary bobbing; it is not a guarantee that
+the model sees the peak frame when another request is in flight.
+
+### Completed Test B result and final comparison limit
+
+`test_b_20260920T221605Z_d778c1` completed **314.11 seconds**, one background
+pre-go, **16/17 verified loot cycles (94.1%)**, with no human game input during
+the timed interval. Its first cast timed out; the remaining 16 caught fish.
+The missed sequence reached a 9.93-pixel downward displacement. A request was
+already in flight at the peak; the following sequence was judged REEL 0.80,
+below the fixed 0.85 execution threshold. Both sampling and the threshold are
+relevant. The threshold was not changed during the trial.
+
+There were **79 requests and 79 responses**, **57,548 input / 3,258 output tokens**;
+request p50 was **0.286 seconds**, p95 **0.712 seconds** (nearest rank). Local
+evidence occupied **5,138,912 bytes (4.90 MiB)** before verification metadata.
+No videos were recorded. All 16 successful cycles had one cast, one retrieval,
+a recognised fish label and a cleared loot window. The final image pair was
+also visually inspected. This does not measure inventory contents directly.
+
+This completed run started with the rod and page 2 already selected; pre-go
+checked and retained that setup. The full main-weapon/page-1 transition was
+proved in the earlier 28.99-second Jev pre-go, not combined with this successful
+five-minute interval. That distinction must remain explicit.
+
+The final same-source Test A (`test_a_20260920T222202Z_53f2ee`) successfully
+searched the moved rod slot, equipped it and selected page 2. It then caught
+10 consecutive fish, timed out once and failed two channel confirmations,
+stopping at **236.26 seconds, 10/13 cycles**. WoW was subsequently observed at
+the login screen. The exact cause/timing of the game session ending is not
+established, so none of those failures is reclassified or excluded. This is
+**not** a completed five-minute comparison. A user login is needed to repeat it.
+
+Structural verification files were written for both runs and all recorded source
+hashes matched at verification time. The experiment does not yet demonstrate
+100% Test B parity or a controlled improvement over A. Live trials are sequential,
+not identical bite sequences, and the earlier 15/15 A result used a different view.
+
+Across Test B development plus the completed run, recorded usage totals
+**128 requests, 91,488 input / 5,284 output tokens**. These are TypeSafe usage
+figures, excluding this coding agent's tokens and provider billing adjustments.
+
+A final code review found that consuming a non-actionable Jev reply could reuse
+its older reference for the next request's relative coordinates. A small fix now
+retains the fresh reference unless that reply is actually accepted as REEL. This
+post-run correction compiles and passes offline checks, but needs a new live B
+run after login; the 16/17 result describes the recorded pre-correction source.
