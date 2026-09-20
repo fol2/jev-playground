@@ -18,13 +18,14 @@ In WoW Forever / Classic beta:
   successful trial. Native capture used a 2560 × 1440 window. Other window sizes,
   UI scales and camera angles have not been validated.
 - Stand facing unobstructed water. Keep the expected float inside window-relative
-  x 0.42–0.62 and y 0.25–0.40, measured from the top-left. The script does not find
+  x 0.42–0.67 and y 0.17–0.40, measured from the top-left. The script does not find
   a new fishing location or automatically calibrate a different scene.
 - For the full preparation test, equip the normal main weapon and select action-bar
   page 1. Keep Fishing assigned to slot 1 on page 2; physical key `1` must activate it.
-- Keep the fishing rod in the inspected combined-bag slot at window-relative
-  x 0.924, y 0.789. At 2560 × 1440 this is approximately (2365, 1136).
-  Pre-go verifies the hovered tooltip before equipping it; it does not search bags.
+- Keep the fishing rod in the visible default combined bag. Pre-go tries the
+  previous slot, then scans the 10-column, five-row grid from bottom-right using
+  tooltips. The item may move between slots; changed bag geometry still needs
+  calibration. It verifies the equipped rod afterwards.
 - Leave room for loot. Close bags, the character sheet, chat entry, menus and loot
   windows. Resolve any beta world-refresh notice before starting.
 - For background mode, switch to Terminal or another app. Leave WoW running with
@@ -43,7 +44,7 @@ sh experiments/001_wow_fishing/build.sh
 python3 experiments/001_wow_fishing/run_test_a.py --background
 ```
 
-The build writes `/tmp/jev-fishing-live` and runs 16 local regression checks without
+The build writes `/tmp/jev-fishing-live` and runs 21 local regression checks without
 operating the game. Rebuild after changing source or after the temporary binary
 has been removed. The page-number reference remains in the checkout, so keep the
 checkout available while running.
@@ -57,7 +58,7 @@ caffeinate -di python3 experiments/001_wow_fishing/run_test_a.py --background
 
 Run only one controller at a time. Pre-go checks the weapon, equips and verifies
 the rod when necessary, handles the known character-sheet beta error on both
-openings, selects page 2 and verifies Fishing in slot 1. Its timeout is 60 seconds.
+openings, selects page 2 and verifies Fishing in slot 1. Its timeout is 120 seconds to allow a bounded bag search.
 The five-minute timer starts only after `Pre-go passed once` is printed.
 
 During the interval, do not move the character, camera or window, change equipment

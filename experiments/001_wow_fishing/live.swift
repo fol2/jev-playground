@@ -1,4 +1,4 @@
-// One local fishing attempt. No network, video recording, game memory or add-ons.
+// One fishing attempt. Optional Jev decisions; no video, game memory or add-ons.
 import AppKit
 import ApplicationServices
 import ScreenCaptureKit
@@ -88,6 +88,13 @@ func isBite(_ history: [Blob], _ current: Blob, _ background: Double,
         && abs(current.x-baseX) < 6 && background < 4
 }
 
+func floatRecovered(_ current: Blob, _ previous: Blob, _ x: Double, _ y: Double,
+                    _ area: Double, _ background: Double) -> Bool {
+    abs(current.y-y) < 2.5 && abs(current.x-x) < 4
+        && Double(current.area) >= area*0.75 && background < 4
+        && distance(current, previous) < 1
+}
+
 func pageIsTwo(_ page: CGImage) -> Bool {
     let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("page-two.png")
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -107,7 +114,7 @@ func compactFloatShape(_ width: Int, _ height: Int) -> Bool {
 
 func inCastWater(_ x: Double, _ y: Double) -> Bool {
     // Experiment-specific water region, calibrated from successful casts.
-    x >= 0.42 && x <= 0.62 && y >= 0.25 && y <= 0.40
+    x >= 0.42 && x <= 0.67 && y >= 0.17 && y <= 0.40
 }
 
 func blobs(_ image: CGImage, width: Int, height: Int) -> ([Blob], [UInt8]) {
@@ -260,7 +267,18 @@ struct Fishing {
                   inCastWater(0.48, 0.32), inCastWater(0.55, 0.30) else {
                 throw NSError(domain: "Regression: rod, rock or neighbouring NPC acquired", code: 14)
             }
-            print("Sixteen local decision and acquisition checks passed; no UI, capture or provider calls.")
+            guard !floatRecovered(Blob(x: 344.3043, y: 52.3913, area: 46),
+                                  Blob(x: 343.94, y: 50.14, area: 50), 344.2, 52.2353, 51, 2.66) else {
+                print("Regression: moving rebound accepted as recovered"); exit(1)
+            }
+            func answer(_ choice: String, _ probability: Double) -> JevReply {
+                JevReply(action: choice, details: ["response": ["answers": ["action": ["probabilities": ["REEL": probability]]]]])
+            }
+            guard !reelIsSupported(answer("REEL", 0.74)), reelIsSupported(answer("REEL", 0.93)),
+                  !reelIsSupported(answer("WAIT", 0.99)), !reelIsSupported(JevReply(action: "REEL", details: [:])) else {
+                print("Regression: unsupported Jev reel executed"); exit(1)
+            }
+            print("Twenty-one local decision and acquisition checks passed; no UI, capture or provider calls.")
             return
         }
         if let argument = CommandLine.arguments.firstIndex(of: "--inspect-image"), argument+1 < CommandLine.arguments.count {
@@ -272,11 +290,27 @@ struct Fishing {
             }
             return
         }
+        if let argument = CommandLine.arguments.firstIndex(of: "--jev-fixture"), argument+1 < CommandLine.arguments.count {
+            let state = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[argument+1]))) as! [String: Any]
+            let client = try JevClient()
+            defer { client.cancel() }
+            func output(_ event: String, _ details: [String: Any]) {
+                var row = details; row["event"] = event
+                print(String(data: try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), encoding: .utf8)!)
+            }
+            try client.start(state: state, question: fishingQuestion, emit: output)
+            while true {
+                if let answer = client.take() { output("jev_response", answer.details); return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
         NSApplication.shared.setActivationPolicy(.prohibited)
         let execute = CommandLine.arguments.contains("--execute")
         let background = CommandLine.arguments.contains("--background")
         let probe = CommandLine.arguments.contains("--probe")
         let check = CommandLine.arguments.contains("--check")
+        let jev = CommandLine.arguments.contains("--jev") ? try JevClient() : nil
+        defer { jev?.cancel() }
         let prepared = CommandLine.arguments.contains("--prepared")
         guard execute || probe || check else {
             print("Usage: live --probe | --check | --execute [--background] (one cast maximum)")
@@ -395,22 +429,55 @@ struct Fishing {
             screen = try await capture()
             let equipment = section(screen, 0.075, 0.28, 0.21, 0.19)
             save(equipment, directory.appendingPathComponent("rod.jpg"))
+            func words(_ image: CGImage) throws -> [String] {
+                try readText(image).compactMap { $0.topCandidates(1).first?.string }
+            }
             var rod = try containsText(equipment, ["魚竿", "釣竿", "Fishing Pole"])
             try await press(8) // Close character sheet.
-            if !rod {
+            var shouldEquip = !rod
+            if let jev {
+                let choice = try await jev.decide(state: ["equipped_main_hand_tooltip": try words(equipment)],
+                    instructions: "Prepare for fishing. Read the equipped item tooltip (Traditional Chinese or English). Choose the next action.",
+                    criteria: ["KEEP": "A fishing pole is already equipped.", "EQUIP_ROD": "A recognisable non-fishing weapon is equipped; inspect the known bag slot for a fishing pole.", "ABSTAIN": "The tooltip is unreadable or ambiguous."], emit: emit)
+                guard choice != "ABSTAIN", (choice == "KEEP") == rod else { emit("pre_go_jev_equipment_unconfirmed"); return }
+                shouldEquip = choice == "EQUIP_ROD"
+            }
+            if shouldEquip {
                 emit("pre_go_switching_from_main_weapon")
-                // The rod's bag slot was inspected visually in this experiment.
-                // Verify its tooltip before equipping; never click an unknown item.
+                // Try the previous slot, then search the bounded default bag grid.
+                // Verify the tooltip before equipping; never click an unknown item.
                 try await press(11) // B: open combined bag.
-                try await hover(0.924, 0.789)
+                var bagX = 0.924, bagY = 0.789
+                try await hover(bagX, bagY)
                 screen = try await capture()
-                let bagItem = section(screen, 0.76, 0.64, 0.16, 0.14)
+                var bagItem = section(screen, 0.60, 0.45, 0.32, 0.48)
+                if !(try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"])) {
+                    // Bounded default-layout bag search. OCR only; provider sees the found tooltip.
+                    var found = false
+                    for row in 0..<5 {
+                        for column in (0..<10).reversed() {
+                            bagX = 0.805 + Double(column)*0.0197
+                            bagY = 0.894 - Double(row)*0.035
+                            try await hover(bagX, bagY)
+                            screen = try await capture()
+                            bagItem = section(screen, 0.60, 0.45, 0.32, 0.48)
+                            if try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) { found = true; break }
+                        }
+                        if found { break }
+                    }
+                    emit("pre_go_bag_search", ["found": found, "x": bagX, "y": bagY])
+                }
                 save(bagItem, directory.appendingPathComponent("bag-rod.jpg"))
                 guard try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) else {
                     emit("pre_go_bag_rod_unconfirmed"); return
                 }
-                try await clickAt(CGPoint(x: bounds.minX+0.924*bounds.width,
-                                         y: bounds.minY+0.789*bounds.height), .right)
+                if let jev {
+                    let choice = try await jev.decide(state: ["bag_item_tooltip": try words(bagItem)],
+                        instructions: "Should this bag item be equipped for fishing?", criteria: ["EQUIP": "This item is a fishing pole.", "ABSTAIN": "Not a fishing pole or unclear."], emit: emit)
+                    guard choice == "EQUIP", valid() else { emit("pre_go_jev_bag_unconfirmed"); return }
+                }
+                try await clickAt(CGPoint(x: bounds.minX+bagX*bounds.width,
+                                         y: bounds.minY+bagY*bounds.height), .right)
                 try await Task.sleep(for: .milliseconds(400))
                 try await press(11) // Close bag.
                 try await press(8) // Reopen equipment and verify actual equipped rod.
@@ -434,7 +501,16 @@ struct Fishing {
             }
             guard rod else { emit("pre_go_rod_unconfirmed"); return }
             emit("pre_go_rod_verified")
-            try await press(19, .maskShift) // Shift+2, user-specified action-bar page.
+            if let jev {
+                try await hover(0.227, 0.981)
+                screen = try await capture()
+                let choice = try await jev.decide(state: ["slot_one_tooltip": try words(section(screen, 0.82, 0.75, 0.18, 0.2)),
+                    "page_two_glyph_matches": pageIsTwo(section(screen, 0.201, 0.950, 0.020, 0.05))],
+                    instructions: "Fishing is configured on action-bar page 2, slot 1. Choose preparation action from observed current page and slot tooltip.",
+                    criteria: ["KEEP": "Page 2 is selected and slot 1 is Fishing.", "PAGE_TWO": "Switch to configured fishing page 2 because the current page or skill differs.", "ABSTAIN": "Evidence cannot determine a safe preparation action."], emit: emit)
+                guard choice != "ABSTAIN" else { emit("pre_go_jev_page_unconfirmed"); return }
+                if choice == "PAGE_TWO" { try await press(19, .maskShift) }
+            } else { try await press(19, .maskShift) } // Shift+2.
             try await hover(0.227, 0.981)
             screen = try await capture()
             let skill = section(screen, 0.82, 0.75, 0.18, 0.2)
@@ -447,6 +523,14 @@ struct Fishing {
             guard pageIsTwo(page) else {
                 emit("pre_go_page_two_unconfirmed"); return
             }
+            if let jev {
+                let choice = try await jev.decide(state: ["equipped_fishing_pole_verified": rod,
+                    "slot_one_tooltip": try words(skill), "page_two_glyph_matches": pageIsTwo(page),
+                    "water": "Fixed previously calibrated scene; visibility of own float must be checked after casting."],
+                    instructions: "Are equipment and controls ready for one fishing cast? Water visibility is checked after casting, not certified here.",
+                    criteria: ["READY": "Fishing pole equipped, page 2 selected, slot 1 is Fishing.", "ABSTAIN": "Equipment or controls are not verified."], emit: emit)
+                guard choice == "READY", valid() else { emit("pre_go_jev_not_ready"); return }
+            }
             emit("pre_go_controls_verified", ["page": 2, "slot": 1])
             // Water/line of sight cannot be certified from a colour mask. The real
             // acceptance gate is a stable, visible float shortly after the cast.
@@ -456,7 +540,7 @@ struct Fishing {
         }
         let initial = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         save(initial, directory.appendingPathComponent("before.jpg"))
-        let (existing, _) = blobs(initial, width: width, height: height)
+        var (existing, _) = blobs(initial, width: width, height: height)
         emit("ready", ["output": directory.path, "width": width, "height": height,
                        "crop": [crop.minX, crop.minY, crop.width, crop.height],
                        "existing_blobs": existing.count, "execute": execute])
@@ -468,7 +552,13 @@ struct Fishing {
         key(18, down: false)
         emit("cast")
         let castAt = ProcessInfo.processInfo.systemUptime
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(for: .milliseconds(150))
+        guard valid() else { emit("stopped_before_cast_verification"); return }
+        // Re-sample after the old cast clears, before the new float lands.
+        let cleared = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        existing = blobs(cleared, width: width, height: height).0
+        save(cleared, directory.appendingPathComponent("cast-clear.jpg"))
+        try await Task.sleep(for: .milliseconds(250))
         guard valid() else { emit("stopped_before_cast_verification"); return }
         let channelConfig = SCStreamConfiguration()
         channelConfig.sourceRect = CGRect(x: bounds.width*0.44, y: bounds.height*0.83,
@@ -476,9 +566,17 @@ struct Fishing {
         channelConfig.width = Int(bounds.width*0.14)
         channelConfig.height = Int(bounds.height*0.05)
         channelConfig.showsCursor = false
-        let channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
+        var channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
+        var confirmed = try fishingChannelConfirmed(channel)
+        for _ in 0..<2 where !confirmed {
+            guard valid() else { emit("stopped_before_cast_verification"); return }
+            try await Task.sleep(for: .milliseconds(200))
+            channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
+            confirmed = try fishingChannelConfirmed(channel)
+            emit("cast_channel_recheck", ["confirmed": confirmed])
+        }
         save(channel, directory.appendingPathComponent("cast-channel.jpg"))
-        guard try fishingChannelConfirmed(channel) else {
+        guard confirmed else {
             emit("stopped_cast_not_confirmed"); return
         }
         emit("cast_channel_verified")
@@ -495,6 +593,10 @@ struct Fishing {
         var acquiredAt = 0.0, missing = 0
         var pendingBite: (x: Double, y: Double, area: Double, at: Double)?
         var recoveredFrames = 0
+        var requestedReference: (x: Double, y: Double, area: Double, at: Double)?
+        var lastRequest = -100.0
+        var lastSubmitted: Blob?
+        var submittedChange = false
         var missingStarted = 0.0, missingBackground = 0.0
         var lastTimestamp = -1.0
         while ProcessInfo.processInfo.systemUptime - castAt < 30 {
@@ -569,10 +671,50 @@ struct Fishing {
                                     "missing_frames": gapFrames, "missing_seconds": gapSeconds,
                                     "reference_area": median(history.prefix(4).map { Double($0.area) }),
                                     "reference_spread": history.prefix(4).map(\.y).max()! - history.prefix(4).map(\.y).min()!])
-                    if pendingBite == nil && isBite(history, current, background, missingFrames: gapFrames,
-                              missingSeconds: gapSeconds, missingBackground: missingBackground) {
-                        pendingBite = (median(history.prefix(4).map(\.x)), baseY,
-                                       median(history.prefix(4).map { Double($0.area) }), now)
+                    var reel = false
+                    var reference = (x: median(history.prefix(4).map(\.x)), y: baseY,
+                                     area: median(history.prefix(4).map { Double($0.area) }), at: now)
+                    if let jev {
+                        if let answer = jev.take() {
+                            emit("jev_response", answer.details)
+                            guard answer.action != "ERROR" else { emit("stopped_jev_error"); return }
+                            if let sent = requestedReference, now-sent.at <= 1.5 {
+                                reel = reelIsSupported(answer)
+                                // A non-actionable reply must not replace the next request's fresh baseline.
+                                if reel { reference = sent }
+                                if answer.action == "REEL" && !reel { emit("jev_reel_abstained", ["reason": "probability_below_0.85"]) }
+                            } else { emit("jev_stale_response") }
+                        }
+                        // Broad change scheduling, independent of Test A's bite verdict.
+                        // Quiet frames still get periodic judgements. No model output is fabricated locally.
+                        let changed = abs(drop) > 1.5 || gapFrames > 0
+                            || abs(Double(current.area)/reference.area-1) > 0.50
+                        let novel = !submittedChange || lastSubmitted.map { distance($0, current) > 1.5 } == true
+                        if pendingBite == nil && !reel && !jev.busy && now-lastRequest > 0.2
+                            && ((changed && novel) || now-lastRequest > 4) {
+                            guard jev.calls < jev.limit else { emit("stopped_jev_budget"); return }
+                            func rounded(_ x: Double) -> Double { (x*100).rounded()/100 }
+                            let rows = (history + [current]).map {
+                                [rounded($0.x-reference.x), rounded($0.y-reference.y), rounded(Double($0.area)/reference.area)]
+                            }
+                            let direction = current.y-reference.y >= 0 ? "downwards" : "upwards"
+                            let largestDownwardStep = zip(history, Array(history.dropFirst()) + [current]).map { $1.y-$0.y }.max()!
+                            try jev.start(state: ["observed_motion": "The latest float position is \(rounded(abs(current.y-reference.y))) pixels \(direction) from the preceding baseline. The largest single downward step is \(rounded(largestDownwardStep)) pixels. The visible float has an approximate linear size of \(rounded(sqrt(reference.area))) pixels. It disappeared for \(gapFrames) frames immediately before this observation.",
+                                "sequence_dx_downward_dy_area_ratio": rows,
+                                "baseline_coloured_area_pixels": reference.area,
+                                "sequence_seconds": rounded(0.6+gapSeconds), "background_change": rounded(background),
+                                "missing_frames_before_current": gapFrames, "missing_seconds": rounded(gapSeconds),
+                                "background_during_missing": rounded(missingBackground)], question: fishingQuestion, emit: emit)
+                            requestedReference = reference; lastRequest = now; lastSubmitted = current
+                            submittedChange = changed
+                        }
+                        if !changed { submittedChange = false }
+                    } else {
+                        reel = isBite(history, current, background, missingFrames: gapFrames,
+                                      missingSeconds: gapSeconds, missingBackground: missingBackground)
+                    }
+                    if pendingBite == nil && reel {
+                        pendingBite = reference
                         recoveredFrames = 0
                         emit("bite_detected_waiting_for_return", ["drop": drop])
                     }
@@ -580,8 +722,7 @@ struct Fishing {
                         if now-signal.at > 2.0 {
                             emit("stopped_bite_not_recovered"); return
                         }
-                        let recovered = abs(current.y-signal.y) < 2.5 && abs(current.x-signal.x) < 4
-                            && Double(current.area) >= signal.area*0.75 && background < 4
+                        let recovered = floatRecovered(current, history.last!, signal.x, signal.y, signal.area, background)
                         recoveredFrames = recovered ? recoveredFrames+1 : 0
                     }
                     if recoveredFrames >= 2 {

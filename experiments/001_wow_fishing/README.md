@@ -1,6 +1,24 @@
-# 001: WoW fishing — Test A
+# 001: WoW fishing — rules and Jev
 
-**Latest stricter acceptance passed:** starting with the main weapon and action-bar
+## Latest experiment status
+
+- **Test B:** one background pre-go, 314.11 seconds, **16/17 verified loot cycles**.
+  It used 79 Jev calls and 60,806 tokens; one bite was missed. Full equipment/page
+  switching was verified in a separate Jev pre-go; the completed run began prepared.
+- **Current Test A comparison:** moved-rod search and weapon/page transition passed,
+  then 10/13 cycles over 236.26 seconds before stopping. WoW was later observed at
+  the login screen. A new full comparison needs the user to log in again.
+- A post-run fix keeps a fresh observation baseline after non-actionable Jev replies.
+  It passes offline checks; the recorded live B result predates that correction.
+- **Parity is not established.** Preserve failures and distinguish the earlier
+  fixed-scene A result below from the current comparison.
+
+Use the [Test A playbook](playbook.md) or [Test B playbook](test-b-playbook.md).
+Detailed run IDs, measurements and limitations are in [findings](findings.md).
+
+## Earlier Test A acceptance
+
+**Historical stricter acceptance passed:** starting with the main weapon and action-bar
 page 1, the script equipped the fishing rod, selected page 2 and verified Fishing
 in slot 1 during **one background pre-go**. It then ran autonomously for
 **304.35 seconds**, with **15 casts and 15 verified loot cycles (100% in this run)**.
@@ -26,7 +44,8 @@ python3 experiments/001_wow_fishing/run_test_a.py --background
 ```
 
 The build uses Apple's installed Swift toolchain and native frameworks. There are
-no added package dependencies, model keys, installers, services or Keychain changes.
+no added package dependencies, installers, services or Keychain changes.
+Test A needs no model key; Test B uses the existing local TypeSafe key.
 The attributed background input files live in [probes/background-click](probes/background-click/README.md).
 Existing Screen Recording and Accessibility permissions are required.
 
@@ -54,7 +73,7 @@ the native attempt also checks Escape. Do not leave multiple runners active.
 ## What the script does
 
 1. Pre-go inspects the equipped weapon. When it is not a rod, it verifies the rod
-   tooltip in the calibrated bag slot, equips it and checks the equipped tooltip.
+   tooltip by scanning the calibrated combined-bag grid, equips it and checks the equipped tooltip.
    It then selects action-bar page 2 and verifies
    Fishing in slot 1 plus the small page-number reference. It recognises and closes
    the known beta character-sheet Lua error on each opening, checking that it
@@ -63,7 +82,8 @@ the native attempt also checks Escape. Do not leave multiple runners active.
 3. Finds a newly appearing float and tracks its warm colour in a small water region.
 4. Detects a downward movement or a short local disappearance followed by a visible
    return under stable background motion. It retains that signal for up to two
-   seconds, waits for two recovered observations near the original position, then
+   seconds, waits for two recovered observations with less than one pixel of
+   movement near the original position, then
    right-clicks. This accounts for the measured background input delay while the
    float is dipping.
 5. Reads the fish label in the resulting loot window, clicks it and verifies that
@@ -75,10 +95,11 @@ unknown loot stops for review. Beta refresh notices prevent starting pre-go.
 
 ## Limits and resource boundaries
 
-- The rod must remain in the visually calibrated bag slot (window x 0.924, y 0.789).
-  An unreadable or different item stops pre-go.
-- New targets must be in the calibrated cast corridor (window x 0.42–0.62,
-  y 0.25–0.40); tall narrow colour components are rejected. This excludes the
+- Rod placement may change within the visible default combined-bag grid. The
+  search covers ten columns and five rows; other layouts require calibration.
+  An unreadable tooltip or missing rod stops pre-go.
+- New targets must be in the calibrated cast corridor (window x 0.42–0.67,
+  y 0.17–0.40); tall narrow colour components are rejected. This excludes the
   observed rod, upper rocks and neighbouring NPC float, not every possible decoy.
 - The camera and window geometry must stay stable during a run. The current colour
   mask, UI coordinates and 563 x 260 water crop are calibrated to this scene/layout.
@@ -95,7 +116,7 @@ unknown loot stops for review. Beta refresh notices prevent starting pre-go.
   helper-process measurements, not total game/WindowServer consumption.
 - Evidence is small JPEG crops and JSONL logs under ignored `runs/`; raw recordings
   stay under ignored `data/`. The original development video is about 12 MiB.
-- Sixteen native regression assertions cover the measured onset, size and disappearance
+- Twenty-one native regression assertions cover the measured onset, size and disappearance
   cases plus rejection cases and acquisition boundaries. They supplement, rather than replace, live proof.
 
 ## Diagnostic commands
@@ -115,11 +136,12 @@ claim a general 100% success rate.
 
 ## Test B and earlier exploration
 
-Test B (live Jev comparison) has not begun. The earlier `analyse.py` comparison
-used four checkpoints from one recorded development clip; it is not the live A/B
-result. Keep capture, features and input behaviour shared when comparing policies.
-The next comparison must include latency, missed bites, unverified retrievals and
-all failed casts, rather than counting only successful catches.
+Test B uses `--jev` on the same runner. It asks Jev to choose equipment/page
+preparation and judge bite observations, while code supplies capture, tracking,
+input and result verification. There is no rules fallback. The [Test B playbook](test-b-playbook.md)
+describes its 120-call budget, 1.5-second deadline, 0.85 REEL threshold and limitations.
+The earlier `analyse.py` comparison used four recorded checkpoints and is separate
+from these live trials.
 
 The lightweight `record.py` and [recording protocol](recording-protocol.md) remain
 available for short diagnostics. Do not enable continuous recording for normal runs.

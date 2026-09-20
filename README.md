@@ -6,12 +6,13 @@ A collection of independent experiments with TypeSafe's Jev model.
 
 | ID | Experiment | Status | Next step |
 | --- | --- | --- | --- |
-| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Refined Test A passed: main weapon/page 1 to fishing, one background pre-go, 304 seconds, 15/15 loot cycles | Controlled live Jev comparison using the same observation and execution |
+| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Live Test B: 314 seconds, 16/17 catches; shared moved-rod search added | Re-login and complete final A/B parity checks |
 
 Each experiment owns its question, inputs, policy, evaluation and findings in
 `experiments/NNN_short_name/`. Use a new, permanent number for each experiment;
 do not renumber older experiments. Record unsuccessful results as well as successes.
-For the first experiment, use the [Test A playbook](experiments/001_wow_fishing/playbook.md).
+For the first experiment, use the [Test A playbook](experiments/001_wow_fishing/playbook.md)
+or [Test B playbook](experiments/001_wow_fishing/test-b-playbook.md).
 See [experiment conventions](experiments/README.md) before adding another one.
 
 Keep raw recordings in `data/<experiment_id>/` and generated results in
@@ -40,8 +41,11 @@ time was 0.667 seconds, and usage was 286 input / 21 output tokens.
 This is a session observation, not a retained benchmark dataset or fishing result.
 Subsequently, screen observation and assisted casting were verified; see the
 [fishing findings](experiments/001_wow_fishing/findings.md). The local script has
-now completed a five-minute background run. Generalisation and live Jev comparison
-remain unverified; the latest fixed-scene run achieved 15/15 verified loot cycles.
+completed an earlier 15/15 fixed-scene Test A run. Live Test B subsequently achieved
+16/17 catches in 314 seconds, including Jev readiness checks. Full Jev weapon/page
+preparation was verified separately. A final same-source A trial stopped before
+five minutes and WoW was later at login. Parity and generalisation remain open;
+see the experiment README for the post-run correction awaiting live verification.
 
 ## Official documentation
 

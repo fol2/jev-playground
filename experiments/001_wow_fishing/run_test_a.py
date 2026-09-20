@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -30,25 +31,48 @@ def invoke(arguments, timeout):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--background', action='store_true')
+    parser.add_argument('--jev', action='store_true', help='Test B: provider-backed pre-go and fishing decisions')
     args = parser.parse_args()
+    label = 'B' if args.jev else 'A'
+    if args.jev:
+        if not os.environ.get('TYPESAFE_API_KEY'):
+            for line in (ROOT / '.env').read_text().splitlines():
+                name, sep, value = line.removeprefix('export ').partition('=')
+                if sep and name.strip() == 'TYPESAFE_API_KEY':
+                    os.environ['TYPESAFE_API_KEY'] = value.strip().strip('\"\'')
+        if not os.environ.get('TYPESAFE_API_KEY'):
+            raise SystemExit('Set TYPESAFE_API_KEY locally before Test B')
+        os.environ['JEV_CALL_LIMIT'] = '120'
     mode = ['--background'] if args.background else []
+    if args.jev:
+        mode.append('--jev')
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '_' + uuid.uuid4().hex[:6]
-    folder = ROOT / 'runs' / '001_wow_fishing' / ('test_a_' + run_id)
+    folder = ROOT / 'runs' / '001_wow_fishing' / ('test_' + label.lower() + '_' + run_id)
     folder.mkdir(parents=True)
-    record = {'status': 'running', 'mode': 'background' if args.background else 'foreground',
+    record = {'policy': 'jev' if args.jev else 'rules', 'call_budget': 120 if args.jev else 0, 'status': 'running', 'mode': 'background' if args.background else 'foreground',
               'target_seconds': 300, 'pre_go_runs': 1, 'provider_calls': 0,
               'started_at_utc': datetime.now(timezone.utc).isoformat(), 'cycles': []}
     source = ROOT / 'experiments' / '001_wow_fishing'
     record['source_hashes'] = {
         str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in [source/'live.swift', source/'page-two.png', source/'run_test_a.py',
+        for p in [source/'live.swift', source/'jev.swift', source/'build.sh', source/'page-two.png', source/'run_test_a.py',
                   source/'probes/background-click/Adapter.swift',
                   source/'probes/background-click/NativeWindowServerPreparation.swift',
                   source/'probes/background-click/NativeBackgroundClickTransport.swift']}
-    print(f'Test A {record["mode"]}; results: {folder}', flush=True)
+    print(f'Test {label} {record["mode"]}; results: {folder}', flush=True)
+    def account(events):
+        record['provider_calls'] += sum(e['event'] == 'jev_request' for e in events)
+        for event in events:
+            if event['event'] == 'jev_response':
+                record.setdefault('request_seconds', []).append(event['request_seconds'])
+                for name, count in event.get('response', {}).get('usage', {}).items():
+                    record[name] = record.get(name, 0) + count
+        if args.jev:
+            os.environ['JEV_CALL_LIMIT'] = str(max(0, 120-record['provider_calls']))
     started = None
     try:
-        prego, events = invoke(['--check', *mode], 60)
+        prego, events = invoke(['--check', *mode], 120)
+        account(events)
         (folder/'pre-go.log').write_text(prego.stdout + prego.stderr)
         if prego.returncode or not any(e['event'] == 'pre_go_pass' for e in events):
             record['status'] = 'pre_go_failed'
@@ -61,6 +85,7 @@ def main():
         while time.monotonic()-started < 300:
             number = len(record['cycles']) + 1
             result, events = invoke(['--execute', '--prepared', *mode], 45)
+            account(events)
             (folder/f'cycle-{number:02d}.log').write_text(result.stdout + result.stderr)
             collected = any(e['event'] == 'loot_collected' for e in events)
             outcome = 'loot_collected' if collected else (events[-1]['event'] if events else 'process_failed')
@@ -75,7 +100,7 @@ def main():
                 record['status'] = 'stopped_after_three_consecutive_failures'
                 break
             if result.returncode or any(e['event'] in ['stopped_focus_or_geometry', 'stopped_before_click',
-                                                       'loot_item_unconfirmed', 'loot_not_cleared', 'retrieval_unverified'] for e in events):
+                                                       'loot_item_unconfirmed', 'loot_not_cleared', 'retrieval_unverified', 'stopped_jev_error', 'stopped_jev_budget'] for e in events):
                 record['status'] = 'stopped_for_review'
                 break
             time.sleep(0.5)
