@@ -1,5 +1,9 @@
 """New product paths select their real offline proof, never a documentation bypass."""
+import contextlib
+import io
 import unittest
+from unittest.mock import patch
+from tools import sdlc
 from tools.sdlc import FISHING, VISUAL, VISUAL_CODE, GateError, route
 
 
@@ -21,6 +25,16 @@ class VisualRouteTests(unittest.TestCase):
         checks = route([("A", FISHING + "tests/MotionChecks.swift")])["checks"]
         self.assertIn("fishing-offline", checks)
         self.assertNotIn("visual-offline", checks)
+
+    def test_gate_invokes_the_test_file_explicitly_not_empty_discovery(self):
+        # Removing the only test file must fail, not turn discovery into zero green tests.
+        with patch.object(sdlc, "inspect", return_value={"checks": ["visual-offline"]}), \
+             patch.object(sdlc, "contracts"), patch.object(sdlc.subprocess, "run") as run, \
+             patch.object(sdlc.sys, "argv", ["sdlc", "check", "--base", "base"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sdlc.main(), 0)
+        self.assertEqual(run.call_args.args[0],
+                         [sdlc.sys.executable, "-S", VISUAL + "test_observations.py"])
 
     def test_combined_change_keeps_both_consumers_and_governance(self):
         checks = route([("M", "tools/sdlc.py"), ("M", FISHING + "motion.swift"),

@@ -178,8 +178,7 @@ def main() -> int:
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
                         "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
                         "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
-                        "visual-offline": [sys.executable, "-S", "-m", "unittest", "discover",
-                                           "-s", VISUAL, "-p", "test_*.py"]}
+                        "visual-offline": [sys.executable, "-S", VISUAL + "test_observations.py"]}
             for check in report["checks"]:
                 if check in commands:
                     subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
