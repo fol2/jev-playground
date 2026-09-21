@@ -9,7 +9,8 @@ wait, reel or abstain. There is no automatic rules fallback.
 Follow the [Test A playbook](playbook.md) for the default UI, camera, permissions,
 starting state and stop procedure. Start with a normal main weapon and action-bar
 page 1 when testing the whole preparation transition. Keep Fishing in slot 1 of
-page 2. A moved rod is found by the shared bounded bag-tooltip search.
+page 2. A moved rod is located from the shared bag-icon comparison, then confirmed by
+its tooltip. Bounded tooltip scanning is the fallback.
 
 Keep `TYPESAFE_API_KEY` in the local ignored `.env` or environment, then run:
 
@@ -29,12 +30,13 @@ following one successful pre-go; a final in-flight cast is allowed to finish.
   EQUIP_ROD or ABSTAIN, and confirms the found item before it is equipped.
 - Jev chooses KEEP or PAGE_TWO from the current page glyph and slot tooltip,
   then judges readiness from the verified equipment and controls.
-- Code handles the known beta Lua dialogue, searches the calibrated bag grid,
+- Code handles the known beta Lua dialogue, locates the rod icon in the calibrated bag grid,
   performs input and checks actual results. Water visibility remains a post-cast
   float check, not a claim made by Jev from an image it cannot see.
-- While fishing, Jev receives seven chronological relative `[dx, downward dy, area ratio]` observations,
+- While fishing, Jev receives seven chronological relative `[dx, downward dy, estimated-size ratio]` observations,
   a computed English description of motion direction/magnitude, background change
-  and any short tracking gap. It receives no Test A verdict.
+  and any short tracking gap. It receives no Test A verdict. The size estimate comes from a tracked image patch,
+  rather than a literal count of coloured pixels.
   REEL needs model probability at least 0.85, a pilot-calibrated abstention
   threshold rather than a claimed success rate. A supported REEL decision still waits for a fresh, visible, recovered float before clicking.
 
@@ -66,3 +68,31 @@ Use the same strict five-minute acceptance as A, except provider calls must be
 present and the pre-go/REEL choices must be visible in the logs. Inspect all failed
 casts as well as successes. Keep both source hashes and starting-state evidence.
 Do not claim general 100% reliability from a single perfect run.
+
+## Shared visual and collection behaviour
+
+A and B share the image-first bag lookup, wider float search, native Vision tracker
+and language-independent loot controls. Acquisition uses before/after pixel
+changes, compact shape, increased local detail and temporal stability, not a
+required red/yellow hue. A 3-by-3 opening removes thin lines/noise. Vision then
+tracks a 160-pixel patch. Strong camera motion discards the current decision and
+requests a fresh cast after stable frames; its recovery path still needs controlled
+live verification. Different starting views and in-flight view changes are separate
+claims. See [Apple's tracking API](https://developer.apple.com/documentation/vision/vntrackingrequest).
+
+Loot names are advisory. Item-row geometry and the close-button visual identify
+the loot UI. Auto-loot is handled by observing the early window appearance and
+closure; manual collection is bounded to eight item-control clicks. No item type
+or language whitelist controls whether something is collected. Automatic-window
+completion can have empty label metadata; this does not imply an empty catch.
+Other pre-go text checks still target the tested Chinese/English UI and default
+layout; this is not a claim of complete localisation support for all setup screens.
+
+## Focus policy
+
+The final user preference is to preserve focus rather than require WoW to remain
+unfocused. `--background` keeps app-targeted input whether the user is watching
+WoW or another app, and never calls app activation. `focus_observed` records state
+changes. A summary of `targeted_mixed_focus` means WoW was foreground at least
+once; it must not be reported as an entirely background run. The explicit global
+foreground input route also no longer activates the app; it requires existing focus.

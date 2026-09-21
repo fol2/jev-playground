@@ -1,0 +1,68 @@
+{
+  "policy": "rules",
+  "call_budget": 0,
+  "status": "stopped_for_review",
+  "mode": "background",
+  "input_mode": "targeted_without_activation",
+  "game_foreground_observed": false,
+  "focus_observations": 4,
+  "target_seconds": 300,
+  "pre_go_runs": 1,
+  "provider_calls": 0,
+  "started_at_utc": "2026-09-21T00:50:18.169951+00:00",
+  "cycles": [
+    {
+      "number": 1,
+      "outcome": "loot_collected",
+      "exit_code": 0,
+      "elapsed_seconds": 24.92,
+      "run_path": "runs/001_wow_fishing/live_1789951823_CDC5C9",
+      "item": "<unreadable>",
+      "labels_observed": [],
+      "loot_clicks": 0
+    },
+    {
+      "number": 2,
+      "outcome": "loot_collected",
+      "exit_code": 0,
+      "elapsed_seconds": 54.11,
+      "run_path": "runs/001_wow_fishing/live_1789951848_A50F58",
+      "item": "<unreadable>",
+      "labels_observed": [],
+      "loot_clicks": 0
+    },
+    {
+      "number": 3,
+      "outcome": "retrieval_unverified",
+      "exit_code": 0,
+      "elapsed_seconds": 65.47,
+      "run_path": "runs/001_wow_fishing/live_1789951877_2A592F",
+      "item": null,
+      "labels_observed": [],
+      "loot_clicks": 0
+    }
+  ],
+  "source_hashes": {
+    "live.swift": "2324f1598670454963a685e7badcbffb35756b84ed693af03affb0151fdba59f",
+    "jev.swift": "9413d05edcbf18c7b7593f6d7249d0d0f44e1bdef90af5ca7756e578e3289d19",
+    "loot.swift": "5379b75128710cdbe92a56f349bca4e4687df92de2bf3ac4e2e12d9b55f40784",
+    "loot-close.png": "5a1ac4480168c869fc30c083beefa2fddafdcc95256a6c0cf945b93054cc326e",
+    "loot-layout.png": "2d037598e4eae24697782930780d05c014e5988f2cd08847b0429000b383cb05",
+    "build.sh": "1d062f9c149f3c837a44f9f1371677b23bc617ce596439131508cf8ace0f44a2",
+    "page-two.png": "1ae005b9c51f5826d02741f73dc2cae493842c7073d3bc318c3b6c38c2d869ad",
+    "rod-icon.png": "a473b85dbc48f37d4da409ead83fbcaab44acde2271d6df87f0ca76d799e8561",
+    "split-bobber.png": "e97022d71e149b248c6c1914e905bad6530dfd6c30136e06dd60ed374b3d97fd",
+    "split-bobber-before.png": "9045dda8aee5809d9ad31b9e0927c558d5aa70725938c6e9adeb64553c0401c1",
+    "bobber-no-red.png": "ac5a9b24ed31972b682ba7daaef3d2196ab8e41fb23f2adcad359c4c46a4425b",
+    "bobber-no-red-before.png": "25e865038c5a49f2292717600a1111b25f176745e8d25a441fb46779643fd5fd",
+    "run_test_a.py": "9c6d74d7a134c7f844b1caa059681166fda326e8b00082a1368fa6813c815b9f",
+    "probes/background-click/Adapter.swift": "5a0dafcf42fd39117b3c8b684f695950757890c9cfae7d47a060a7d185bf63bf",
+    "probes/background-click/NativeWindowServerPreparation.swift": "3823f5d2e0d28fe46d1e8dc27fb352b3eb934831f15e5a1bcf8f32630565f01b",
+    "probes/background-click/NativeBackgroundClickTransport.swift": "01c7c980e7109a5ece4bc2d183509f349d26f887f4d77de6a4febde5aa5410ca"
+  },
+  "autonomous_seconds": 65.47,
+  "verified_loot_cycles": 2,
+  "unverified_retrievals": 1,
+  "perfect_run": false,
+  "finished_at_utc": "2026-09-21T00:51:28.662660+00:00"
+}

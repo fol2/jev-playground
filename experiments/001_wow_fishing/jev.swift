@@ -4,10 +4,10 @@ import Foundation
 let jevModel = "jev-1.13.0"
 let fishingQuestion: [String: Any] = [
     "type": "choice",
-    "instructions": "Choose a fishing action from visual measurements. Rows are chronological [horizontal displacement in pixels, DOWNWARD displacement in pixels, coloured area relative to baseline]. Displacements are relative to the median of the earliest four observations. Positive vertical values mean DOWN; negative values mean UP. A bite is a sudden substantial DOWNWARD plunge relative to preceding small bobbing, or brief disappearance followed by return. Ordinary upward motion, gentle drifting, and colour-area changes alone are NOT bite evidence. Background_change is average pixel brightness change on a 0-255 scale; values around 1-3 are quiet water. No audio. Read the direction and magnitude carefully.",
-    "criteria": ["WAIT": "Only small bobbing, upward movement or area variation; no downward plunge or submersion.",
-                 "REEL": "A clear abrupt downward plunge or brief submersion and return against quiet water.",
-                 "ABSTAIN": "Tracking or background motion makes the observations unreliable."]]
+    "instructions": "Choose a fishing action from pixel-matched motion. Matching measures image displacement, not physical submersion. Rows are chronological [horizontal displacement in pixels, DOWNWARD displacement in pixels, appearance-match correlation, which is not a bite probability]. Displacements are relative to the median of the earliest four observations. Positive vertical values mean DOWN; negative values mean UP. A bite is a sudden substantial DOWNWARD plunge relative to preceding small bobbing, with reliable tracking throughout. A tracking gap is uncertainty, not evidence that the float submerged. Ordinary upward motion, gentle drifting, and appearance-match scores alone are NOT bite evidence. Background_change is average pixel brightness change on a 0-255 scale; values around 1-3 are quiet water. No audio. Read the direction and magnitude carefully.",
+    "criteria": ["WAIT": "Only small bobbing, upward movement or appearance-score variation; no downward plunge or submersion.",
+                 "REEL": "A clear abrupt downward plunge in a reliable sequence against quiet water. Tracking loss alone never establishes a bite.",
+                 "ABSTAIN": "A tracking gap, background motion or ambiguous movement makes the observations unreliable."]]
 
 
 struct JevReply {

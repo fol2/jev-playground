@@ -2,16 +2,15 @@
 
 ## Latest experiment status
 
-- **Test B:** one background pre-go, 314.11 seconds, **16/17 verified loot cycles**.
-  It used 79 Jev calls and 60,806 tokens; one bite was missed. Full equipment/page
-  switching was verified in a separate Jev pre-go; the completed run began prepared.
-- **Current Test A comparison:** moved-rod search and weapon/page transition passed,
-  then 10/13 cycles over 236.26 seconds before stopping. WoW was later observed at
-  the login screen. A new full comparison needs the user to log in again.
-- A post-run fix keeps a fresh observation baseline after non-actionable Jev replies.
-  It passes offline checks; the recorded live B result predates that correction.
-- **Parity is not established.** Preserve failures and distinguish the earlier
-  fixed-scene A result below from the current comparison.
+**The expanded visual pipeline has a confirmed regression and is not accepted.**
+See the [visual audit](visual-audit.md) for the evidence and corrected tracker-gap
+contract. The exact false-positive trace fails before the fix and passes afterwards;
+new live acceptance has not been claimed.
+
+Latest completed attempts were A: 2/3 verified cycles over 65.47 seconds, and B:
+0/1 over 25.96 seconds. Both stopped after game feedback indicating no fish on the
+hook. These are not five-minute passes or a controlled superiority comparison.
+The earlier B result of 16/17 over 314.11 seconds belongs to a previous version/view.
 
 Use the [Test A playbook](playbook.md) or [Test B playbook](test-b-playbook.md).
 Detailed run IDs, measurements and limitations are in [findings](findings.md).
@@ -73,39 +72,49 @@ the native attempt also checks Escape. Do not leave multiple runners active.
 ## What the script does
 
 1. Pre-go inspects the equipped weapon. When it is not a rod, it verifies the rod
-   tooltip by scanning the calibrated combined-bag grid, equips it and checks the equipped tooltip.
+   icon from one image of the calibrated combined-bag grid, confirms its tooltip,
+   equips it and checks the equipped tooltip. Tooltip scanning remains a fallback.
    It then selects action-bar page 2 and verifies
    Fishing in slot 1 plus the small page-number reference. It recognises and closes
    the known beta character-sheet Lua error on each opening, checking that it
    actually disappeared.
 2. Presses the user-configured `1` binding and confirms a green Fishing progress bar.
-3. Finds a newly appearing float and tracks its warm colour in a small water region.
-4. Detects a downward movement or a short local disappearance followed by a visible
-   return under stable background motion. It retains that signal for up to two
+3. Compares frames after casting with the post-cast reference. It removes thin
+   lines/noise, finds compact newly detailed objects and requires a persistent,
+   clearly strongest candidate. This does not require a particular float colour
+   or the previous narrow landing corridor. Native Vision then tracks a 160-pixel
+   patch around the selected object.
+4. Requires an abrupt downward step as well as displacement under stable
+   background motion. Tracking gaps invalidate the decision and require fresh
+   stable history; they do not establish submersion. It retains that signal for up to two
    seconds, waits for two recovered observations with less than one pixel of
    movement near the original position, then
    right-clicks. This accounts for the measured background input delay while the
    float is dipping.
-5. Reads the fish label in the resulting loot window, clicks it and verifies that
-   the loot window cleared. It then begins the next cast without repeating pre-go.
+5. Recognises the loot UI visually. It observes auto-loot closing the window or
+   clicks visible item-row controls, then verifies closure. Item names and types
+   never control collection. OCR is optional logging metadata.
 
-`loot_collected` means that visible item-selection and window-clearing transition;
-it is not a game-memory or direct inventory query. Fresh-fish labels are supported;
-unknown loot stops for review. Beta refresh notices prevent starting pre-go.
+`loot_collected` means an observed loot-window transition, not a game-memory or
+inventory query. Empty label metadata is permitted. An unverified retrieval stays
+unverified and stops for review; it is not silently counted as success. Beta
+refresh notices prevent starting pre-go.
 
 ## Limits and resource boundaries
 
 - Rod placement may change within the visible default combined-bag grid. The
   search covers ten columns and five rows; other layouts require calibration.
   An unreadable tooltip or missing rod stops pre-go.
-- New targets must be in the calibrated cast corridor (window x 0.42–0.67,
-  y 0.17–0.40); tall narrow colour components are rejected. This excludes the
-  observed rod, upper rocks and neighbouring NPC float, not every possible decoy.
-- The camera and window geometry must stay stable during a run. The current colour
-  mask, UI coordinates and 563 x 260 water crop are calibrated to this scene/layout.
-  Water/line-of-sight is not inferred as fact from a colour mask: a visible float is
-  the post-cast gate. In development, a downward camera angle placed it off-screen;
-  the camera was corrected before the successful timed run, not during it.
+- Acquisition searches the upper gameplay area (window x 0.02–0.85, y 0.08–0.55),
+  excluding the central avatar area. A visible float and sufficient image contrast
+  remain necessary. The capture is 1062 × 338 at the tested window size.
+- Camera direction and character heading are different. Keep both unchanged
+  during a measured comparison. Strong detected camera motion cancels the current
+  decision and waits for stable frames before requesting a new cast; it does not
+  guess the identity of a float after a large view change. This recovery path
+  still needs a controlled positive live test.
+- Different starting views have been exercised in short tests; complete coverage
+  of arbitrary environments, UI layouts, zoom levels or occlusion is not claimed.
 - Native ScreenCaptureKit streams at up to 10 Hz. Only current/previous pixels and
   six target observations are retained; no frame backlog or video is written.
 - Source-attributed SkyLight input targets WoW. Background mode does not activate
@@ -116,7 +125,7 @@ unknown loot stops for review. Beta refresh notices prevent starting pre-go.
   helper-process measurements, not total game/WindowServer consumption.
 - Evidence is small JPEG crops and JSONL logs under ignored `runs/`; raw recordings
   stay under ignored `data/`. The original development video is about 12 MiB.
-- Twenty-one native regression assertions cover the measured onset, size and disappearance
+- Twenty-seven native regression assertions cover the measured onset, size and disappearance
   cases plus rejection cases and acquisition boundaries. They supplement, rather than replace, live proof.
 
 ## Diagnostic commands
