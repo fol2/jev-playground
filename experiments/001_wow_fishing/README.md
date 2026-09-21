@@ -1,9 +1,10 @@
 # 001: WoW fishing — rules and Jev
 
-**Current candidate: offline-tested, not live-accepted.** See the
-[refactor notes](refactor-notes.md) for the observation contract, scope changes and
-limitations. Historical findings and [regression evidence](evidence/2026-09-21-visual-regression/README.md)
-are preserved. Earlier fixed-scene successes do not validate this implementation.
+**Current candidate: offline-tested, not live-accepted.** Read the
+[latest review](latest-review.md): the failed cast may have placed the float inside rock, where it was visually
+occluded. The retained stills do not establish a scenery misidentification.
+The [refactor notes](refactor-notes.md) explain the observation contract and scope.
+Raw historical evidence is preserved; interpretation corrections are annotated.
 
 ## Offline first
 
@@ -31,7 +32,8 @@ pixels, one acquisition patch and seven timestamped observations are retained.
 
 `motion.swift` matches a 20-pixel template against a fixed acquisition image.
 It does not integrate previous position estimates or fall back to a Vision tracker.
-Ambiguous matches and peaks at the +/-12-pixel search boundary abstain.
+Ambiguous matches and peaks at the +/-12-pixel search boundary abstain. This does
+not verify that the initially acquired changed component is actually a float.
 
 `decision.swift` owns the observation generation and one-shot action state. Missing,
 stale or discontinuous observations invalidate both history and pending decisions.
@@ -50,18 +52,21 @@ provider call is made during preparation and there is no rules fallback in B.
 
 Earlier B trials also delegated equipment/page decisions and used different
 observations. Do not pool them with this version. Live casts remain separate
-stochastic samples, not a paired or randomised benchmark. Historical results,
-including the latest A 2/3 and B 0/1 failures, remain in [findings](findings.md)
-and the [visual audit](visual-audit.md).
+stochastic samples, not a paired or randomised benchmark. The latest upstream
+A attempt achieved 4/7 verified cycles, including an unconfirmed/possibly occluded target, after
+the earlier A 2/3 and B 0/1 regression snapshots. See the [visual audit](visual-audit.md).
+None of those runs tested this candidate.
 
 ## Operating and evidence
 
-For a separately authorised live trial, follow the [shared/Test A playbook](playbook.md)
-and [Test B differences](test-b-playbook.md). The runner performs one preparation
-and then bounded casts for 300 seconds. Every native `stopped_*` safety outcome is
-terminal; strong background change does not trigger automatic reacquisition,
-recasting or camera/character movement. Non-terminal timeouts stop after three
-consecutive failures. A final in-flight cast may finish, up to 45 extra seconds.
+Do not infer live readiness from passing offline checks. The [shared/Test A playbook](playbook.md)
+and [Test B differences](test-b-playbook.md) describe a separately authorised trial,
+not an acceptance claim. The runner performs one preparation and then bounded casts
+for 300 seconds. No-visible-target or lost-target outcomes before any retrieval
+click are recorded as `target_unconfirmed` and may recast. These and timeouts count
+towards the existing three-consecutive-failure stop and remain in the denominator.
+Other native `stopped_*` outcomes remain terminal; strong background change does
+not trigger recasting or camera/character movement. A final in-flight cast may finish, up to 45 extra seconds.
 
 Targeted input preserves focus and the user may voluntarily watch WoW. The
 [source-attributed transport](probes/background-click/README.md) is unchanged.

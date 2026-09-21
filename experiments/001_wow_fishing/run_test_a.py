@@ -94,7 +94,13 @@ def main():
             (folder/f'cycle-{number:02d}.log').write_text(result.stdout + result.stderr)
             collected = any(e['event'] == 'loot_collected' for e in events)
             outcome = 'loot_collected' if collected else (events[-1]['event'] if events else 'process_failed')
-            cycle = {'number': number, 'outcome': outcome, 'exit_code': result.returncode,
+            native_outcome = outcome
+            retryable = {'stopped_no_visible_float', 'stopped_target_lost'}
+            unconfirmed = (not result.returncode and outcome in retryable
+                           and not any(e['event'] == 'right_click' for e in events))
+            if unconfirmed:
+                outcome = 'target_unconfirmed'
+            cycle = {'number': number, 'outcome': outcome, 'native_outcome': native_outcome, 'exit_code': result.returncode,
                      'elapsed_seconds': round(time.monotonic()-started, 2),
                      'run_path': next((e['output'] for e in events if e['event'] == 'ready'), None),
                      'item': next((e['item'] for e in events if e['event'] == 'loot_collected'), None),
@@ -106,8 +112,10 @@ def main():
             if consecutive_failures >= 3:
                 record['status'] = 'stopped_after_three_consecutive_failures'
                 break
-            # A native safety stop is terminal. Never repair a changed view by recasting.
-            if result.returncode or any(e['event'].startswith('stopped_') or e['event'] in [
+            # Only unconfirmed targets before input may retry within the three-failure bound.
+            # Camera, geometry, provider and input stops remain terminal.
+            if result.returncode or any((e['event'].startswith('stopped_')
+                    and not (unconfirmed and e['event'] in retryable)) or e['event'] in [
                     'loot_item_unconfirmed', 'loot_not_cleared', 'loot_layout_unconfirmed',
                     'loot_batch_limit', 'retrieval_unverified'] for e in events):
                 record['status'] = 'stopped_for_review'

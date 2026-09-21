@@ -9,7 +9,7 @@ import run_test_a as runner
 
 
 class RunnerTests(unittest.TestCase):
-    def run_case(self, prego, cycle=None):
+    def run_case(self, prego, cycle=None, *, cycles=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root/'experiments/001_wow_fishing'
@@ -21,12 +21,13 @@ class RunnerTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('fixture')
             results = [(SimpleNamespace(returncode=0, stdout='', stderr=''), prego)]
-            if cycle is not None:
-                results.append((SimpleNamespace(returncode=0, stdout='', stderr=''), cycle))
+            cycles = cycles if cycles is not None else ([cycle] if cycle is not None else [])
+            results.extend((SimpleNamespace(returncode=0, stdout='', stderr=''), events) for events in cycles)
+            clock = [0] + [t for i in range(len(cycles)) for t in (i*10, i*10+5)] + [301, 301]
             with patch.object(runner, 'ROOT', root), patch.object(runner, 'invoke', side_effect=results) as invoke, \
                  patch('sys.argv', ['test', '--background', '--jev']), \
                  patch.dict('os.environ', {'TYPESAFE_API_KEY': 'offline-fixture'}), \
-                 patch.object(runner.time, 'monotonic', side_effect=[0, 0, 10, 301, 301]), \
+                 patch.object(runner.time, 'monotonic', side_effect=clock), \
                  patch.object(runner.time, 'sleep'), patch('builtins.print'):
                 runner.main()
                 record = json.loads(next(root.glob('runs/*/*/summary.json')).read_text())
@@ -86,6 +87,30 @@ class RunnerTests(unittest.TestCase):
         record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_before_cast_verification'}])
         self.assertEqual(record['status'], 'stopped_for_review')
         self.assertFalse(record['perfect_run'])
+
+    def test_unconfirmed_targets_recast_within_existing_limit(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], cycles=[
+            [{'event': 'stopped_no_visible_float'}],
+            [{'event': 'stopped_target_lost'}],
+            [{'event': 'loot_collected', 'item': '<unreadable>'}]])
+        self.assertEqual(len(calls), 4)
+        self.assertEqual([c['outcome'] for c in record['cycles'][:2]],
+                         ['target_unconfirmed', 'target_unconfirmed'])
+        self.assertEqual(record['cycles'][0]['native_outcome'], 'stopped_no_visible_float')
+        self.assertEqual(record['verified_loot_cycles'], 1)
+        self.assertFalse(record['perfect_run'])
+
+    def test_three_unconfirmed_casts_stop(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            cycles=[[{'event': 'stopped_no_visible_float'}]]*3)
+        self.assertEqual(record['status'], 'stopped_after_three_consecutive_failures')
+        self.assertEqual(len(calls), 4)
+
+    def test_target_loss_after_click_never_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            [{'event': 'right_click'}, {'event': 'stopped_target_lost'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
 
     def test_failed_preparation_never_casts(self):
         record, calls = self.run_case([{'event': 'pre_go_jev_not_ready'}])

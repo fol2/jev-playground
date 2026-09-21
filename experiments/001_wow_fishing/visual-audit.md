@@ -1,5 +1,11 @@
 # Visual regression audit — 21 September 2026
 
+> Interpretation correction following owner feedback: the float may have been
+> cast inside rock and visually occluded. The earlier definitive scenery-selection
+> claim below is withdrawn; isolated stills cannot establish it. Treat the target
+> as unconfirmed. Raw evidence and the 4/7 outcome remain unchanged.
+
+
 The expanded visual pipeline is not an accepted replacement for the earlier
 fixed-scene baseline. The observation contract has a locally tested correction with failed live validation recorded below. Passing local checks is not five-minute fishing acceptance.
 

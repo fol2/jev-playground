@@ -55,8 +55,10 @@ splice its results into a failed background interval.
 ## Stop and review
 
 Ctrl-C in the runner terminal is the primary stop; the native helper also checks
-Escape. Any native `stopped_*` event, uncertain loot or child timeout stops the run
-for review. Ordinary non-terminal timeouts stop after three consecutive failures.
+Escape. Unconfirmed targets (`stopped_no_visible_float` or `stopped_target_lost`)
+before any retrieval click may recast, sharing the three-consecutive-failure limit
+with ordinary timeouts. They remain failed/unconfirmed attempts in the result.
+All other native stops, uncertain loot or child timeouts stop the run for review.
 Camera/background change now stops rather than recasting or changing heading.
 
 The script does not restore the original weapon/page. Inspect remaining overlays

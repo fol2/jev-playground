@@ -1,5 +1,11 @@
 # Pixel-motion live Test A — failed acceptance
 
+> Interpretation correction following owner feedback: the float may have been
+> cast inside rock and visually occluded. The earlier definitive scenery-selection
+> claim below is withdrawn; isolated stills cannot establish it. Treat the target
+> as unconfirmed. Raw evidence and the 4/7 outcome remain unchanged.
+
+
 Tested commit: `98bd6a6ab0544cd7aa9ea24e340ef3e3f6f05c6e`.
 All source hashes in `summary.json` match this checkout. No code changed during
 the run. No Jev requests. Targeted input; all recorded focus observations were

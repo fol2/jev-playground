@@ -685,7 +685,7 @@ struct Fishing {
                         tracker = try FloatTracker(current, image: image)
                         emit("target_acquired", ["x": current.x, "y": current.y, "area": current.area, "novelty": current.novelty])
                         save(image, directory.appendingPathComponent("acquired.jpg"))
-                        emit("post_cast_visible_float_verified")
+                        emit("post_cast_target_candidate_observed")
                     }
                     if missing > 0 { emit("tracking_restored_waiting_for_stable_history", ["gap_frames": missing]) }
                     target = current; missing = 0
