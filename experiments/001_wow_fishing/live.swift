@@ -75,84 +75,35 @@ func fishingChannelConfirmed(_ image: CGImage) throws -> Bool {
     return false
 }
 
-struct Blob {
-    var x: Double
-    var y: Double
-    var area: Int
-    var novelty: Double = 0
-    var matchCorrelation: Double = 1
-}
-
-// Native tracking runs on a fixed 160-pixel patch, rather than the full playfield.
+// Match every frame to the acquisition image, not the previous tracking estimate.
+// A lost/ambiguous match supplies no observation. Never adopt water as a new anchor.
 final class FloatTracker {
     let crop: CGRect
-    let handler = VNSequenceRequestHandler()
-    let request: VNTrackObjectRequest
-    let referenceArea: Int
-    var previousPixels: [Double]
-    var previousPoint: CGPoint
+    private let anchor: [Double]
+    private let centre: CGPoint
+    private let area: Int
+
     init(_ target: Blob, image: CGImage) throws {
-        let side = 160.0
-        crop = CGRect(x: max(0,min(Double(image.width)-side,target.x-side/2)),
-                      y: max(0,min(Double(image.height)-side,target.y-side/2)), width: side, height: side).integral
-        let size = max(12,min(36,sqrt(Double(target.area))*2))
-        let box = CGRect(x: (target.x-crop.minX-size/2)/crop.width,
-                         y: 1-(target.y-crop.minY+size/2)/crop.height,
-                         width: size/crop.width, height: size/crop.height)
-        referenceArea = target.area
-        previousPixels = greyPixels(image.cropping(to:crop)!)
-        previousPoint = CGPoint(x:target.x-crop.minX,y:target.y-crop.minY)
-        request = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: box))
-        request.trackingLevel = .accurate
-        try handler.perform([request], on: image.cropping(to: crop)!)
-        if let observation = request.results?.first as? VNDetectedObjectObservation { request.inputObservation = observation }
-    }
-    func observe(_ image: CGImage) throws -> Blob? {
-        guard let patch=image.cropping(to:crop) else {return nil}
-        let currentPixels=greyPixels(patch)
-        defer {previousPixels=currentPixels}
-        try handler.perform([request],on:patch)
-        let observation=request.results?.first as? VNDetectedObjectObservation
-        if let observation,observation.confidence>=0.6 {request.inputObservation=observation}
-        guard let motion=pixelMotion(previous:previousPixels,current:currentPixels,
-                                     width:patch.width,height:patch.height,centre:previousPoint) else {
-            // A new search hint is not a measured position; callers must rebuild stable history.
-            if let observation,observation.confidence>=0.6 {
-                previousPoint=CGPoint(x:observation.boundingBox.midX*crop.width,
-                                      y:(1-observation.boundingBox.midY)*crop.height)
-            }
-            return nil
+        let side = min(160, min(image.width, image.height))
+        crop = CGRect(x: max(0, min(Double(image.width-side), target.x-Double(side)/2)),
+                      y: max(0, min(Double(image.height-side), target.y-Double(side)/2)),
+                      width: side, height: side).integral
+        guard let patch = image.cropping(to: crop) else {
+            throw NSError(domain: "Invalid float patch", code: 4)
         }
-        previousPoint.x += motion.dx; previousPoint.y += motion.dy
-        let x=crop.minX+previousPoint.x,y=crop.minY+previousPoint.y
-        guard x>=0,y>=0,x<Double(image.width),y<Double(image.height) else {return nil}
-        return Blob(x:x,y:y,area:referenceArea,matchCorrelation:motion.correlation)
+        anchor = greyPixels(patch)
+        centre = CGPoint(x: target.x-Double(crop.minX), y: target.y-Double(crop.minY))
+        area = target.area
     }
-}
 
-func distance(_ a: Blob, _ b: Blob) -> Double { hypot(a.x - b.x, a.y - b.y) }
-func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
-
-func isBite(_ history: [Blob], _ current: Blob, _ background: Double,
-            missingFrames: Int = 0, missingSeconds: Double = 0, missingBackground: Double = 0) -> Bool {
-    guard history.count == 6, missingFrames == 0, missingSeconds == 0 else { return false }
-    // Keep the newest two observations out of the stable reference: they may
-    // already contain the onset of the movement we are trying to detect.
-    let baseline = Array(history.prefix(4))
-    let minimumDrop = 2.0
-    let step = current.y-history.last!.y
-    let baseY = median(baseline.map(\.y)), baseX = median(baseline.map(\.x))
-    // Missing tracker output is uncertainty, not image evidence of submersion.
-    return baseline.map(\.y).max()! - baseline.map(\.y).min()! < 2
-        && current.y-baseY >= minimumDrop && step >= minimumDrop && step >= (current.y-baseY)*0.75
-        && abs(current.x-baseX) < 6 && background < 4
-}
-
-func floatRecovered(_ current: Blob, _ previous: Blob, _ x: Double, _ y: Double,
-                    _ area: Double, _ background: Double) -> Bool {
-    abs(current.y-y) < 2.5 && abs(current.x-x) < 4
-        && current.matchCorrelation >= 0.7 && background < 4
-        && distance(current, previous) < 1
+    func observe(_ image: CGImage) -> Blob? {
+        guard let patch = image.cropping(to: crop),
+              let motion = pixelMotion(previous: anchor, current: greyPixels(patch),
+                                       width: patch.width, height: patch.height, centre: centre) else { return nil }
+        return Blob(x: Double(crop.minX+centre.x)+motion.dx,
+                    y: Double(crop.minY+centre.y)+motion.dy,
+                    area: area, matchCorrelation: motion.correlation)
+    }
 }
 
 func pageIsTwo(_ page: CGImage) -> Bool {
@@ -352,132 +303,7 @@ struct Fishing {
 
     @MainActor static func run() async throws {
         if CommandLine.arguments.contains("--self-test") {
-            // Measured sequence from Test A run live_1789923995_3A8353.
-            let history = [Blob(x: 360.64, y: 162.9067, area: 75),
-                Blob(x: 360.6494, y: 162.4286, area: 77), Blob(x: 361.058, y: 161.6087, area: 69),
-                Blob(x: 360.8133, y: 162, area: 75), Blob(x: 360.72, y: 162.0667, area: 75),
-                Blob(x: 360.9355, y: 164.5645, area: 62)]
-            let dip = Blob(x: 360.871, y: 172, area: 31)
-            guard isBite(history, dip, 2.0731) else {
-                throw NSError(domain: "Regression: bite onset contaminates the stability window", code: 10)
-            }
-            guard !isBite(history, dip, 10), !isBite([], dip, 2),
-                  !isBite(history, Blob(x: 361, y: 163, area: 70), 2) else {
-                throw NSError(domain: "Regression: invalid or ordinary observation accepted", code: 11)
-            }
-            let small = [Blob(x: 343.0833, y: 123.3611, area: 36),
-                Blob(x: 343.0588, y: 123.5588, area: 34), Blob(x: 343.0541, y: 123.2703, area: 37),
-                Blob(x: 343.1081, y: 123.2162, area: 37), Blob(x: 343.3158, y: 123.0789, area: 38),
-                Blob(x: 343.2821, y: 122.8462, area: 39)]
-            guard isBite(small, Blob(x: 343.5217, y: 126.3478, area: 23), 1.4608),
-                  !isBite(small, Blob(x: 343, y: 124.2, area: 35), 2) else {
-                throw NSError(domain: "Regression: fixed pixel threshold misses a smaller bobber", code: 12)
-            }
-            let submerged = [Blob(x: 333.7, y: 139.9, area: 31),
-                Blob(x: 333.7, y: 139.9, area: 32), Blob(x: 333.7, y: 139.969, area: 32),
-                Blob(x: 333.7, y: 139.871, area: 31), Blob(x: 333.77, y: 140.065, area: 31),
-                Blob(x: 333.74, y: 140.452, area: 31)]
-            let returned = Blob(x: 332.929, y: 139.071, area: 28)
-            guard !isBite(submerged, returned, 1.7, missingFrames: 2, missingSeconds: 0.33, missingBackground: 1.68),
-                  !isBite(submerged, returned, 1.7, missingFrames: 2, missingSeconds: 0.33, missingBackground: 12),
-                  !isBite(submerged, returned, 1.7, missingFrames: 2, missingSeconds: 2, missingBackground: 1),
-                  !isBite(submerged, returned, 1.7) else {
-                throw NSError(domain: "Regression: tracking gaps cannot establish submersion", code: 13)
-            }
-            guard !compactFloatShape(2, 24), compactFloatShape(8, 10) else {
-                throw NSError(domain: "Regression: rod, rock or neighbouring NPC acquired", code: 14)
-            }
-            guard !floatRecovered(Blob(x: 344.3043, y: 52.3913, area: 46),
-                                  Blob(x: 343.94, y: 50.14, area: 50), 344.2, 52.2353, 51, 2.66) else {
-                print("Regression: moving rebound accepted as recovered"); exit(1)
-            }
-            func answer(_ choice: String, _ probability: Double) -> JevReply {
-                JevReply(action: choice, details: ["response": ["answers": ["action": ["probabilities": ["REEL": probability]]]]])
-            }
-            guard !reelIsSupported(answer("REEL", 0.74)), reelIsSupported(answer("REEL", 0.93)),
-                  !reelIsSupported(answer("WAIT", 0.99)), !reelIsSupported(JevReply(action: "REEL", details: [:])) else {
-                print("Regression: unsupported Jev reel executed"); exit(1)
-            }
-            func floatFixture(_ green: Bool, _ feather: Bool) -> CGImage {
-                let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
-                    bytesPerRow: 256, space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.4, alpha: 1))
-                context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
-                context.setFillColor(CGColor(red: green ? 0.3 : 0.6, green: 0.5, blue: 0.05, alpha: 1))
-                context.fill(CGRect(x: 32, y: 32, width: 8, height: 8))
-                if feather {
-                    context.setFillColor(CGColor(red: 0.8, green: 0.1, blue: 0.05, alpha: 1))
-                    context.fill(CGRect(x: 22, y: 42, width: 10, height: 2))
-                }
-                return context.makeImage()!
-            }
-            let blankContext=CGContext(data:nil,width:64,height:64,bitsPerComponent:8,bytesPerRow:256,
-                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
-            blankContext.setFillColor(CGColor(red:0.1,green:0.2,blue:0.4,alpha:1))
-            blankContext.fill(CGRect(x:0,y:0,width:64,height:64))
-            let blankPixels=imagePixels(blankContext.makeImage()!,width:64,height:64)
-            for (green,feather) in [(true,true),(false,true),(true,false)] {
-                let image=floatFixture(green,feather)
-                guard changedObjects(imagePixels(image,width:64,height:64),reference:blankPixels,width:64,height:64).count == 1 else {
-                    print("Regression: colour-independent new object recognition");exit(1)
-                }
-            }
-            guard changedObjects(blankPixels,reference:blankPixels,width:64,height:64).isEmpty else {exit(1)}
-            for stem in ["split-bobber","bobber-no-red"] {
-                func fixture(_ suffix:String) -> CGImage {
-                    let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent(stem+suffix+".png")
-                    return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL,nil)!,0,nil)!
-                }
-                let after=fixture(""),before=fixture("-before")
-                guard changedObjects(imagePixels(after,width:after.width,height:after.height),
-                    reference:imagePixels(before,width:after.width,height:after.height),width:after.width,height:after.height).count == 1 else {
-                    print("Regression: new float not uniquely detected in \(stem)");exit(1)
-                }
-            }
-            let lootURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("loot-layout.png")
-            let lootSource = CGImageSourceCreateWithURL(lootURL as CFURL,nil)!
-            let loot = CGImageSourceCreateImageAtIndex(lootSource,0,nil)!
-            guard try lootLayout(loot)?.rows.count == 1 else { print("Regression: loot row missing"); exit(1) }
-            let textless = CGContext(data:nil,width:loot.width,height:loot.height,bitsPerComponent:8,
-                bytesPerRow:loot.width*4,space:CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
-            textless.draw(loot,in:CGRect(x:0,y:0,width:loot.width,height:loot.height))
-            textless.setFillColor(CGColor(red:0.12,green:0.125,blue:0.12,alpha:1))
-            textless.fill(CGRect(x:83,y:22,width:166,height:52))
-            guard try lootLayout(textless.makeImage()!)?.rows.count == 1,
-                  try lootLayout(floatFixture(true,false)) == nil else {
-                print("Regression: loot actions depend on text or accept a non-window"); exit(1)
-            }
-            let ordinaryDip = [
-                Blob(x:601.9228,y:208.2571,area:50), Blob(x:601.8868,y:208.4219,area:51),
-                Blob(x:601.8494,y:208.6081,area:51), Blob(x:601.6584,y:208.9519,area:51),
-                Blob(x:601.5415,y:209.3058,area:51), Blob(x:601.6612,y:209.7750,area:51)]
-            guard !isBite(ordinaryDip,Blob(x:601.4184,y:211.8466,area:52),3.5066) else {
-                print("Regression: user-labelled ordinary dip triggered REEL"); exit(1)
-            }
-            let confidenceDropout = [Blob(x:614.87494659,y:170.13040113,area:36),
-                Blob(x:614.90395355,y:169.92368650,area:36),
-                Blob(x:614.94909668,y:169.75995684,area:36),
-                Blob(x:614.92971802,y:171.05411434,area:36),
-                Blob(x:614.93563080,y:170.87884283,area:36),
-                Blob(x:614.83502102,y:170.68083429,area:37)]
-            guard !isBite(confidenceDropout, Blob(x:614.89324522,y:170.42967510,area:38), 2.9698, missingFrames:1, missingSeconds:0.1071, missingBackground:2.7358) else {
-                print("Regression: tracker confidence dropout treated as submersion"); exit(1)
-            }
-            let motionURL=URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent("motion-fixtures.png")
-            let motionSource=CGImageSourceCreateWithURL(motionURL as CFURL,nil)!
-            let motionImage=CGImageSourceCreateImageAtIndex(motionSource,0,nil)!
-            for (row,expected) in [8.0,4.0,0.0,0.0].enumerated() {
-                let before=motionImage.cropping(to:CGRect(x:0,y:row*64,width:64,height:64))!
-                let after=motionImage.cropping(to:CGRect(x:64,y:row*64,width:64,height:64))!
-                guard let motion=pixelMotion(previous:greyPixels(before),current:greyPixels(after),
-                    width:64,height:64,centre:CGPoint(x:32,y:32)), abs(motion.dy-expected)<0.6 else {
-                    print("Regression: pixel motion disagrees with labelled fixture \(row)");exit(1)
-                }
-            }
-            print("Thirty-two local decision and acquisition checks passed; no UI, capture or provider calls.")
-            return
+            try runSelfTests(); return
         }
         if let argument = CommandLine.arguments.firstIndex(of: "--inspect-image"), argument+1 < CommandLine.arguments.count {
             let url = URL(fileURLWithPath: CommandLine.arguments[argument+1])
@@ -513,7 +339,7 @@ struct Fishing {
         let background = CommandLine.arguments.contains("--background")
         let probe = CommandLine.arguments.contains("--probe")
         let check = CommandLine.arguments.contains("--check")
-        let jev = CommandLine.arguments.contains("--jev") ? try JevClient() : nil
+        let jev = execute && !check && CommandLine.arguments.contains("--jev") ? try JevClient() : nil
         defer { jev?.cancel() }
         let prepared = CommandLine.arguments.contains("--prepared")
         guard execute || probe || check else {
@@ -610,6 +436,19 @@ struct Fishing {
                 mouse(.mouseMoved, CGPoint(x: bounds.minX+x*bounds.width, y: bounds.minY+y*bounds.height))
                 try await Task.sleep(for: .milliseconds(450))
             }
+            func dismissCharacterError(_ screen: CGImage) async throws -> CGImage {
+                guard try containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else { return screen }
+                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
+                try await clickAt(CGPoint(x: bounds.minX+0.776*bounds.width,
+                                         y: bounds.minY+0.349*bounds.height), .left)
+                try await Task.sleep(for: .milliseconds(300))
+                let after = try await capture()
+                guard try !containsText(section(after, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else {
+                    throw NSError(domain: "Pre-go character error still open", code: 3)
+                }
+                emit("dismissed_character_beta_error")
+                return after
+            }
             var screen = try await capture()
             save(screen, directory.appendingPathComponent("pre-go.jpg"))
             if try containsText(section(screen, 0.4, 0.1, 0.2, 0.11), ["refresh", "Refresh"]) {
@@ -622,37 +461,14 @@ struct Fishing {
             // Character sheet, then read the equipped main-hand item tooltip.
             try await press(8) // C
             screen = try await capture()
-            if try containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) {
-                // Close X in the inspected default-layout Lua dialog, only after
-                // its title is recognised; then prove the dialog disappeared.
-                let point = CGPoint(x: bounds.minX+0.776*bounds.width,
-                                    y: bounds.minY+0.349*bounds.height)
-                try await clickAt(point, .left)
-                try await Task.sleep(for: .milliseconds(300))
-                screen = try await capture()
-                guard try !containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else {
-                    emit("pre_go_character_error_still_open"); return
-                }
-                emit("dismissed_character_beta_error")
-            }
+            screen = try await dismissCharacterError(screen)
             try await hover(0.0725, 0.460)
             screen = try await capture()
             let equipment = section(screen, 0.075, 0.28, 0.21, 0.19)
             save(equipment, directory.appendingPathComponent("rod.jpg"))
-            func words(_ image: CGImage) throws -> [String] {
-                try readText(image).compactMap { $0.topCandidates(1).first?.string }
-            }
             var rod = try containsText(equipment, ["魚竿", "釣竿", "Fishing Pole"])
             try await press(8) // Close character sheet.
-            var shouldEquip = !rod
-            if let jev {
-                let choice = try await jev.decide(state: ["equipped_main_hand_tooltip": try words(equipment)],
-                    instructions: "Prepare for fishing. Read the equipped item tooltip (Traditional Chinese or English). Choose the next action.",
-                    criteria: ["KEEP": "A fishing pole is already equipped.", "EQUIP_ROD": "A recognisable non-fishing weapon is equipped; inspect the known bag slot for a fishing pole.", "ABSTAIN": "The tooltip is unreadable or ambiguous."], emit: emit)
-                guard choice != "ABSTAIN", (choice == "KEEP") == rod else { emit("pre_go_jev_equipment_unconfirmed"); return }
-                shouldEquip = choice == "EQUIP_ROD"
-            }
-            if shouldEquip {
+            if !rod {
                 emit("pre_go_switching_from_main_weapon")
                 // Recognise the rod icon first; tooltip search is the fallback.
                 // Verify the tooltip before equipping; never click an unknown item.
@@ -668,7 +484,7 @@ struct Fishing {
                 screen = try await capture()
                 var bagItem = section(screen, 0.60, 0.45, 0.32, 0.48)
                 if !(try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"])) {
-                    // Bounded default-layout bag search. OCR only; provider sees the found tooltip.
+                    // Bounded default-layout bag search; all preparation stays local.
                     var found = false
                     for row in 0..<5 {
                         for column in (0..<10).reversed() {
@@ -687,39 +503,14 @@ struct Fishing {
                 guard try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) else {
                     emit("pre_go_bag_rod_unconfirmed"); return
                 }
-                if let jev {
-                    let observations = try readText(bagItem)
-                    // The equipped-item comparison sits to the left of the hovered tooltip.
-                    // Keep OCR from the candidate's column, not a merged reading of both items.
-                    let title = observations.filter {
-                        let text = $0.topCandidates(1).first?.string ?? ""
-                        return text.contains("魚竿") || text.contains("釣竿") || text.contains("Fishing Pole")
-                    }.max { $0.boundingBox.minX < $1.boundingBox.minX }
-                    guard let title else { emit("pre_go_candidate_title_missing"); return }
-                    let candidateWords = observations.filter {
-                        $0.boundingBox.minX >= title.boundingBox.minX-0.02
-                            && $0.boundingBox.maxY <= title.boundingBox.maxY+0.02
-                    }.compactMap { $0.topCandidates(1).first?.string }
-                    let choice = try await jev.decide(state: ["hovered_bag_item_tooltip": candidateWords],
-                        instructions: "Should this bag item be equipped for fishing?", criteria: ["EQUIP": "This item is a fishing pole.", "ABSTAIN": "Not a fishing pole or unclear."], emit: emit)
-                    guard choice == "EQUIP", valid() else { emit("pre_go_jev_bag_unconfirmed"); return }
-                }
+                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
                 try await clickAt(CGPoint(x: bounds.minX+bagX*bounds.width,
                                          y: bounds.minY+bagY*bounds.height), .right)
                 try await Task.sleep(for: .milliseconds(400))
                 try await press(11) // Close bag.
                 try await press(8) // Reopen equipment and verify actual equipped rod.
                 screen = try await capture()
-                if try containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) {
-                    try await clickAt(CGPoint(x: bounds.minX+0.776*bounds.width,
-                                             y: bounds.minY+0.349*bounds.height), .left)
-                    try await Task.sleep(for: .milliseconds(300))
-                    screen = try await capture()
-                    guard try !containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else {
-                        emit("pre_go_character_error_still_open"); return
-                    }
-                    emit("dismissed_character_beta_error_after_equipping")
-                }
+                screen = try await dismissCharacterError(screen)
                 try await hover(0.0725, 0.460)
                 screen = try await capture()
                 let equipped = section(screen, 0.075, 0.28, 0.21, 0.19)
@@ -729,16 +520,7 @@ struct Fishing {
             }
             guard rod else { emit("pre_go_rod_unconfirmed"); return }
             emit("pre_go_rod_verified")
-            if let jev {
-                try await hover(0.227, 0.981)
-                screen = try await capture()
-                let choice = try await jev.decide(state: ["slot_one_tooltip": try words(section(screen, 0.82, 0.75, 0.18, 0.2)),
-                    "page_two_glyph_matches": pageIsTwo(section(screen, 0.201, 0.950, 0.020, 0.05))],
-                    instructions: "Fishing is configured on action-bar page 2, slot 1. Choose preparation action from observed current page and slot tooltip.",
-                    criteria: ["KEEP": "Page 2 is selected and slot 1 is Fishing.", "PAGE_TWO": "Switch to configured fishing page 2 because the current page or skill differs.", "ABSTAIN": "Evidence cannot determine a safe preparation action."], emit: emit)
-                guard choice != "ABSTAIN" else { emit("pre_go_jev_page_unconfirmed"); return }
-                if choice == "PAGE_TWO" { try await press(19, .maskShift) }
-            } else { try await press(19, .maskShift) } // Shift+2.
+            try await press(19, .maskShift) // Same configured page for both policies.
             try await hover(0.227, 0.981)
             screen = try await capture()
             let skill = section(screen, 0.82, 0.75, 0.18, 0.2)
@@ -757,14 +539,6 @@ struct Fishing {
             save(page, directory.appendingPathComponent("page.jpg"))
             guard pageIsTwo(page) else {
                 emit("pre_go_page_two_unconfirmed"); return
-            }
-            if let jev {
-                let choice = try await jev.decide(state: ["equipped_fishing_pole_verified": rod,
-                    "slot_one_tooltip": try words(skill), "page_two_glyph_matches": pageIsTwo(page),
-                    "water": "Fixed previously calibrated scene; visibility of own float must be checked after casting."],
-                    instructions: "Are equipment and controls ready for one fishing cast? Water visibility is checked after casting, not certified here.",
-                    criteria: ["READY": "Fishing pole equipped, page 2 selected, slot 1 is Fishing.", "ABSTAIN": "Equipment or controls are not verified."], emit: emit)
-                guard choice == "READY", valid() else { emit("pre_go_jev_not_ready"); return }
             }
             emit("pre_go_controls_verified", ["page": 2, "slot": 1])
             // Water/line of sight cannot be certified from a colour mask. The real
@@ -786,6 +560,7 @@ struct Fishing {
         chatConfig.showsCursor=false
         let chatBefore = try await SCScreenshotManager.captureImage(contentFilter:filter,configuration:chatConfig)
         save(chatBefore,directory.appendingPathComponent("chat-before.jpg"))
+        guard valid() else { emit("stopped_before_cast"); return }
         // Keep the pointer out of the observation region, including in-game cursor artwork.
         mouse(.mouseMoved, CGPoint(x: bounds.minX + 30, y: bounds.maxY - 30))
         key(18, down: true) // Physical 1 key, bound to Fishing by the user.
@@ -834,279 +609,226 @@ struct Fishing {
                                    sampleHandlerQueue: DispatchQueue(label: "fishing.frames"))
         try await stream.startCapture()
         func observe() async throws {
-        var target: Blob? = nil, history: [Blob] = [], previous: [UInt8]? = nil
-        var tracker: FloatTracker?
-        var priorImage: CGImage?
-        var candidateTracks: [(latest:Blob, origin:Blob, frames:Int)] = []
-        var acquiredAt = 0.0, missing = 0
-        var pendingBite: (x: Double, y: Double, area: Double, at: Double)?
-        var recoveredFrames = 0
-        var requestedReference: (x: Double, y: Double, area: Double, at: Double)?
-        var lastRequest = -100.0
-        var lastSubmitted: Blob?
-        var submittedChange = false
-        var missingStarted = 0.0, missingBackground = 0.0
-        var lastTimestamp = -1.0
-        var acquireBy = castAt+6
-        var reacquiring = false, quietFrames = 0
-        while ProcessInfo.processInfo.systemUptime - castAt < 30 {
-            guard valid() else { emit("stopped_focus_or_geometry"); return }
-            let iterationAt = ProcessInfo.processInfo.systemUptime
-            guard let (image, timestamp) = source.latest(), timestamp != lastTimestamp else {
-                try await Task.sleep(for: .milliseconds(25)); continue
+            var target: Blob?, tracker: FloatTracker?, previous: [UInt8]?, priorImage: CGImage?
+            var candidateTracks: [(latest: Blob, origin: Blob, frames: Int)] = []
+            var loop = FishingLoop(), missing = 0
+            var requested: MotionWindow?, lastSubmitted: Blob?
+            var lastRequest = -100.0, lastTimestamp = -1.0
+            var submittedChange = false
+            func invalidate(_ reason: String) {
+                loop.invalidate(); jev?.discardPending(); requested = nil
+                lastSubmitted = nil; submittedChange = false
+                emit("observation_invalidated", ["reason": reason, "generation": loop.generation])
             }
-            defer { priorImage = image }
-            lastTimestamp = timestamp
-            let frameAge = CMClockGetTime(CMClockGetHostTimeClock()).seconds - timestamp
-            guard frameAge >= 0 && frameAge < 0.35 else {
-                history.removeAll()
-                emit("discarded_stale_frame", ["age_seconds": frameAge])
-                try await Task.sleep(for: .milliseconds(100)); continue
-            }
-            let captureAt = iterationAt - frameAge
-            let pixels = imagePixels(image, width: width, height: height)
-            let candidates = target == nil ? changedObjects(pixels,reference:referencePixels,width:width,height:height) : []
-            let now = ProcessInfo.processInfo.systemUptime
-            if target == nil && now > acquireBy {
-                save(image, directory.appendingPathComponent("no-visible-float.jpg"))
-                emit("stopped_no_visible_float", ["cause": "occlusion_invalid_cast_or_detection_failure"])
-                return
-            }
-            guard now - captureAt < 0.35 else { history.removeAll(); continue }
-            var background = 0.0, count = 0
-            if let previous {
-                for y in stride(from: 0, to: height, by: 8) {
-                    for x in stride(from: 0, to: width, by: 8) {
-                        if let target, hypot(Double(x)-target.x, Double(y)-target.y) < 35 { continue }
-                        let i = (y*width+x)*4
-                        background += Double(abs(Int(pixels[i])-Int(previous[i])))
-                        count += 1
+            while ProcessInfo.processInfo.systemUptime-castAt < 30 {
+                guard valid() else { emit("stopped_focus_or_geometry"); return }
+                let iterationAt = ProcessInfo.processInfo.systemUptime
+                if loop.expired(at: iterationAt) { emit("stopped_bite_not_recovered"); return }
+                if target == nil && iterationAt-castAt > 6 {
+                    emit("stopped_no_visible_float"); return
+                }
+                guard let (image, timestamp) = source.latest() else {
+                    try await Task.sleep(for: .milliseconds(25)); continue
+                }
+                let frameAge = CMClockGetTime(CMClockGetHostTimeClock()).seconds-timestamp
+                guard frameAge.isFinite, (0..<0.35).contains(frameAge) else {
+                    invalidate("stale_capture")
+                    try await Task.sleep(for: .milliseconds(100)); continue
+                }
+                guard timestamp != lastTimestamp else {
+                    try await Task.sleep(for: .milliseconds(25)); continue
+                }
+                defer { priorImage = image }
+                lastTimestamp = timestamp
+                let captureAt = iterationAt-frameAge
+                let pixels = imagePixels(image, width: width, height: height)
+                var background = 0.0, count = 0
+                if let previous {
+                    for y in stride(from: 0, to: height, by: 8) {
+                        for x in stride(from: 0, to: width, by: 8) {
+                            if let target, hypot(Double(x)-target.x, Double(y)-target.y) < 35 { continue }
+                            let i = (y*width+x)*4
+                            background += Double(abs(Int(pixels[i])-Int(previous[i])))
+                            count += 1
+                        }
                     }
                 }
-            }
-            background /= Double(max(count, 1))
-            previous = pixels
-            if background > 8 {
-                if !reacquiring { emit("camera_motion_waiting", ["background_change": background]) }
-                target = nil; tracker = nil; history.removeAll(); pendingBite = nil; recoveredFrames = 0
-                candidateTracks.removeAll(); missing = 0; requestedReference = nil
-                reacquiring = true; quietFrames = 0; acquireBy = now+6
-                try await Task.sleep(for: .milliseconds(100)); continue
-            }
-            if reacquiring {
-                quietFrames = background < 4 ? quietFrames+1 : 0
-                if quietFrames < 3 { try await Task.sleep(for: .milliseconds(100)); continue }
-                emit("camera_changed_recast_needed"); return
-            }
-            let candidate: Blob?
-            if target != nil, let tracker {
-                candidate = try tracker.observe(image)
-            } else if now - castAt > 0.8 {
-                let fresh = candidates.filter { item in
-                    let windowX=(crop.minX+item.x*crop.width/Double(width))/bounds.width
-                    let windowY=(crop.minY+item.y*crop.height/Double(height))/bounds.height
-                    return !(windowX>0.40 && windowX<0.60 && windowY>0.43)
-                }
-                var next: [(latest:Blob, origin:Blob, frames:Int)] = []
-                for item in fresh {
-                    if let old=candidateTracks.min(by:{distance($0.latest,item)<distance($1.latest,item)}),
-                       distance(old.latest,item)<3, distance(old.origin,item)<3 {
-                        next.append((item,old.origin,old.frames+1))
-                    } else { next.append((item,item,1)) }
-                }
-                candidateTracks=next
-                let stable=next.filter { $0.frames>=4 }.sorted { $0.latest.novelty > $1.latest.novelty }
-                if let best=stable.first, stable.count == 1 || best.latest.novelty > stable[1].latest.novelty*2 {
-                    candidate=best.latest
-                } else { candidate=nil }
-            } else { candidate = nil }
-            if let current = candidate {
-                let gapFrames = missing
-                let gapSeconds = missing > 0 ? now-missingStarted : 0
-                missing = 0
-                if gapFrames > 0 {
-                    history.removeAll(); pendingBite = nil; recoveredFrames = 0
-                    requestedReference = nil; acquiredAt = now
-                    emit("tracking_restored_waiting_for_stable_history", ["gap_frames": gapFrames])
-                }
-                if target == nil {
-                    tracker = try FloatTracker(current, image: image)
-                    acquiredAt = now
-                    emit("target_acquired", ["x": current.x, "y": current.y, "area": current.area, "novelty": current.novelty])
-                    save(image, directory.appendingPathComponent("acquired.jpg"))
-                    emit("post_cast_visible_float_verified")
-                }
-                if history.count == 6 && now-acquiredAt > 1 {
-                    let baseY = median(history.prefix(4).map(\.y))
-                    let drop = current.y - baseY
-                    emit("sample", ["x": current.x, "y": current.y, "area": current.area,
-                                    "drop": drop, "background_change": background, "pixel_match_correlation": current.matchCorrelation,
-                                    "missing_frames": gapFrames, "missing_seconds": gapSeconds,
-                                    "reference_area": median(history.prefix(4).map { Double($0.area) }),
-                                    "reference_spread": history.prefix(4).map(\.y).max()! - history.prefix(4).map(\.y).min()!])
-                    var reel = false
-                    var reference = (x: median(history.prefix(4).map(\.x)), y: baseY,
-                                     area: median(history.prefix(4).map { Double($0.area) }), at: now)
-                    if let jev {
-                        if let answer = jev.take() {
-                            emit("jev_response", answer.details)
-                            guard answer.action != "ERROR" else { emit("stopped_jev_error"); return }
-                            if let sent = requestedReference, now-sent.at <= 1.5 {
-                                reel = reelIsSupported(answer)
-                                // A non-actionable reply must not replace the next request's fresh baseline.
-                                if reel { reference = sent }
-                                if answer.action == "REEL" && !reel { emit("jev_reel_abstained", ["reason": "probability_below_0.85"]) }
-                            } else { emit("jev_stale_response") }
+                background /= Double(max(count, 1)); previous = pixels
+                // The acquisition image is no longer valid after a camera change.
+                // Stop for review instead of adding a second, guess-based acquisition path.
+                guard background <= 8 else { emit("stopped_camera_motion"); return }
+                let candidate: Blob?
+                if let tracker {
+                    candidate = tracker.observe(image)
+                } else if iterationAt-castAt > 0.8 {
+                    let fresh = changedObjects(pixels, reference: referencePixels, width: width, height: height).filter { item in
+                        let x = (crop.minX+item.x*crop.width/Double(width))/bounds.width
+                        let y = (crop.minY+item.y*crop.height/Double(height))/bounds.height
+                        return !(x > 0.40 && x < 0.60 && y > 0.43)
+                    }
+                    candidateTracks = fresh.map { item in
+                        if let old = candidateTracks.min(by: { distance($0.latest,item) < distance($1.latest,item) }),
+                           distance(old.latest,item) < 3, distance(old.origin,item) < 3 {
+                            return (item, old.origin, old.frames+1)
                         }
-                        // Broad change scheduling, independent of Test A's bite verdict.
-                        // Quiet frames still get periodic judgements. No model output is fabricated locally.
-                        let changed = abs(drop) > 1.5 || gapFrames > 0
-                            || abs(Double(current.area)/reference.area-1) > 0.50
-                        let novel = !submittedChange || lastSubmitted.map { distance($0, current) > 1.5 } == true
-                        if pendingBite == nil && !reel && !jev.busy && now-lastRequest > 0.2
-                            && ((changed && novel) || now-lastRequest > 4) {
-                            guard jev.calls < jev.limit else { emit("stopped_jev_budget"); return }
-                            func rounded(_ x: Double) -> Double { (x*100).rounded()/100 }
-                            let rows = (history + [current]).map {
-                                [rounded($0.x-reference.x), rounded($0.y-reference.y), rounded($0.matchCorrelation)]
+                        return (item, item, 1)
+                    }
+                    let stable = candidateTracks.filter { $0.frames >= 4 }.sorted { $0.latest.novelty > $1.latest.novelty }
+                    candidate = stable.first.flatMap { best in
+                        stable.count == 1 || best.latest.novelty > stable[1].latest.novelty*2 ? best.latest : nil
+                    }
+                } else { candidate = nil }
+                let now = ProcessInfo.processInfo.systemUptime
+                guard now-captureAt < 0.35 else { invalidate("processing_deadline"); continue }
+                if let current = candidate {
+                    if target == nil {
+                        tracker = try FloatTracker(current, image: image)
+                        emit("target_acquired", ["x": current.x, "y": current.y, "area": current.area, "novelty": current.novelty])
+                        save(image, directory.appendingPathComponent("acquired.jpg"))
+                        emit("post_cast_visible_float_verified")
+                    }
+                    if missing > 0 { emit("tracking_restored_waiting_for_stable_history", ["gap_frames": missing]) }
+                    target = current; missing = 0
+                    let generation = loop.generation
+                    loop.observe(current, capturedAt: captureAt, now: now, background: background)
+                    if loop.generation != generation {
+                        jev?.discardPending(); requested = nil
+                        lastSubmitted = nil; submittedChange = false
+                        emit("observation_invalidated", ["reason": "capture_discontinuity", "generation": loop.generation])
+                    }
+                    if let window = loop.window {
+                        let drop = window.drop
+                        emit("sample", ["x": current.x, "y": current.y, "capture_seconds": captureAt-started,
+                                        "drop": drop, "background_change": background,
+                                        "pixel_match_correlation": current.matchCorrelation,
+                                        "generation": window.generation])
+                        var armed = false
+                        if let jev {
+                            if let answer = jev.take() {
+                                emit("jev_response", answer.details)
+                                guard answer.action != "ERROR" else { emit("stopped_jev_error"); return }
+                                if reelIsSupported(answer), let sent = requested {
+                                    armed = loop.arm(sent, now: now)
+                                    if !armed { emit("jev_stale_response") }
+                                } else if answer.action == "REEL" {
+                                    emit("jev_reel_abstained", ["reason": "probability_below_0.85"])
+                                }
+                                requested = nil
                             }
-                            let direction = current.y-reference.y >= 0 ? "downwards" : "upwards"
-                            let largestDownwardStep = zip(history, Array(history.dropFirst()) + [current]).map { $1.y-$0.y }.max()!
-                            try jev.start(state: ["observed_motion": "The latest float position is \(rounded(abs(current.y-reference.y))) pixels \(direction) from the preceding baseline. The largest single downward step is \(rounded(largestDownwardStep)) pixels. The initial changed-object footprint was \(Int(reference.area)) pixels; it is a reference size, not current visible area. The tracker was unavailable for \(gapFrames) frames. This is not visual evidence of submersion.",
-                                "sequence_dx_downward_dy_match_correlation": rows,
-                                "reference_detection_area_pixels": reference.area,
-                                "sequence_seconds": rounded(0.6+gapSeconds), "background_change": rounded(background),
-                                "tracking_gap_frames_before_current": gapFrames, "missing_seconds": rounded(gapSeconds),
-                                "background_during_missing": rounded(missingBackground)], question: fishingQuestion, emit: emit)
-                            requestedReference = reference; lastRequest = now; lastSubmitted = current
-                            submittedChange = changed
-                        }
-                        if !changed { submittedChange = false }
-                    } else {
-                        reel = isBite(history, current, background, missingFrames: gapFrames,
-                                      missingSeconds: gapSeconds, missingBackground: missingBackground)
-                    }
-                    if pendingBite == nil && reel {
-                        pendingBite = reference
-                        recoveredFrames = 0
-                        if let tracker {
-                            if let patch=image.cropping(to:tracker.crop) { save(patch,directory.appendingPathComponent("signal.jpg")) }
-                            if let previous=priorImage?.cropping(to:tracker.crop) { save(previous,directory.appendingPathComponent("pre-signal.jpg")) }
-                        }
-                        emit("bite_detected_waiting_for_return", ["drop": drop])
-                    }
-                    if let signal = pendingBite {
-                        if now-signal.at > 2.0 {
-                            emit("stopped_bite_not_recovered"); return
-                        }
-                        let recovered = floatRecovered(current, history.last!, signal.x, signal.y, signal.area, background)
-                        recoveredFrames = recovered ? recoveredFrames+1 : 0
-                    }
-                    if recoveredFrames >= 2 {
-                        guard valid(), ProcessInfo.processInfo.systemUptime-captureAt < 0.35 else {
-                            emit("stopped_before_click"); return
-                        }
-                        let point = CGPoint(x:bounds.minX+crop.minX+current.x*crop.width/Double(width),
-                                            y:bounds.minY+crop.minY+current.y*crop.height/Double(height))
-                        emit("bite_candidate", ["drop": drop, "desktop_x": point.x, "desktop_y": point.y])
-                        guard valid(), ProcessInfo.processInfo.systemUptime-captureAt < 0.2 else {
-                            emit("stopped_before_click"); return
-                        }
-                        try await clickAt(point, .right)
-                        emit("right_click")
-                        save(image, directory.appendingPathComponent("bite.jpg"))
-                        try await Task.sleep(for: .milliseconds(50))
-                        let full = SCStreamConfiguration()
-                        full.width = Int(bounds.width); full.height = Int(bounds.height)
-                        full.showsCursor = false
-                        var after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                        let lootRect = CGRect(x: max(0, point.x-bounds.minX-280),
-                            y: max(0, point.y-bounds.minY-180), width: 800, height: 400)
-                            .intersection(CGRect(x: 0, y: 0, width: after.width, height: after.height))
-                        var lootImage = after.cropping(to: lootRect)!
-                        save(lootImage, directory.appendingPathComponent("after.jpg"))
-                        // Observe the early window transition: auto-loot can close it before a delayed check.
-                        var visibleLootImage: CGImage?
-                        var closedWithoutClick = false
-                        for _ in 0..<8 {
-                            guard valid() else { emit("stopped_focus_or_geometry"); return }
-                            if lootClose(lootImage) != nil {
-                                visibleLootImage = lootImage
-                            } else if visibleLootImage != nil {
-                                closedWithoutClick = true; break
+                            // Change-triggered scheduling, not an A verdict passed to B.
+                            if !window.changed { submittedChange = false }
+                            let novel = !submittedChange || lastSubmitted.map { distance($0,current) > 1.5 } == true
+                            if !loop.armed && !jev.busy && now-lastRequest > 0.2
+                                && ((window.changed && novel) || now-lastRequest > 4) {
+                                guard jev.calls < jev.limit else { emit("stopped_jev_budget"); return }
+                                emit("policy_observation", ["call": jev.calls+1, "generation": window.generation,
+                                    "capture_seconds": window.current.capturedAt-started])
+                                try jev.start(state: window.state, question: fishingQuestion, emit: emit)
+                                requested = window; lastRequest = now; lastSubmitted = current
+                                submittedChange = window.changed
                             }
-                            try await Task.sleep(for: .milliseconds(80))
-                            after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                            lootImage = after.cropping(to: lootRect)!
-                        }
-                        if let visibleLootImage { save(visibleLootImage,directory.appendingPathComponent("after.jpg")) }
-                        if closedWithoutClick || (visibleLootImage != nil && lootClose(lootImage) == nil) {
-                            save(lootImage,directory.appendingPathComponent("collected.jpg"))
-                            emit("loot_collected", ["item": "<unreadable>", "labels_observed": [], "loot_clicks": 0,
-                                "completion_method": "observed_window_closed_without_script_click"])
-                            return
-                        }
-                        var layout = try lootLayout(lootImage)
-                        guard layout != nil else {
-                            save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
-                            let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
-                            let chatAfter = section(after,0.01,0.72,0.30,0.20)
-                            save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
-                            let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                            let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                            emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
-                                "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
-                        }
-                        var observedLabels = [String]()
-                        for index in 1...8 {
-                            guard valid(), let row = layout?.rows.first else {
-                                emit("loot_layout_unconfirmed", ["labels_observed": observedLabels]); return
+                        } else if window.rulesReel { armed = loop.arm(window, now: now) }
+                        if armed {
+                            if let tracker {
+                                if let patch = image.cropping(to: tracker.crop) { save(patch, directory.appendingPathComponent("signal.jpg")) }
+                                if let patch = priorImage?.cropping(to: tracker.crop) { save(patch, directory.appendingPathComponent("pre-signal.jpg")) }
                             }
-                            let itemImage = lootImage.cropping(to: row.integral)!
-                            save(itemImage,directory.appendingPathComponent("loot-row-\(index).jpg"))
-                            let words = ((try? readText(itemImage)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                            let label = words.max { $0.count < $1.count } ?? "<unreadable>"
-                            observedLabels.append(label)
-                            emit("loot_item_observed", ["label_ocr": label, "ocr_text": words, "click_number": index])
-                            // Click the visible item control. No name, language or item-class whitelist.
-                            let itemPoint = CGPoint(x: bounds.minX+lootRect.minX+row.midX,
-                                                    y: bounds.minY+lootRect.minY+row.midY)
-                            try await clickAt(itemPoint,.left)
-                            try await Task.sleep(for: .milliseconds(500))
-                            after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                            lootImage = after.cropping(to: lootRect)!
-                            save(lootImage,directory.appendingPathComponent("collected.jpg"))
-                            layout = try lootLayout(lootImage)
-                            if layout == nil {
-                                emit("loot_collected", ["item": observedLabels.joined(separator: ", "),
-                                    "labels_observed": observedLabels, "loot_clicks": index])
+                            emit("bite_detected_waiting_for_return", ["drop": drop])
+                        }
+                        if let current = loop.takeClick(at: ProcessInfo.processInfo.systemUptime) {
+                            let point = CGPoint(x:bounds.minX+crop.minX+current.x*crop.width/Double(width),
+                                                y:bounds.minY+crop.minY+current.y*crop.height/Double(height))
+                            emit("bite_candidate", ["drop": drop, "desktop_x": point.x, "desktop_y": point.y])
+                            guard valid(), ProcessInfo.processInfo.systemUptime-captureAt < 0.2 else {
+                                emit("stopped_before_click"); return
+                            }
+                            try await clickAt(point, .right)
+                            emit("right_click")
+                            save(image, directory.appendingPathComponent("bite.jpg"))
+                            try await Task.sleep(for: .milliseconds(50))
+                            let full = SCStreamConfiguration()
+                            full.width = Int(bounds.width); full.height = Int(bounds.height)
+                            full.showsCursor = false
+                            var after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                            let lootRect = CGRect(x: max(0, point.x-bounds.minX-280),
+                                y: max(0, point.y-bounds.minY-180), width: 800, height: 400)
+                                .intersection(CGRect(x: 0, y: 0, width: after.width, height: after.height))
+                            var lootImage = after.cropping(to: lootRect)!
+                            save(lootImage, directory.appendingPathComponent("after.jpg"))
+                            // Observe the early window transition: auto-loot can close it before a delayed check.
+                            var visibleLootImage: CGImage?
+                            var closedWithoutClick = false
+                            for _ in 0..<8 {
+                                guard valid() else { emit("stopped_focus_or_geometry"); return }
+                                if lootClose(lootImage) != nil {
+                                    visibleLootImage = lootImage
+                                } else if visibleLootImage != nil {
+                                    closedWithoutClick = true; break
+                                }
+                                try await Task.sleep(for: .milliseconds(80))
+                                after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                                lootImage = after.cropping(to: lootRect)!
+                            }
+                            if let visibleLootImage { save(visibleLootImage,directory.appendingPathComponent("after.jpg")) }
+                            if closedWithoutClick || (visibleLootImage != nil && lootClose(lootImage) == nil) {
+                                save(lootImage,directory.appendingPathComponent("collected.jpg"))
+                                emit("loot_collected", ["item": "<unreadable>", "labels_observed": [], "loot_clicks": 0,
+                                    "completion_method": "observed_window_closed_without_script_click"])
                                 return
                             }
+                            var layout = try lootLayout(lootImage)
+                            guard layout != nil else {
+                                save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
+                                let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                                let chatAfter = section(after,0.01,0.72,0.30,0.20)
+                                save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
+                                let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                                let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                                emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
+                                    "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
+                            }
+                            var observedLabels = [String]()
+                            for index in 1...8 {
+                                guard valid(), let row = layout?.rows.first else {
+                                    emit("loot_layout_unconfirmed", ["labels_observed": observedLabels]); return
+                                }
+                                let itemImage = lootImage.cropping(to: row.integral)!
+                                save(itemImage,directory.appendingPathComponent("loot-row-\(index).jpg"))
+                                let words = ((try? readText(itemImage)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                                let label = words.max { $0.count < $1.count } ?? "<unreadable>"
+                                observedLabels.append(label)
+                                emit("loot_item_observed", ["label_ocr": label, "ocr_text": words, "click_number": index])
+                                // Click the visible item control. No name, language or item-class whitelist.
+                                let itemPoint = CGPoint(x: bounds.minX+lootRect.minX+row.midX,
+                                                        y: bounds.minY+lootRect.minY+row.midY)
+                                guard valid() else { emit("stopped_before_loot_click"); return }
+                                try await clickAt(itemPoint,.left)
+                                try await Task.sleep(for: .milliseconds(500))
+                                after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                                lootImage = after.cropping(to: lootRect)!
+                                save(lootImage,directory.appendingPathComponent("collected.jpg"))
+                                layout = try lootLayout(lootImage)
+                                if layout == nil {
+                                    emit("loot_collected", ["item": observedLabels.joined(separator: ", "),
+                                        "labels_observed": observedLabels, "loot_clicks": index])
+                                    return
+                                }
+                            }
+                            emit("loot_batch_limit", ["labels_observed": observedLabels])
+                            return
                         }
-                        emit("loot_batch_limit", ["labels_observed": observedLabels])
-                        return
                     }
+                } else if target != nil {
+                    missing += 1
+                    invalidate("tracker_unavailable")
+                    emit("tracking_temporarily_unavailable", ["frames": missing, "background_change": background])
+                    if missing == 1 { save(image, directory.appendingPathComponent("first-missing.jpg")) }
+                    if missing > 3 { emit("stopped_target_lost"); return }
                 }
-                target = current
-                history.append(current)
-                if history.count > 6 { history.removeFirst() }
-            } else if target != nil {
-                missing += 1
-                if missing == 1 {
-                    missingStarted = now; missingBackground = background
-                    pendingBite = nil; recoveredFrames = 0; requestedReference = nil
-                }
-                else { missingBackground = max(missingBackground, background) }
-                emit("tracking_temporarily_unavailable", ["frames": missing, "background_change": background])
-                if missing == 1 && !FileManager.default.fileExists(atPath: directory.appendingPathComponent("first-missing.jpg").path) {
-                    save(image, directory.appendingPathComponent("first-missing.jpg"))
-                }
-                if missing > 3 { emit("stopped_target_lost"); return }
+                let remaining = 0.1-(ProcessInfo.processInfo.systemUptime-iterationAt)
+                if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
             }
-            let remaining = 0.1 - (ProcessInfo.processInfo.systemUptime-iterationAt)
-            if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
-        }
-        emit("timed_out_without_click")
+            emit("timed_out_without_click")
         }
         do {
             try await observe()
