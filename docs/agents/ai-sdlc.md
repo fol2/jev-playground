@@ -70,6 +70,10 @@ The integration predicates are:
 - A trusted exact-head review must explicitly pass with disclosed independence; native
   requested changes, newer negative verdicts and unresolved threads block.
 
+Review order follows submission time, not draft-creation IDs. Unsubmitted drafts are
+not verdicts; missing submission time and ambiguous verdicts block. A veto wins an
+ambiguous same-second tie. Dismissing one review cannot clear another active veto.
+
 The helper rechecks head/base immediately before an expected-head squash merge and
 reads the result back. A main advance during the final request is not atomically
 prevented by GitHub's head guard. A merge queue/strict server protection would close
@@ -99,7 +103,9 @@ runs all maintained offline tests. No scheduled provider/model polling is config
 The maintenance workflow has issue-write permission but never checks out or executes
 repository code, nor consumes logs/artifacts as instructions. It verifies the workflow,
 repository, current main SHA and event before opening/updating one bot-owned repair
-issue. Stale failures are ignored; a green current-main result closes the repair issue.
+issue. It re-reads the native run to reject superseded same-SHA attempts and logs its
+actual outcome, including `healthy-no-repair`, rather than inferring work from green CI.
+Stale failures are ignored; a green current-main result closes the repair issue.
 The actual inline workflow script is exercised with mocked GitHub responses in Node.
 This proves decision behaviour, not a previously unobserved live failure event.
 
@@ -122,3 +128,53 @@ unchanged failure hypothesis; new evidence may justify another bounded hypothesi
 not an unbounded retry loop. A missing gate stops its claim, not unrelated authorised
 work. Under-engineering omits relevant proof; over-engineering adds maintained work
 that cannot alter a decision, catch a reachable failure or save more recurring cost.
+
+`CLAUDE.md` imports only the compact AGENTS.md kernel. Review and detailed operating
+material remain ordinary paths, read on demand. Claude's `@path` imports load at
+startup even when surrounding prose says otherwise; see its [memory documentation](https://code.claude.com/docs/en/memory#import-additional-files).
+
+## Owner control in steady state
+
+The foundation is established; ordinary feature work must use it, not repeat the
+adoption project or re-audit sibling repositories. Change the process only for a
+reproduced defect, uncovered boundary or measured recurring waste. New product paths
+still need their relevant tests; the governance suite is not product acceptance.
+
+The owner supplies the problem/outcome, what success looks like, non-goals and effect
+limits. The agent resolves implementation details and evidence. A plain-language
+instruction is sufficient; no mandatory form, document set or manual test plan.
+For example:
+
+```text
+Use current-main AGENTS.md for this task.
+Outcome: [observable result and who benefits].
+Acceptance: [what must work; preserve existing accepted behaviour].
+Boundaries: [out of scope, source-only or a specific live-effect envelope].
+Complete the authorised delivery through review, PR, merge and observed main.
+Return evidence, omissions and any decision that genuinely needs the owner.
+```
+
+For an uncertain idea, say "research only" and name the question and budget; the
+agent explores without treating the discussion as implementation or live permission.
+For live work, name the target machine/account by a safe identifier, permitted actions,
+call/spend/time limits, private-data boundary, stop condition and recovery. This grants
+a bounded task, not permission to disable safeguards or obtain new credentials. Already
+authorised actions inside that envelope do not need repetitive human confirmations.
+
+At the start of a new session, the agent reads current-main instructions and checks
+its working branch. Old clones/experiment branches do not acquire merged files by
+magic: reconcile current policy and add genuine experiment proof before promotion.
+A new agent receives the task/PR capsule and exact head, not the entire chat history.
+
+The owner reviews outcomes and exceptions, not every command. A completion receipt
+states what changed, the PR/merged SHA, relevant evidence, deliberate omissions,
+actual live effects and measured costs (unknown where unmeasured). Escalations name
+one unresolved decision, its consequences and the agent's recommendation. Do not ask
+the owner to poll CI, choose equivalent implementations or relay routine handoffs.
+
+Judge the process by accepted-outcome lead time, first-pass success, escaped defects,
+rework, human interruptions and measured usage, not code volume or the number of
+checks. A task completes when its acceptance and authorised effects are proved; a
+healthy repo does not need endless final reviews. Repository instructions are not an
+OS sandbox, server protection or a persistent worker. Those capability boundaries
+remain explicit rather than being hidden behind the word "autonomous".
