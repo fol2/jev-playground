@@ -13,7 +13,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CODE = {"tools/sdlc.py", "tools/merge_pr.py", "tests/test_sdlc.py",
-        "tests/test_merge_pr.py", "tests/test_maintenance.cjs", "tools/fishing_offline.py"}
+        "tests/test_merge_pr.py", "tests/test_maintenance.cjs", "tools/fishing_offline.py",
+        "tests/test_visual_route.py"}
 POLICY = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore",
           ".github/pull_request_template.md", "docs/agents/ai-sdlc.md",
           ".github/workflows/ai-sdlc.yml", ".github/workflows/ai-sdlc-maintain.yml"}
@@ -23,8 +24,11 @@ analyse.py background.swift build.sh decision.swift jev.swift live.swift loot.sw
 probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
 probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
 record.py run_test_a.py self_tests.swift setup_camera.sh setup_camera.swift test_analyse.py
-test_core.sh test_run_test_a.py tests/CoreTests.swift
+test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
 """.split()} | {"data/001_wow_fishing/pilot_20260921/recorder.swift"}
+
+VISUAL = "experiments/002_wow_visual/"
+VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
 
 
 def fishing_path(path: str) -> bool:
@@ -55,6 +59,7 @@ def route(changes: list[tuple[str, str]]) -> dict:
         raise GateError("empty diff: no acceptance claim to validate")
     full = False
     fishing = False
+    visual = False
     for status, path in changes:
         parts = PurePosixPath(path).parts
         if (not path or path.startswith("/") or "\\" in path or
@@ -63,6 +68,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             raise GateError("malformed diff path/status")
         if path in CODE | POLICY:
             full = True
+        elif path in VISUAL_CODE or path == VISUAL + "README.md":
+            visual = True
         elif fishing_path(path):
             fishing = True
         elif path in {"README.md", "experiments/README.md"} or (
@@ -71,8 +78,9 @@ def route(changes: list[tuple[str, str]]) -> dict:
         else:
             raise GateError(f"unclassified path: {path}; register actual offline proof before promotion")
     return {"checks": ["integrity", "governance"] +
-            (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []),
-            "reason": "registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only"),
+            (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []) +
+            (["visual-offline"] if visual else []),
+            "reason": "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
             "omitted": {"F3": "no real-runtime claim or live observation authority",
                         "F4": "source delivery grants no live-effect authority",
                         "model_calls": "deterministic proof; no provider or model runtime"}}
@@ -98,7 +106,7 @@ def inspect(base: str, head: str, cwd: Path = ROOT) -> dict:
         mode = metadata.split()[0]
         if mode not in {b"100644", b"100755"}:
             raise GateError("symlink/submodule is not a validated source surface")
-        if mode == b"100755" and name.decode() not in CODE | FISHING_CODE:
+        if mode == b"100755" and name.decode() not in CODE | FISHING_CODE | VISUAL_CODE:
             raise GateError("unregistered executable mode")
         if name.decode() not in REQUIRED and name.decode() not in {p for _, p in changes}:
             route([("M", name.decode())])  # do not hide pre-existing unknown executable inputs
@@ -163,13 +171,14 @@ def main() -> int:
     try:
         report = inspect(args.base, args.head)
         if args.full:
-            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline"]))
+            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "visual-offline"]))
             report["reason"] = "explicit full offline verification"
         if args.command == "check":
             contracts()
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
                         "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
-                        "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"]}
+                        "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
+                        "visual-offline": [sys.executable, "-S", VISUAL + "test_observations.py"]}
             for check in report["checks"]:
                 if check in commands:
                     subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
