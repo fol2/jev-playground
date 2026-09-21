@@ -4,6 +4,12 @@ This candidate has offline regression coverage, not fresh live acceptance.
 Test A uses no model calls. Test B changes only the bite policy; see its
 [playbook](test-b-playbook.md). Historical successes belong to their recorded source.
 
+## One-time camera setup
+
+Use the separate [camera setup script](camera-setup.md) to assign and save the
+experiment preset. Do not run it for every trial: it would overwrite the baseline.
+Camera restoration has not yet been integrated into the runner pre-go.
+
 ## Starting conditions
 
 Use the tested Mac with Swift and Python 3. Screen Recording and Accessibility
