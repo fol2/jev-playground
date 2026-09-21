@@ -76,7 +76,7 @@ struct CoreTests {
         check(loop.takeClick(at: 1.62) == nil, "click is consumed exactly once")
         loop.invalidate()
         for i in 17...29 { feed(&loop, Double(i)/10) }
-        check(!loop.arm(loop.window!, now: 2.91), "invalidation cannot resurrectitate a completed cast")
+        check(!loop.arm(loop.window!, now: 2.91), "invalidation cannot resurrect a completed cast")
 
         loop = warm()
         let old = loop.window!
