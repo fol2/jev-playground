@@ -107,7 +107,7 @@ def contracts(root: Path = ROOT) -> None:
             raise GateError("possible credential in " + p)  # never echo matched data
     for name in ("ai-sdlc", "ai-sdlc-maintain"):
         workflow = json.loads((root / f".github/workflows/{name}.yml").read_text())
-        expected = {"contents": "read"} if name == "ai-sdlc" else {"contents": "read", "issues": "write"}
+        expected = {"contents": "read"} if name == "ai-sdlc" else {"contents": "read", "issues": "write", "actions": "read"}
         if workflow.get("permissions") != expected:
             raise GateError("workflow permission drift")
         events = set(workflow["on"])
