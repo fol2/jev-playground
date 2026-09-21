@@ -1,0 +1,217 @@
+{
+  "window_bounds": [
+    0,
+    0,
+    2560,
+    1440
+  ],
+  "capture_crop": [
+    750,
+    250,
+    1000,
+    550
+  ],
+  "output_pixels": [
+    1000,
+    550
+  ],
+  "requested_fps": 30,
+  "audio": false,
+  "clips": [
+    {
+      "file": "cast-01-valid.mp4",
+      "sha256": "ed820217a03044bfdef49c9329fcca6eda71f23f88eb8c48be51b36504ef5452",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1000,
+            "height": 550,
+            "avg_frame_rate": "205600/7019",
+            "nb_frames": "1028"
+          }
+        ],
+        "format": {
+          "duration": "35.093333",
+          "size": "8027880"
+        }
+      },
+      "human_report": "bite seen and fish collected",
+      "visible_bite_onset_seconds": null,
+      "visual_annotation_status": "coarse splash interval; exact onset pending",
+      "split": "development",
+      "note": "Human result is separate from whether the recording contains retrieval.",
+      "retained_file": "cast-01-detail.mp4",
+      "retained_sha256": "267b164dea823c068bd2e2bfa45e79fbcb89600f9c2a51cf3ce36d66cdaf39b1",
+      "retained_bytes": 3188712,
+      "detail_crop_in_source": [
+        440,
+        160,
+        280,
+        240
+      ],
+      "lossless_crop_frame_hashes_and_timestamps_verified": true,
+      "source_file_removed_after_verification": true,
+      "visible_bite_review_interval_seconds": [
+        14.4,
+        15.1
+      ]
+    },
+    {
+      "file": "cast-02.mp4",
+      "sha256": "bd3465dd0922e2cd56b4ffaf63d1fe58aa9d08705c15158f2d929c535dd2c3d1",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1000,
+            "height": 550,
+            "avg_frame_rate": "598200/21047",
+            "nb_frames": "997"
+          }
+        ],
+        "format": {
+          "duration": "35.078333",
+          "size": "8039912"
+        }
+      },
+      "human_report": "bite seen and fish collected",
+      "visible_bite_onset_seconds": null,
+      "visual_annotation_status": "recording ends before confirmed event; not a negative example",
+      "split": "development",
+      "note": "Human confirmed success; recording is truncated before retrieval. Do not label absence of a captured bite as a negative.",
+      "retained_file": "cast-02-detail.mp4",
+      "retained_sha256": "79fb426299887749c645fb468e8a1633b4ac92228dc666c48347088da93d28dc",
+      "retained_bytes": 3765790,
+      "detail_crop_in_source": [
+        440,
+        160,
+        280,
+        240
+      ],
+      "lossless_crop_frame_hashes_and_timestamps_verified": true,
+      "source_file_removed_after_verification": true,
+      "visible_bite_review_interval_seconds": null
+    },
+    {
+      "file": "cast-03.mp4",
+      "sha256": "f8bf54c5ac8dfb9cc492dd9fb342e42e9b56decf9e7192e1e2dad9e653dd9f2d",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1000,
+            "height": 550,
+            "avg_frame_rate": "603600/21251",
+            "nb_frames": "1006"
+          }
+        ],
+        "format": {
+          "duration": "35.416667",
+          "size": "8207094"
+        }
+      },
+      "human_report": "bite seen and fish collected",
+      "visible_bite_onset_seconds": null,
+      "visual_annotation_status": "coarse splash interval; exact onset pending",
+      "split": "development",
+      "note": "Human result is separate from whether the recording contains retrieval.",
+      "retained_file": "cast-03-detail.mp4",
+      "retained_sha256": "0e1a45ce5b6c21379788358b3c0ac5edfe40136c008e3a01c11968fc9c862f49",
+      "retained_bytes": 3595270,
+      "detail_crop_in_source": [
+        440,
+        160,
+        280,
+        240
+      ],
+      "lossless_crop_frame_hashes_and_timestamps_verified": true,
+      "source_file_removed_after_verification": true,
+      "visible_bite_review_interval_seconds": [
+        30,
+        30.6
+      ]
+    },
+    {
+      "file": "cast-04.mp4",
+      "sha256": "aff9ce5ec8d108bf18883bf8876c580fdce1b257e41fd85b6516ca9e23aa7b2b",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1000,
+            "height": 550,
+            "avg_frame_rate": "196350/6799",
+            "nb_frames": "1309"
+          }
+        ],
+        "format": {
+          "duration": "45.326667",
+          "size": "10607465"
+        }
+      },
+      "human_report": "bite seen and fish collected",
+      "visible_bite_onset_seconds": null,
+      "visual_annotation_status": "coarse splash interval; exact onset pending",
+      "split": "development",
+      "retained_file": "cast-04-detail.mp4",
+      "retained_sha256": "2ebfbd7a42ce27f01266eec41bbde08ff083d3ce42ee89f1115fff12098e5c51",
+      "retained_bytes": 4088204,
+      "detail_crop_in_source": [
+        440,
+        160,
+        280,
+        240
+      ],
+      "lossless_crop_frame_hashes_and_timestamps_verified": true,
+      "source_file_removed_after_verification": true,
+      "visible_bite_review_interval_seconds": [
+        16,
+        16.6
+      ]
+    },
+    {
+      "file": "cast-05.mp4",
+      "sha256": "aff22402d3f8cd56b6230aa4114426a848f0d4812a8dc1be9d67a7b99d16c710",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1000,
+            "height": 550,
+            "avg_frame_rate": "7512/271",
+            "nb_frames": "1252"
+          }
+        ],
+        "format": {
+          "duration": "45.166667",
+          "size": "10507392"
+        }
+      },
+      "human_report": "bite seen and fish collected",
+      "visible_bite_onset_seconds": null,
+      "visual_annotation_status": "coarse splash interval; exact onset pending",
+      "split": "development",
+      "retained_file": "cast-05-detail.mp4",
+      "retained_sha256": "0e216ec7438fbf6e426beb2765dfc477a2aac053944ab1109b0855f32a88a74a",
+      "retained_bytes": 4270119,
+      "detail_crop_in_source": [
+        440,
+        160,
+        280,
+        240
+      ],
+      "lossless_crop_frame_hashes_and_timestamps_verified": true,
+      "source_file_removed_after_verification": true,
+      "visible_bite_review_interval_seconds": [
+        22.8,
+        23.6
+      ]
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "cast": 1,
+    "frame_zero_based": 424,
+    "pts_seconds": 14.413598
+  },
+  {
+    "cast": 1,
+    "frame_zero_based": 428,
+    "pts_seconds": 14.549575
+  },
+  {
+    "cast": 1,
+    "frame_zero_based": 432,
+    "pts_seconds": 14.685552
+  },
+  {
+    "cast": 1,
+    "frame_zero_based": 437,
+    "pts_seconds": 14.855524
+  },
+  {
+    "cast": 1,
+    "frame_zero_based": 441,
+    "pts_seconds": 14.991501
+  },
+  {
+    "cast": 1,
+    "frame_zero_based": 447,
+    "pts_seconds": 15.195467
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 847,
+    "pts_seconds": 29.983003
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 852,
+    "pts_seconds": 30.152975
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 856,
+    "pts_seconds": 30.288952
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 861,
+    "pts_seconds": 30.458924
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 865,
+    "pts_seconds": 30.594901
+  },
+  {
+    "cast": 3,
+    "frame_zero_based": 870,
+    "pts_seconds": 30.798867
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 452,
+    "pts_seconds": 16.011331
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 455,
+    "pts_seconds": 16.147309
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 459,
+    "pts_seconds": 16.283286
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 463,
+    "pts_seconds": 16.453258
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 467,
+    "pts_seconds": 16.589235
+  },
+  {
+    "cast": 4,
+    "frame_zero_based": 472,
+    "pts_seconds": 16.793201
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 644,
+    "pts_seconds": 22.813559
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 649,
+    "pts_seconds": 22.983051
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 654,
+    "pts_seconds": 23.152542
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 658,
+    "pts_seconds": 23.322034
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 663,
+    "pts_seconds": 23.491525
+  },
+  {
+    "cast": 5,
+    "frame_zero_based": 668,
+    "pts_seconds": 23.694915
+  }
+]
