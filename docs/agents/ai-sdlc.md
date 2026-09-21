@@ -63,7 +63,8 @@ Its pure decision function and its pagination/network boundaries have offline te
 The integration predicates are:
 
 - Same-repository open, non-draft PR, exact full head, clean mergeability and current
-  main ancestry; a known active workflow and latest exact-head PR run must succeed.
+  main ancestry; the pinned native workflow ID/path and latest exact-head PR run must match.
+  The observed GitHub workflow ID is 363313034; recreating it requires an explicit contract update.
 - Its authentic `Focus Gate` job must succeed. Other check runs/statuses must not be
   pending or failed; a skipped/neutral unrelated check cannot replace the Focus Gate.
 - A trusted exact-head review must explicitly pass with disclosed independence; native
@@ -74,6 +75,9 @@ reads the result back. A main advance during the final request is not atomically
 prevented by GitHub's head guard. A merge queue/strict server protection would close
 that gap; these files do not claim to install it. Never bypass a server-side blocker.
 Connector agents must apply these same predicates and read back the merge.
+Native run provenance is bound by the observed workflow ID, path, PR and head; a
+separate mutable workflow-definition lookup adds no proof of the tested candidate.
+Future workflow activation is observed through the post-merge run, not assumed.
 
 CI runs candidate source on an ephemeral hosted runner with read-only repository
 permission, no project secrets and no persisted checkout credential. The source gate

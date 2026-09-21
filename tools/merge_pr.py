@@ -10,6 +10,7 @@ import sys
 REPO = "fol2/jev-playground"
 PREFIX = "repos/" + REPO
 PATH = ".github/workflows/ai-sdlc.yml"
+WORKFLOW_ID = 363313034  # native identity observed when this repository workflow was registered
 
 
 class Hold(ValueError):
@@ -76,12 +77,10 @@ def evaluate(s: dict, number: int, head: str) -> dict:
     require(p["base"]["ref"] == "main" and p["head"]["ref"] != "main", "unexpected integration branches")
     require(p["base"]["sha"] == s["main"] and s["compare"]["status"] == "ahead", "current main is not included")
     require(p["mergeable"] is True and p["mergeable_state"] == "clean", "mergeability is not clean")
-    w = s["workflow"]
-    require(w["path"] == PATH and w["state"] == "active", "authentic workflow missing")
     runs = s["runs"]
     require(bool(runs), "no exact-head PR workflow run")
     run = max(runs, key=lambda x: (x["run_number"], x.get("run_attempt", 1)))
-    require(run["workflow_id"] == w["id"] and run["head_sha"] == head and run["event"] == "pull_request", "workflow identity mismatch")
+    require(run["workflow_id"] == WORKFLOW_ID and run["path"] == PATH and run["head_sha"] == head and run["event"] == "pull_request", "workflow identity mismatch")
     require(run["head_repository"]["full_name"] == REPO and any(x["number"] == number for x in run["pull_requests"]), "run is not bound to this PR")
     require(run["status"] == "completed" and run["conclusion"] == "success", "latest workflow is not successful")
     jobs = s["jobs"]
@@ -116,10 +115,10 @@ def evaluate(s: dict, number: int, head: str) -> dict:
 def collect(number: int, head: str) -> dict:
     p = api(f"{PREFIX}/pulls/{number}")
     main = api(f"{PREFIX}/branches/main")["commit"]["sha"]
-    workflow = api(f"{PREFIX}/actions/workflows/ai-sdlc.yml")
-    runs = pages(f"{PREFIX}/actions/workflows/{workflow['id']}/runs?event=pull_request&head_sha={head}", "workflow_runs")
+    runs = pages(f"{PREFIX}/actions/runs?event=pull_request&head_sha={head}", "workflow_runs")
+    runs = [r for r in runs if r["workflow_id"] == WORKFLOW_ID]
     latest = max(runs, key=lambda x: (x["run_number"], x.get("run_attempt", 1))) if runs else None
-    return {"pr": p, "main": main, "workflow": workflow, "runs": runs,
+    return {"pr": p, "main": main, "runs": runs,
             "compare": api(f"{PREFIX}/compare/{main}...{head}"),
             "jobs": pages(f"{PREFIX}/actions/runs/{latest['id']}/jobs?filter=latest", "jobs") if latest else [],
             "checks": pages(f"{PREFIX}/commits/{head}/check-runs?filter=latest", "check_runs"),

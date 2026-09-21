@@ -15,8 +15,7 @@ def fixture():
                'base': {'sha': BASE, 'ref': 'main', 'repo': repo},
                'mergeable': True, 'mergeable_state': 'clean', 'user': {'login': 'owner'}},
         'main': BASE, 'compare': {'status': 'ahead'},
-        'workflow': {'id': 5, 'path': m.PATH, 'state': 'active'},
-        'runs': [{'id': 10, 'run_number': 1, 'run_attempt': 1, 'workflow_id': 5, 'head_sha': HEAD,
+        'runs': [{'id': 10, 'run_number': 1, 'run_attempt': 1, 'workflow_id': m.WORKFLOW_ID, 'path': m.PATH, 'head_sha': HEAD,
                   'event': 'pull_request', 'head_repository': repo, 'pull_requests': [{'number': 1}],
                   'status': 'completed', 'conclusion': 'success'}],
         'jobs': [{'name': 'Focus Gate', 'status': 'completed', 'conclusion': 'success', 'run_id': 10}],
@@ -35,7 +34,6 @@ class Decision(unittest.TestCase):
             ('pr.head.sha', BASE), ('pr.head.repo', {'full_name': 'other/repo'}),
             ('pr.base.ref', 'release'), ('pr.head.ref', 'main'), ('main', 'c' * 40),
             ('compare.status', 'diverged'), ('pr.mergeable', None), ('pr.mergeable_state', 'blocked'),
-            ('workflow.path', '.github/workflows/fake.yml'), ('workflow.state', 'disabled_manually'),
             ('runs', []), ('jobs', []), ('reviews', []),
             ('checks', [{'status': 'queued', 'conclusion': None}]),
             ('checks', [{'status': 'completed', 'conclusion': 'failure'}]),
@@ -52,7 +50,7 @@ class Decision(unittest.TestCase):
                 m.evaluate(s, 1, HEAD)
 
     def test_run_identity_and_latest_attempt(self):
-        for field, value in [('workflow_id', 6), ('head_sha', BASE), ('event', 'push'),
+        for field, value in [('workflow_id', 6), ('path', '.github/workflows/fake.yml'), ('head_sha', BASE), ('event', 'push'),
                              ('pull_requests', []), ('head_repository', {'full_name': 'other/repo'}),
                              ('status', 'in_progress'), ('conclusion', 'failure')]:
             s = fixture()
