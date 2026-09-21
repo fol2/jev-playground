@@ -506,3 +506,109 @@ its older reference for the next request's relative coordinates. A small fix now
 retains the fresh reference unless that reply is actually accepted as REEL. This
 post-run correction compiles and passes offline checks, but needs a new live B
 run after login; the 16/17 result describes the recorded pre-correction source.
+
+## Image-first rod location after re-login
+
+The user requested direct image recognition rather than hovering every slot.
+Both policies now compare the known rod icon against 50 slot patches from one
+bag screenshot. Each patch is reduced to a normalised 16-by-16 greyscale vector;
+the highest correlation above 0.75 supplies a candidate coordinate. Tooltip OCR
+still confirms the candidate before equipping. Weak/missing matches retain the
+bounded tooltip search as a fallback. This uses native CoreGraphics, no package
+or provider request, and a 32-by-32 reference `rod-icon.png`. It recognises this
+rod's icon in the calibrated layout, not arbitrary fishing equipment or bag UI.
+
+The reference was cropped from the locally retained, tooltip-verified bag image
+`live_1789942922_9FF647/bag-rod.jpg`. Before testing, the rod was deliberately moved
+from the previous (0.8641, 0.8240) slot to (0.9626, 0.8590), with the main weapon
+equipped and action-bar page 1 selected. The first image-first pre-go
+(`test_a_20260920T224437Z_9b02e7`) found the new position at correlation 0.8520,
+confirmed the tooltip, equipped the rod and selected page 2 in **8.96 seconds**,
+without a fallback scan. Earlier grid-scanning preparation took approximately
+26 seconds. This is an observed preparation comparison, not a benchmark average.
+
+That run was interrupted after two acquisition-related timeouts (66.18 seconds):
+the re-login camera included a warm shoreline component that the tracker acquired
+instead of the real float. The view was calibrated before the next trial, never
+during an accepted timed interval. A preceding stale-binary launch
+(`test_a_20260920T224311Z_d4bfe3`) was interrupted at 15.11 seconds after the new
+Swift build failed; it is explicitly excluded from implementation proof. The
+compiler issue was then corrected and the build passed before further trials.
+
+The next image-first trial (`test_a_20260920T224644Z_f26fbc`) completed nine
+verified catches, then stopped at 236.72 seconds on `retrieval_unverified`. Its
+`live_1789944627_3F2848/after.jpg` actually shows the loot window and a fresh-fish
+item. Re-reading the JPEG with Vision returned both 物品 and 新鮮美味小魚. The
+original first-frame OCR therefore failed to confirm a visibly successful
+retrieval; the run remains failed rather than being relabelled as ten catches.
+The shared loot confirmation now retries capture/OCR at most twice, 250 ms apart,
+without clicking again. It retains the initial failed image when retrying.
+
+Before a further trial, the view was observed facing another direction and the
+loot window had disappeared. The user was asked whether this was manual input;
+no cause is assumed. The loot-confirmation change passes the native build and
+offline tests but awaits a new controlled live interval.
+
+## Colour-independent acquisition, collection and focus policy
+
+The colour/feather prototype could recognise some changed views but failed on a
+new cliff-side scene whose visible float did not contain the required red cue.
+The current acquisition instead compares a post-cast reference with subsequent
+frames, removes thin lines/noise with a 3-by-3 opening, and finds compact regions
+whose local edge detail has increased. Candidate tracks must persist; a clear
+novelty margin separates the leading stable object from competing detections.
+The lower half of the changed object anchors the floating body. Native Vision
+tracks a 160-pixel patch after acquisition. This replaces the colour requirement
+and fixed landing corridor; it does not establish universal scene recognition.
+Before/after fixtures cover the previously split float and the no-red cliff float.
+
+Strong detected camera motion discards pending decisions and waits for stable
+frames before requesting a fresh cast. It does not assign the identity of the
+old float to a guessed object in a changed view. A controlled positive live test
+of this recovery path remains open. Earlier exploratory camera calibration also
+included four D key presses by the agent; those attempts are not treated as
+controlled camera-only comparisons. Camera direction and character heading are
+separate, and later setup avoids character-heading changes.
+
+The user confirmed auto-loot is enabled and no manual looting was performed.
+Collection now observes the early appearance/closure transition instead of waiting
+800 ms before first looking. Persistent loot windows are handled by a close-button
+visual and item-row rectangles. Item names, languages and classes never gate the
+clicks; OCR is optional metadata. A text-masked loot fixture still exposes the
+same item control, and a non-window fixture is rejected. Empty automatic-collection
+label metadata is allowed. These are UI transitions, not direct inventory reads.
+
+The sixth cast of `test_a_20260920T235907Z_ff10f4` is a confirmed false-positive
+reel, not an auto-loot logging miss: the user observed no bite and the saved game
+message also reports no fish on the hook. The exact gradual-dip sequence failed
+the old rule's regression check. The rule now requires an abrupt single-step
+drop as well as cumulative displacement. The old genuine-bite fixtures still pass.
+On this development negative, Jev chose raw REEL 0.76, which the existing 0.85
+execution threshold rejects; this is an abstention success, not a correct raw
+classification. Its single fixture request used 731 input / 42 output tokens.
+The user's annotation is retained beside that run's summary.
+
+At the user's final preference, app-targeted input now preserves the user's focus
+choice and continues if they bring WoW forward to watch. No route activates WoW.
+Focus changes are recorded, and foreground observations are reported explicitly
+instead of being labelled fully background. Gameplay/window changes and genuine
+execution uncertainty retain their own stop conditions. Unknown item names do not.
+
+Before this focus adjustment, `test_a_20260921T004056Z_fd863b` stopped at 85.15
+seconds with 2/5 verified cycles (timeout, recovery failure and target loss). The
+following B attempt `test_b_20260921T004331Z_0501ca` made no cast or provider call
+because the old strict foreground check blocked it. These are unsuccessful
+comparison attempts, not passes. The first adjusted-focus attempt
+`test_a_20260921T004844Z_8725e9` stopped on a transient world-refresh notice before
+casting. No failure has been removed from a run's denominator.
+
+## Confirmed visual-contract regression
+
+The [visual audit](visual-audit.md) establishes that the latest A false positive
+was triggered by a one-frame confidence dropout, not a visually observed dip.
+The retained gap-as-submersion alternative bypassed the abrupt-step condition.
+The exact triggering trace failed the new regression test before the fix.
+Gaps now invalidate pending decisions and restart stable-history collection;
+Jev receives tracking-uncertainty wording rather than a fabricated disappearance.
+No new live run was started during this audit. Other visual/policy reliability
+issues remain, including the latest B false positive without a tracking gap.

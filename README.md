@@ -6,7 +6,7 @@ A collection of independent experiments with TypeSafe's Jev model.
 
 | ID | Experiment | Status | Next step |
 | --- | --- | --- | --- |
-| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Live Test B: 314 seconds, 16/17 catches; shared moved-rod search added | Re-login and complete final A/B parity checks |
+| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Visual-contract regression confirmed; expanded pipeline is not accepted | Validate corrected observations before further live A/B runs |
 
 Each experiment owns its question, inputs, policy, evaluation and findings in
 `experiments/NNN_short_name/`. Use a new, permanent number for each experiment;
@@ -52,3 +52,7 @@ see the experiment README for the post-run correction awaiting live verification
 - [Introduction](https://docs.typesafe.ai/introduction)
 - [Quick start](https://docs.typesafe.ai/introduction/quickstart)
 - [Agent skill](https://docs.typesafe.ai/agent-skill)
+
+The latest [visual audit](experiments/001_wow_fishing/visual-audit.md) identifies a
+tracker-dropout/submersion mix-up in the expanded pipeline. Historical results
+above do not establish acceptance of that version.

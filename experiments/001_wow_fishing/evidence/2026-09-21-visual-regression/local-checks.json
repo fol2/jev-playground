@@ -1,0 +1,36 @@
+{
+  "status": "passed",
+  "native_checks": 32,
+  "python_tests": 10,
+  "commands": [
+    "sh experiments/001_wow_fishing/build.sh",
+    "python3 -m unittest discover -s experiments/001_wow_fishing -p 'test_*.py'"
+  ],
+  "live_acceptance": "Not tested with the pixel-motion changes in this snapshot",
+  "source_sha256": {
+    "experiments/001_wow_fishing/analyse.py": "3ec509377e0b3b92f0f12a8ac8dbeabb6e661d52d7512c696974ae562ae80d67",
+    "experiments/001_wow_fishing/background.swift": "c6ab7721fa29e6b49cd6d980c524842f5c01e61aac1d6dc680ebc30bdd74fcac",
+    "experiments/001_wow_fishing/bobber-no-red-before.png": "25e865038c5a49f2292717600a1111b25f176745e8d25a441fb46779643fd5fd",
+    "experiments/001_wow_fishing/bobber-no-red.png": "ac5a9b24ed31972b682ba7daaef3d2196ab8e41fb23f2adcad359c4c46a4425b",
+    "experiments/001_wow_fishing/build.sh": "7d66c27273a7f87c8ca179ff0f4b25aba51b03a3e0207810f0935d3bf84a3954",
+    "experiments/001_wow_fishing/jev.swift": "850b88bc0809d91b14f38100db844fb7b4c77fae002b7f619a2f377f5e760085",
+    "experiments/001_wow_fishing/live.swift": "161a3cce934d99f54dfc1512a6ad9bf899ed99a4fb2df714b9aacbc0e4213a6d",
+    "experiments/001_wow_fishing/loot-close.png": "5a1ac4480168c869fc30c083beefa2fddafdcc95256a6c0cf945b93054cc326e",
+    "experiments/001_wow_fishing/loot-layout.png": "2d037598e4eae24697782930780d05c014e5988f2cd08847b0429000b383cb05",
+    "experiments/001_wow_fishing/loot.swift": "5379b75128710cdbe92a56f349bca4e4687df92de2bf3ac4e2e12d9b55f40784",
+    "experiments/001_wow_fishing/motion-fixtures.png": "59d17992e69100c0663a24742850a3fd110d3a418fa777a6fa808a0c2d9764d7",
+    "experiments/001_wow_fishing/motion.swift": "c4cf82d5154bb1c1cf79e85f69bbe1ade43c3545dd72f781eda297e5a813deb6",
+    "experiments/001_wow_fishing/page-two.png": "1ae005b9c51f5826d02741f73dc2cae493842c7073d3bc318c3b6c38c2d869ad",
+    "experiments/001_wow_fishing/probes/background-click/Adapter.swift": "5a0dafcf42fd39117b3c8b684f695950757890c9cfae7d47a060a7d185bf63bf",
+    "experiments/001_wow_fishing/probes/background-click/NativeBackgroundClickTransport.swift": "01c7c980e7109a5ece4bc2d183509f349d26f887f4d77de6a4febde5aa5410ca",
+    "experiments/001_wow_fishing/probes/background-click/NativeWindowServerPreparation.swift": "3823f5d2e0d28fe46d1e8dc27fb352b3eb934831f15e5a1bcf8f32630565f01b",
+    "experiments/001_wow_fishing/probes/background-click/Probe.swift": "524c15414bcf7e99446a9cd1583430ed5eae9f0a3cc6f6c17f247c0aaf24a5bb",
+    "experiments/001_wow_fishing/record.py": "fb38dde9f669347039de38d54c69efd1ba5ee48179250976688f9571cc51a1d5",
+    "experiments/001_wow_fishing/rod-icon.png": "a473b85dbc48f37d4da409ead83fbcaab44acde2271d6df87f0ca76d799e8561",
+    "experiments/001_wow_fishing/run_test_a.py": "d30e6d1797c86c48b2c0e8b1d669c7b119ac09b20f1cb9c3005af14327556616",
+    "experiments/001_wow_fishing/split-bobber-before.png": "9045dda8aee5809d9ad31b9e0927c558d5aa70725938c6e9adeb64553c0401c1",
+    "experiments/001_wow_fishing/split-bobber.png": "e97022d71e149b248c6c1914e905bad6530dfd6c30136e06dd60ed374b3d97fd",
+    "experiments/001_wow_fishing/test_analyse.py": "ceb1c0fc1fe855d48546697426ac394dfad5464f0316fbc727b7d1d0c22a43a4",
+    "experiments/001_wow_fishing/test_run_test_a.py": "c6ff2d8979ecd71e6c478becf907e1e93340da824dc92d8aba90742b1b9bc1ac"
+  }
+}

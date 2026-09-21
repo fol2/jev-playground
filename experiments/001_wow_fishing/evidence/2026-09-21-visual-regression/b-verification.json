@@ -1,0 +1,47 @@
+{
+  "run": "test_b_20260921T005808Z_4ada86",
+  "status": "stopped_for_review",
+  "mode": "background",
+  "autonomous_seconds": 25.96,
+  "verified_loot_cycles": 0,
+  "cycles": [
+    {
+      "number": 1,
+      "outcome": "retrieval_unverified",
+      "cast": 1,
+      "right_click": 1,
+      "loot_collected": 0,
+      "loot_item_observed": 0,
+      "game_feedback": [
+        [
+          "\u6c92\u6709\u9b5a\u4e0a\u9264"
+        ]
+      ]
+    }
+  ],
+  "provider_calls": 17,
+  "input_tokens": 11921,
+  "output_tokens": 699,
+  "p50_request_seconds": 0.26891379166045226,
+  "p95_request_seconds": 0.783489166671643,
+  "source_matches_current": {
+    "live.swift": true,
+    "jev.swift": true,
+    "loot.swift": true,
+    "loot-close.png": true,
+    "loot-layout.png": true,
+    "build.sh": true,
+    "page-two.png": true,
+    "rod-icon.png": true,
+    "split-bobber.png": true,
+    "split-bobber-before.png": true,
+    "bobber-no-red.png": true,
+    "bobber-no-red-before.png": true,
+    "run_test_a.py": true,
+    "probes/background-click/Adapter.swift": true,
+    "probes/background-click/NativeWindowServerPreparation.swift": true,
+    "probes/background-click/NativeBackgroundClickTransport.swift": true
+  },
+  "evidence_bytes_before_verification": 2593223,
+  "note": "Neither run passed the five-minute target. Game feedback on the failed retrieval reports no fish on the hook. Starting views differed; do not infer policy superiority."
+}

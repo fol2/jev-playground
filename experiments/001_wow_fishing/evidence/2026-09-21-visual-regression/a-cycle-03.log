@@ -1,0 +1,17 @@
+{"event":"focus_observed","game_foreground":false,"seconds":0.3062997916713357,"targeted_input":true}
+{"crop":[51,115,2125,677],"event":"ready","execute":true,"height":338,"output":"runs\/001_wow_fishing\/live_1789951877_2A592F","seconds":0.45130545835127123,"width":1062}
+{"event":"cast","seconds":0.58456079167081043}
+{"event":"cast_channel_verified","seconds":1.2625755000044592}
+{"area":37,"event":"target_acquired","novelty":1118.9999999999998,"seconds":1.8149477500119247,"x":615.5,"y":175.90909090909091}
+{"event":"post_cast_visible_float_verified","seconds":1.8174960416799877}
+{"background_change":2.8191621000530316,"event":"target_temporarily_missing","frames":1,"seconds":3.1483567916729953}
+{"background_change":3.0878557539331801,"event":"target_temporarily_missing","frames":2,"seconds":3.2527529166836757}
+{"background_change":2.8585055643879174,"event":"target_temporarily_missing","frames":1,"seconds":4.6179179166792892}
+{"background_change":2.637809187279152,"event":"target_temporarily_missing","frames":1,"seconds":5.0344124166585971}
+{"background_change":3.039922275216393,"event":"target_temporarily_missing","frames":1,"seconds":7.2537479166639969}
+{"background_change":3.0639462992404169,"event":"target_temporarily_missing","frames":2,"seconds":7.3485125000006519}
+{"background_change":2.7358190493019969,"event":"target_temporarily_missing","frames":1,"seconds":8.608756583329523}
+{"drop":0.29927396774291992,"event":"bite_detected_waiting_for_return","seconds":8.7212230000004638}
+{"desktop_x":1281.4302413584821,"desktop_y":456.0225038500227,"drop":-0.61945390701293945,"event":"bite_candidate","seconds":8.8219602083263453}
+{"event":"right_click","seconds":9.036624333326472}
+{"chat_after_ocr":["General+ Combat Log","你拾取了物品：［新鮮的美味小魚］","11.綠日-微風島」ISkyborne Eyesore」： unless","they do a kind of \"redeemed\" naga （still","elves）， I feel Like the more likely one is","earthen. But thats a retail thing so idk","你拾取了物品：［新鮮長嘴泥鰍］","Nels Fo"],"chat_before_ocr":["Generaf-t Combat Log","風歌蟹充滿恐懼地想要轉身逃跑！","尔拾取了物品：［新鮮美味小鱼］","naga （still","elves）， I feel Like the more Likely one is","earthen. But thats a retail thing so iak","你拾取了物品：［新鮮的長嘴泥鰍］","Nels F"],"event":"retrieval_unverified","screen_text":["沒有魚上鉤"],"seconds":10.614486125006806}
