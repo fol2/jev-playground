@@ -32,6 +32,24 @@ class Routing(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(sdlc.GateError):
                 sdlc.route(case)
 
+    def test_fishing_routes_real_offline_proof(self):
+        for path in ['experiments/001_wow_fishing/live.swift',
+                     'experiments/001_wow_fishing/evidence/run/events.jsonl',
+                     'data/001_wow_fishing/angles_20260921/far-02-detail.mp4']:
+            self.assertIn('fishing-offline', sdlc.route([('M', path)])['checks'])
+        for path in ['experiments/001_wow_fishing/unregistered.swift',
+                     'experiments/001_wow_fishing/evidence/payload.py',
+                     'data/001_wow_fishing/payload.sh', 'experiments/002_unknown/main.py']:
+            with self.assertRaises(sdlc.GateError):
+                sdlc.route([('A', path)])
+
+    def test_every_tracked_path_is_classified(self):
+        # inspect() routes the whole tree, so one unregistered file holds the gate.
+        for path in sdlc.git('ls-files', '-z').decode().split('\0'):
+            if path and path not in sdlc.REQUIRED:
+                with self.subTest(path=path):
+                    sdlc.route([('M', path)])
+
     def test_runtime_never_inferred(self):
         result = sdlc.route([('M', 'tools/sdlc.py')])
         self.assertIn('F3', result['omitted'])
@@ -115,7 +133,7 @@ class Contract(unittest.TestCase):
             ('AGENTS.md', lambda s: s + ('x' * 6501)),
             ('CLAUDE.md', lambda s: s.replace('@AGENTS.md', 'other.md')),
             ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('"contents": "read"', '"contents": "write"')),
-            ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('ubuntu-24.04', 'self-hosted')),
+            ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('macos-14', 'self-hosted')),
             ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('"persist-credentials": false', '"persist-credentials": true')),
             ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('11d5960a326750d5838078e36cf38b85af677262', 'v4')),
             ('.github/workflows/ai-sdlc.yml', lambda s: s.replace('"Focus Gate"', '"Optional"')),
