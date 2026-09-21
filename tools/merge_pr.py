@@ -2,6 +2,7 @@
 """Exact-head GitHub integration. Read-only unless --execute is explicitly supplied."""
 from __future__ import annotations
 import argparse
+from datetime import datetime
 import json
 import re
 import subprocess
@@ -64,6 +65,18 @@ def threads(number: int) -> list:
     raise Hold("review-thread pagination limit reached")
 
 
+def review_order(review: dict) -> tuple:
+    # IDs are allocated before a draft is submitted. Vetoes win ambiguous same-second ties.
+    try:
+        submitted = datetime.strptime(review["submitted_at"], "%Y-%m-%dT%H:%M:%SZ")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise Hold("review submission time is unavailable or malformed") from exc
+    body = review.get("body") or ""
+    blocking = review["state"] in {"CHANGES_REQUESTED", "DISMISSED"} or bool(
+        re.search(r"^AI-SDLC review: (REQUEST_CHANGES|INCONCLUSIVE)$", body, re.M))
+    return submitted, blocking, review["id"]
+
+
 def evaluate(s: dict, number: int, head: str) -> dict:
     """Pure merge decision; network reads and mutation are deliberately separate."""
     def require(condition: bool, reason: str) -> None:
@@ -91,15 +104,16 @@ def evaluate(s: dict, number: int, head: str) -> dict:
                 for c in s["checks"]), "another check is pending or failed")
     require(all(c["state"] == "success" for c in s["statuses"]), "commit status is pending or failed")
     decisions, native = {}, {}
-    for review in sorted(s["reviews"], key=lambda x: x["id"]):
+    for review in sorted((r for r in s["reviews"] if r["state"] != "PENDING"), key=review_order):
         actor = review["user"]["login"]
-        if review["state"] in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
+        if review["state"] in {"CHANGES_REQUESTED", "APPROVED"}:
             native[actor] = review["state"]
         if review["commit_id"] != head or review["author_association"] not in {"OWNER", "MEMBER", "COLLABORATOR"}:
             continue
-        match = re.search(r"^AI-SDLC review: (PASS|REQUEST_CHANGES|INCONCLUSIVE)$", review["body"], re.M)
-        if match:
-            decisions[actor] = (review, match[1])
+        verdicts = re.findall(r"^AI-SDLC review: (PASS|REQUEST_CHANGES|INCONCLUSIVE)$", review.get("body") or "", re.M)
+        require(len(verdicts) <= 1, "ambiguous review verdict")
+        if verdicts:
+            decisions[actor] = (review, verdicts[0])
     require("CHANGES_REQUESTED" not in native.values(), "native changes-requested review remains")
     require(bool(decisions), "no trusted exact-head review verdict")
     for review, verdict in decisions.values():

@@ -21,7 +21,7 @@ def fixture():
         'jobs': [{'name': 'Focus Gate', 'status': 'completed', 'conclusion': 'success', 'run_id': 10}],
         'checks': [], 'statuses': [], 'threads': [],
         'reviews': [{'id': 1, 'user': {'login': 'owner'}, 'state': 'COMMENTED', 'commit_id': HEAD,
-                     'author_association': 'OWNER', 'body': f'AI-SDLC review: PASS\nIndependence: author-review\nHead: {HEAD}'}]}
+                     'submitted_at': '2026-09-21T12:00:00Z', 'author_association': 'OWNER', 'body': f'AI-SDLC review: PASS\nIndependence: author-review\nHead: {HEAD}'}]}
 
 
 class Decision(unittest.TestCase):
@@ -81,7 +81,7 @@ class Decision(unittest.TestCase):
         s['reviews'].insert(0, dict(s['reviews'][0], id=0, state='CHANGES_REQUESTED', body='Fix it'))
         with self.assertRaises(m.Hold):
             m.evaluate(s, 1, HEAD)
-        s['reviews'].append(dict(s['reviews'][0], id=3, state='DISMISSED', body='Dismissed'))
+        s['reviews'][0]['state'] = 'DISMISSED'  # GitHub mutates the dismissed review itself
         self.assertEqual(m.evaluate(s, 1, HEAD)['decision'], 'ELIGIBLE')
 
     def test_other_reviewer_cannot_overrule_open_findings(self):
@@ -147,6 +147,57 @@ class Decision(unittest.TestCase):
             self.assertEqual(m.threads(1), [{'isResolved': True}, {'isResolved': False}])
         with patch.object(m, 'api', return_value=page(True, True, 'repeat')), self.assertRaises(m.Hold):
             m.threads(1)
+
+
+class ReviewRegression(unittest.TestCase):
+    def test_delayed_draft_verdict_is_ordered_by_submission_not_id(self):
+        s = fixture()
+        s['reviews'].append(dict(s['reviews'][0], id=0,
+            submitted_at='2026-09-21T12:01:00Z', body='AI-SDLC review: REQUEST_CHANGES'))
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
+
+    def test_delayed_native_veto_is_not_cleared_by_older_approval(self):
+        s = fixture()
+        s['reviews'] += [dict(s['reviews'][0], id=3, user={'login': 'reviewer'},
+            state='APPROVED', body='Reviewed'), dict(s['reviews'][0], id=2,
+            user={'login': 'reviewer'}, state='CHANGES_REQUESTED', body='Blocking defect',
+            submitted_at='2026-09-21T12:01:00Z')]
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
+
+    def test_dismissing_another_review_does_not_clear_an_active_veto(self):
+        s = fixture()
+        s['reviews'] += [dict(s['reviews'][0], id=2, user={'login': 'reviewer'},
+            state='CHANGES_REQUESTED', body='Unresolved defect'), dict(s['reviews'][0],
+            id=3, user={'login': 'reviewer'}, state='DISMISSED', body='Other review',
+            submitted_at='2026-09-21T12:01:00Z')]
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
+
+    def test_unsubmitted_draft_is_not_a_verdict(self):
+        s = fixture()
+        s['reviews'].append(dict(s['reviews'][0], id=9, state='PENDING', submitted_at=None))
+        self.assertEqual(m.evaluate(s, 1, HEAD)['decision'], 'ELIGIBLE')
+
+    def test_unverifiable_submission_time_blocks(self):
+        for value in (None, '', 'bad-time', '2026-99-21T12:00:00Z'):
+            s = fixture()
+            s['reviews'][0]['submitted_at'] = value
+            with self.subTest(value=value), self.assertRaises(m.Hold):
+                m.evaluate(s, 1, HEAD)
+
+    def test_conflicting_verdict_lines_block(self):
+        s = fixture()
+        s['reviews'][0]['body'] += '\nAI-SDLC review: REQUEST_CHANGES'
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
+
+    def test_same_second_negative_verdict_cannot_be_overruled_by_id(self):
+        s = fixture()
+        s['reviews'].append(dict(s['reviews'][0], id=0, body='AI-SDLC review: INCONCLUSIVE'))
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -102,6 +103,11 @@ class GitIntegrity(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_current_contract(self):
         sdlc.contracts()
+
+    def test_claude_startup_imports_only_the_kernel(self):
+        entry = (sdlc.ROOT / 'CLAUDE.md').read_text()
+        self.assertEqual(re.findall(r'@([A-Za-z0-9_./-]+)', entry), ['AGENTS.md'])
+        self.assertLess(len(entry.encode()), 400)
 
     def test_security_and_instruction_mutations(self):
         mutations = [
