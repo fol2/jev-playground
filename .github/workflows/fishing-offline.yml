@@ -1,0 +1,41 @@
+name: Fishing offline checks
+
+on:
+  push:
+    branches: [refactor/fishing-observation-loop]
+  pull_request:
+    paths:
+      - 'experiments/001_wow_fishing/**'
+      - '.github/workflows/fishing-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Snapshot the exact tracked source (no local recordings or secrets)
+        run: git archive --format=tar HEAD > "$RUNNER_TEMP/fishing-source.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fishing-source-${{ github.sha }}
+          path: ${{ runner.temp }}/fishing-source.tar
+          retention-days: 7
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 10
+    env:
+      TYPESAFE_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the pure core with fake time and HTTP (no capture, input or provider)
+        run: sh experiments/001_wow_fishing/test_core.sh
+      - name: Compile and run native offline checks (no capture, input or provider)
+        if: always()
+        run: sh experiments/001_wow_fishing/build.sh
+      - name: Run Python offline tests
+        if: always()
+        run: python3 -m unittest discover -s experiments/001_wow_fishing -p 'test_*.py' -v

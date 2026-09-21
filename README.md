@@ -47,7 +47,7 @@ A collection of independent experiments with TypeSafe's Jev model.
 
 | ID | Experiment | Status | Next step |
 | --- | --- | --- | --- |
-| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Visual-contract regression confirmed; expanded pipeline is not accepted | Validate corrected observations before further live A/B runs |
+| 001 | [WoW fishing](experiments/001_wow_fishing/README.md) | Simplified observation loop; offline candidate, not live-accepted | Review [refactor notes](experiments/001_wow_fishing/refactor-notes.md) before new bite-only trials |
 
 Each experiment owns its question, inputs, policy, evaluation and findings in
 `experiments/NNN_short_name/`. Use a new, permanent number for each experiment;
@@ -97,3 +97,8 @@ see the experiment README for the post-run correction awaiting live verification
 The latest [visual audit](experiments/001_wow_fishing/visual-audit.md) identifies a
 tracker-dropout/submersion mix-up in the expanded pipeline. Historical results
 above do not establish acceptance of that version.
+
+The current candidate compares **bite policies only**, with shared deterministic
+preparation, fixed-anchor pixel matching and a pure timestamped action state machine.
+Previous expanded B results remain historical. Offline reproduction and limitations
+are in the [refactor notes](experiments/001_wow_fishing/refactor-notes.md).
