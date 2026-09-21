@@ -14,7 +14,7 @@ def fixture():
                'head': {'sha': HEAD, 'ref': 'task', 'repo': repo},
                'base': {'sha': BASE, 'ref': 'main', 'repo': repo},
                'mergeable': True, 'mergeable_state': 'clean', 'user': {'login': 'owner'}},
-        'main': BASE, 'compare': {'status': 'ahead'},
+        'integration': BASE, 'compare': {'status': 'ahead'}, 'main_compare': {'status': 'ahead'},
         'runs': [{'id': 10, 'run_number': 1, 'run_attempt': 1, 'workflow_id': m.WORKFLOW_ID, 'path': m.PATH, 'head_sha': HEAD,
                   'event': 'pull_request', 'head_repository': repo, 'pull_requests': [{'number': 1}],
                   'status': 'completed', 'conclusion': 'success'}],
@@ -32,8 +32,9 @@ class Decision(unittest.TestCase):
         changes = [
             ('pr.state', 'closed'), ('pr.draft', True), ('pr.merged', True),
             ('pr.head.sha', BASE), ('pr.head.repo', {'full_name': 'other/repo'}),
-            ('pr.base.ref', 'release'), ('pr.head.ref', 'main'), ('main', 'c' * 40),
-            ('compare.status', 'diverged'), ('pr.mergeable', None), ('pr.mergeable_state', 'blocked'),
+            ('pr.base.ref', 'release'), ('pr.head.ref', 'main'), ('integration', 'c' * 40),
+            ('compare.status', 'diverged'), ('main_compare.status', 'behind'),
+            ('main_compare.status', 'diverged'), ('pr.mergeable', None), ('pr.mergeable_state', 'blocked'),
             ('runs', []), ('jobs', []), ('reviews', []),
             ('checks', [{'status': 'queued', 'conclusion': None}]),
             ('checks', [{'status': 'completed', 'conclusion': 'failure'}]),
@@ -198,6 +199,36 @@ class ReviewRegression(unittest.TestCase):
         s['reviews'].append(dict(s['reviews'][0], id=0, body='AI-SDLC review: INCONCLUSIVE'))
         with self.assertRaises(m.Hold):
             m.evaluate(s, 1, HEAD)
+
+
+class IntegrationBranch(unittest.TestCase):
+    """A non-main target must be named; it can never be reached by default."""
+
+    def test_main_is_the_default_and_other_targets_are_held(self):
+        s = fixture()
+        s['pr']['base']['ref'] = 'experiment/test-b-parity'
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD)
+        self.assertEqual(m.evaluate(s, 1, HEAD, 'experiment/test-b-parity')['decision'], 'ELIGIBLE')
+
+    def test_named_target_still_requires_current_main(self):
+        s = fixture()
+        s['pr']['base']['ref'] = 'experiment/test-b-parity'
+        s['main_compare'] = {'status': 'behind'}
+        with self.assertRaises(m.Hold):
+            m.evaluate(s, 1, HEAD, 'experiment/test-b-parity')
+
+    def test_named_target_is_recorded_in_the_decision(self):
+        s = fixture()
+        s['pr']['base']['ref'] = 'topic'
+        self.assertEqual(m.evaluate(s, 1, HEAD, 'topic')['integration_ref'], 'topic')
+
+    def test_malformed_integration_branch_is_held(self):
+        for bad in ('', 'a b', 'x' * 101, 'refs/heads/../main', '/main', 'main/', 'a//b', '..'):
+            with self.subTest(bad=bad), patch('sys.argv', ['merge_pr.py', '1', HEAD, '--into', bad]), \
+                 patch.object(m, 'collect') as collect, redirect_stderr(io.StringIO()):
+                self.assertEqual(m.main(), 1)
+                collect.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -77,7 +77,7 @@ def review_order(review: dict) -> tuple:
     return submitted, blocking, review["id"]
 
 
-def evaluate(s: dict, number: int, head: str) -> dict:
+def evaluate(s: dict, number: int, head: str, into: str = "main") -> dict:
     """Pure merge decision; network reads and mutation are deliberately separate."""
     def require(condition: bool, reason: str) -> None:
         if not condition:
@@ -87,8 +87,11 @@ def evaluate(s: dict, number: int, head: str) -> dict:
     require(p["number"] == number and p["state"] == "open" and not p["draft"] and not p["merged"], "PR is not open and ready")
     require(p["head"]["sha"] == head, "PR head moved")
     require(p["head"]["repo"]["full_name"] == REPO and p["base"]["repo"]["full_name"] == REPO, "foreign repository")
-    require(p["base"]["ref"] == "main" and p["head"]["ref"] != "main", "unexpected integration branches")
-    require(p["base"]["sha"] == s["main"] and s["compare"]["status"] == "ahead", "current main is not included")
+    require(p["base"]["ref"] == into and p["head"]["ref"] != into, "unexpected integration branches")
+    require(p["base"]["sha"] == s["integration"] and s["compare"]["status"] == "ahead",
+            "integration branch is not included")
+    # Merging into a topic branch still must not promote work that predates current main.
+    require(s["main_compare"]["status"] in {"ahead", "identical"}, "current main is not included")
     require(p["mergeable"] is True and p["mergeable_state"] == "clean", "mergeability is not clean")
     runs = s["runs"]
     require(bool(runs), "no exact-head PR workflow run")
@@ -122,18 +125,19 @@ def evaluate(s: dict, number: int, head: str) -> dict:
         require(f"Head: {head}" in review["body"].splitlines(), "review text head mismatch")
         require(not (review["state"] == "APPROVED" and review["user"]["login"] == p["user"]["login"]), "author must not self-approve")
     require(all(t["isResolved"] is True for t in s["threads"]), "unresolved review thread")
-    return {"decision": "ELIGIBLE", "pr": number, "head": head, "base": s["main"],
-            "workflow_run": run["id"], "live_effect_authority": "none"}
+    return {"decision": "ELIGIBLE", "pr": number, "head": head, "base": s["integration"],
+            "integration_ref": into, "workflow_run": run["id"], "live_effect_authority": "none"}
 
 
-def collect(number: int, head: str) -> dict:
+def collect(number: int, head: str, into: str = "main") -> dict:
     p = api(f"{PREFIX}/pulls/{number}")
-    main = api(f"{PREFIX}/branches/main")["commit"]["sha"]
+    integration = api(f"{PREFIX}/branches/{into}")["commit"]["sha"]
     runs = pages(f"{PREFIX}/actions/runs?event=pull_request&head_sha={head}", "workflow_runs")
     runs = [r for r in runs if r["workflow_id"] == WORKFLOW_ID]
     latest = max(runs, key=lambda x: (x["run_number"], x.get("run_attempt", 1))) if runs else None
-    return {"pr": p, "main": main, "runs": runs,
-            "compare": api(f"{PREFIX}/compare/{main}...{head}"),
+    compare = api(f"{PREFIX}/compare/{integration}...{head}")
+    return {"pr": p, "integration": integration, "runs": runs, "compare": compare,
+            "main_compare": compare if into == "main" else api(f"{PREFIX}/compare/main...{head}"),
             "jobs": pages(f"{PREFIX}/actions/runs/{latest['id']}/jobs?filter=latest", "jobs") if latest else [],
             "checks": pages(f"{PREFIX}/commits/{head}/check-runs?filter=latest", "check_runs"),
             "statuses": pages(f"{PREFIX}/commits/{head}/status", "statuses"),
@@ -145,16 +149,22 @@ def main() -> int:
     parser.add_argument("pr", type=int)
     parser.add_argument("head")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--into", default="main",
+                        help="integration branch; anything but main must be named explicitly")
     args = parser.parse_args()
     try:
         if args.pr <= 0 or not re.fullmatch(r"[0-9a-f]{40}", args.head):
             raise Hold("positive PR number and full expected head SHA required")
-        snapshot = collect(args.pr, args.head)
-        decision = evaluate(snapshot, args.pr, args.head)
+        # Interpolated into an API path, so no traversal, no empty or absolute segments.
+        if ".." in args.into or len(args.into) > 100 or not re.fullmatch(
+                r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", args.into):
+            raise Hold("malformed integration branch")
+        snapshot = collect(args.pr, args.head, args.into)
+        decision = evaluate(snapshot, args.pr, args.head, args.into)
         if args.execute:
             # Re-read immediately; GitHub's SHA guard closes the head race, not the base race.
             p = api(f"{PREFIX}/pulls/{args.pr}")
-            base = api(f"{PREFIX}/branches/main")["commit"]["sha"]
+            base = api(f"{PREFIX}/branches/{args.into}")["commit"]["sha"]
             if p["head"]["sha"] != args.head or p["base"]["sha"] != decision["base"] or base != decision["base"]:
                 raise Hold("integration state moved; revalidate")
             result = subprocess.run(["gh", "api", "--hostname", "github.com", "--method", "PUT",

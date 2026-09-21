@@ -1,8 +1,11 @@
 // Frozen reference from eb6356385b5853ab61a00de31641051c0cb55c34/motion.swift.
 // Differential tests protect localisation/abstention, not catch-rate claims.
+// The two decision constants are parameters here, defaulting to the frozen values, so the
+// suite can prove it still holds cases that those constants actually decide. Called with
+// defaults this is byte-for-byte the original behaviour.
 import Foundation
 func referenceMotion(previous: [Double], current: [Double], width: Int, height: Int,
-                 centre: CGPoint) -> PixelMotion? {
+                 centre: CGPoint, accept: Double = 0.55, margin: Double = 0.10) -> PixelMotion? {
     guard width >= 20, height >= 20, width <= Int.max/height,
           centre.x.isFinite, centre.y.isFinite,
           supportsMotionTemplate(centre, width: width, height: height) else { return nil }
@@ -42,7 +45,7 @@ func referenceMotion(previous: [Double], current: [Double], width: Int, height: 
     }
     let alternative=scores.filter {abs($0.dx-best.dx)+abs($0.dy-best.dy)>3 && peak($0)}.map(\.value).max() ?? 0
     // A peak at the search boundary may be a clipped larger movement, not a location.
-    guard best.value>=0.55,best.value-alternative>=0.10,
+    guard best.value>=accept,best.value-alternative>=margin,
           abs(best.dx)<radius,abs(best.dy)<radius else {return nil}
     func refine(_ horizontal:Bool) -> Double {
         let left=scores.first {$0.dx==best.dx-(horizontal ? 1:0) && $0.dy==best.dy-(horizontal ? 0:1)}?.value
@@ -102,6 +105,50 @@ struct Generator {
             check(equal(old, new), "differential mismatch at case \(checks)")
             if new == nil { rejected += 1 } else { accepted += 1 }
         }
+        // Cases the two decision constants actually decide. Without these the corpus is
+        // bimodal, near-ideal matches or structural rejections, and either threshold can be
+        // moved without a single check reacting. The coverage assertions below fail if that
+        // ever becomes true again, so the sweep cannot silently drift out of the band.
+        var decidedByAccept = 0, decidedByMargin = 0
+        for step in 0..<24 {
+            let side = 64, cx = 32, cy = 32
+            var noise = Generator()
+            let previous = (0..<side*side).map { _ in noise.byte() }
+            var next = (0..<side*side).map { _ in noise.byte() }
+            let anchor = CGPoint(x: Double(cx), y: Double(cy))
+            if step < 12 {
+                // Signal blended toward noise: sweeps correlation down through the accept threshold.
+                let alpha = 0.28+Double(step)*0.02
+                for y in 0..<side { for x in 0..<side {
+                    let nx = x+3, ny = y-2
+                    if nx >= 0 && nx < side && ny >= 0 && ny < side {
+                        next[ny*side+nx] = previous[y*side+x]*alpha+noise.byte()*(1-alpha)
+                    }
+                }}
+            } else {
+                // Two distinct non-overlapping in-radius copies of the anchor: a confident match
+                // with a real rival, which sweeps the ambiguity margin through its threshold.
+                let beta = 0.66+Double(step-12)*0.02
+                for (offset, gain) in [(11, 1.0), (-11, beta)] {
+                    for y in -10..<10 { for x in -10..<10 {
+                        next[(cy+y)*side+cx+x+offset] = previous[(cy+y)*side+cx+x]*gain+noise.byte()*(1-gain)
+                    }}
+                }
+            }
+            let old = referenceMotion(previous: previous, current: next, width: side, height: side, centre: anchor)
+            let new = pixelMotion(previous: previous, current: next, width: side, height: side, centre: anchor)
+            check(equal(old, new), "degraded differential mismatch at case \(checks)")
+            if new == nil { rejected += 1 } else { accepted += 1 }
+            func acts(_ accept: Double, _ margin: Double) -> Bool {
+                referenceMotion(previous: previous, current: next, width: side, height: side,
+                                centre: anchor, accept: accept, margin: margin) != nil
+            }
+            if acts(0.50, 0.10) != acts(0.55, 0.10) { decidedByAccept += 1 }
+            if acts(0.55, 0.02) != acts(0.55, 0.10) { decidedByMargin += 1 }
+        }
+        check(decidedByAccept > 0, "no differential case is decided by the 0.55 accept threshold")
+        check(decidedByMargin > 0, "no differential case is decided by the 0.10 ambiguity margin")
+
         let w = 64, centre = CGPoint(x: 32, y: 32)
         let before = (0..<w*w).map { _ in random.byte() }
         let flat = [Double](repeating: 42, count: w*w)

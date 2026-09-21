@@ -29,6 +29,12 @@ test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
 
 VISUAL = "experiments/002_wow_visual/"
 VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
+# Load and count the suite here. Running the file trusts its own __main__, so deleting
+# that one line would exit 0 having run nothing; a missing module raises instead.
+VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
+                "suite = unittest.defaultTestLoader.loadTestsFromModule(m); "
+                "assert suite.countTestCases() >= 6, 'visual contract suite lost its tests'; "
+                "sys.exit(not unittest.TextTestRunner().run(suite).wasSuccessful())")
 
 
 def fishing_path(path: str) -> bool:
@@ -178,14 +184,15 @@ def main() -> int:
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
                         "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
                         "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
-                        "visual-offline": [sys.executable, "-S", VISUAL + "test_observations.py"]}
+                        "visual-offline": [sys.executable, "-S", "-c", VISUAL_SUITE]}
             for check in report["checks"]:
                 if check in commands:
                     subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
             report["result"] = "PASS"
-        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
         report["model_tokens"] = 0  # this deterministic command only, not the author session
+        # Hash before timing: a manifest nobody can reproduce on a second run anchors nothing.
         report["manifest_sha256"] = hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
+        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
         print(json.dumps(report, indent=2))
         return 0
     except (GateError, OSError, UnicodeError, json.JSONDecodeError, SyntaxError,

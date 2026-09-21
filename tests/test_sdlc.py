@@ -1,3 +1,5 @@
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import re
@@ -5,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from tools import sdlc
 
 
@@ -164,6 +167,43 @@ class Contract(unittest.TestCase):
         self.assertIn('python3 tools/sdlc.py "${args[@]}"', steps[1]['run'])
         self.assertIn('args+=(--full)', steps[1]['run'])
         self.assertNotIn('secrets.', json.dumps(w))
+
+
+class Manifest(unittest.TestCase):
+    """The manifest must anchor the decided content, or a reviewer cannot reproduce it."""
+
+    def report(self, elapsed, **overrides):
+        base = {'checks': ['integrity', 'governance'], 'reason': 'allowlisted documentation only',
+                'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'c' * 40,
+                'changes': [['M', 'README.md']]} | overrides
+        out = io.StringIO()
+        with patch.object(sdlc, 'inspect', return_value=base), \
+             patch.object(sdlc.time, 'monotonic', side_effect=[0.0, elapsed]), \
+             patch.object(sdlc.sys, 'argv', ['sdlc', 'route', '--base', 'x']), \
+             redirect_stdout(out):
+            self.assertEqual(sdlc.main(), 0)
+        return json.loads(out.getvalue())
+
+    def test_wall_clock_does_not_change_the_manifest(self):
+        slow, fast = self.report(59.5979), self.report(0.0042)
+        self.assertNotEqual(slow['elapsed_seconds'], fast['elapsed_seconds'])
+        self.assertEqual(slow['manifest_sha256'], fast['manifest_sha256'])
+
+    def test_manifest_still_covers_every_decided_field(self):
+        reference = self.report(1.0)
+        for field, value in (('tree', 'd' * 40), ('head', 'e' * 40), ('base', 'f' * 40),
+                             ('reason', 'other'), ('checks', ['integrity']),
+                             ('changes', [['A', 'README.md']])):
+            with self.subTest(field=field):
+                self.assertNotEqual(self.report(1.0, **{field: value})['manifest_sha256'],
+                                    reference['manifest_sha256'])
+
+    def test_manifest_is_recomputable_from_the_published_report(self):
+        published = self.report(1.0)
+        recomputed = sdlc.hashlib.sha256(json.dumps(
+            {k: v for k, v in published.items() if k not in {'manifest_sha256', 'elapsed_seconds'}},
+            sort_keys=True).encode()).hexdigest()
+        self.assertEqual(recomputed, published['manifest_sha256'])
 
 
 if __name__ == '__main__':
