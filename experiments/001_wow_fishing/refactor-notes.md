@@ -78,8 +78,8 @@ the attributed background-input runtime itself is 570 lines and is retained.
 The main native file falls from 1,119 to 841 lines. Of that change, 132 lines are
 historical tests moved to `self_tests.swift`, not deleted functionality. A new
 135-line pure observation/action core and regression tests make the boundaries
-explicit. Counting all compiled Swift including those tests gives 1,359 lines
-before and 1,362 after this change (excluding the unchanged input adapter).
+explicit. Counting all compiled Swift including those tests gives approximately 1,360 lines
+before and after this change (excluding the unchanged input adapter).
 This is a reduction in competing behaviours and untestable state, **not a claim
 that splitting files made the total application dramatically smaller**. Further
 large reductions would require dropping default-UI preparation, manual loot

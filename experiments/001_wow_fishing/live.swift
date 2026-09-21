@@ -87,7 +87,7 @@ final class FloatTracker {
         let side = min(160, min(image.width, image.height))
         crop = CGRect(x: max(0, min(Double(image.width-side), target.x-Double(side)/2)),
                       y: max(0, min(Double(image.height-side), target.y-Double(side)/2)),
-                      width: side, height: side).integral
+                      width: Double(side), height: Double(side)).integral
         guard let patch = image.cropping(to: crop) else {
             throw NSError(domain: "Invalid float patch", code: 4)
         }
