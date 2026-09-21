@@ -32,7 +32,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--background', action='store_true')
     parser.add_argument('--jev', action='store_true', help='Test B: provider-backed bite decisions; shared deterministic preparation')
+    parser.add_argument('--seconds', type=int, default=300, help='autonomous interval; this long of real input dispatch')
     args = parser.parse_args()
+    # A live-input duration, so reject a typo rather than dispatch input for hours.
+    if not 60 <= args.seconds <= 1800:
+        raise SystemExit('--seconds must be between 60 and 1800')
     label = 'B' if args.jev else 'A'
     if args.jev:
         if not os.environ.get('TYPESAFE_API_KEY') and (ROOT / '.env').is_file():
@@ -52,7 +56,7 @@ def main():
               'policy': 'jev' if args.jev else 'rules', 'call_budget': 120 if args.jev else 0, 'status': 'running', 'mode': 'targeted' if args.background else 'foreground',
               'input_mode': 'targeted_without_activation' if args.background else 'foreground_without_activation',
               'game_foreground_observed': False, 'focus_observations': 0,
-              'target_seconds': 300, 'pre_go_runs': 1, 'provider_calls': 0,
+              'target_seconds': args.seconds, 'pre_go_runs': 1, 'provider_calls': 0,
               'started_at_utc': datetime.now(timezone.utc).isoformat(), 'cycles': []}
     source = ROOT / 'experiments' / '001_wow_fishing'
     record['source_hashes'] = {
@@ -83,11 +87,11 @@ def main():
             record['status'] = 'pre_go_failed'
             return
         started = time.monotonic()
-        print('Pre-go passed once; autonomous 300-second test started.', flush=True)
+        print(f'Pre-go passed once; autonomous {args.seconds}-second test started.', flush=True)
         consecutive_failures = 0
         # Finish an in-flight cast rather than kill it with a mouse button held.
-        # This bounds normal completion to 300 seconds plus at most one 45-second cycle.
-        while time.monotonic()-started < 300:
+        # This bounds normal completion to the interval plus at most one 45-second cycle.
+        while time.monotonic()-started < args.seconds:
             number = len(record['cycles']) + 1
             result, events = invoke(['--execute', '--prepared', *policy_mode], 45)
             account(events)
@@ -95,7 +99,8 @@ def main():
             collected = any(e['event'] == 'loot_collected' for e in events)
             outcome = 'loot_collected' if collected else (events[-1]['event'] if events else 'process_failed')
             native_outcome = outcome
-            retryable = {'stopped_no_visible_float', 'stopped_target_lost'}
+            # A held bite that never returns is still an unconfirmed target before any click.
+            retryable = {'stopped_no_visible_float', 'stopped_target_lost', 'stopped_bite_not_recovered'}
             unconfirmed = (not result.returncode and outcome in retryable
                            and not any(e['event'] == 'right_click' for e in events))
             if unconfirmed:
@@ -134,7 +139,7 @@ def main():
         record['autonomous_seconds'] = round(time.monotonic()-started, 2) if started is not None else 0
         record['verified_loot_cycles'] = sum(c['outcome'] == 'loot_collected' for c in record['cycles'])
         record['unverified_retrievals'] = sum(c['outcome'] == 'retrieval_unverified' for c in record['cycles'])
-        record['perfect_run'] = (record.get('status') == 'completed' and record['autonomous_seconds'] >= 300
+        record['perfect_run'] = (record.get('status') == 'completed' and record['autonomous_seconds'] >= args.seconds
                                  and bool(record['cycles']) and record['verified_loot_cycles'] == len(record['cycles']))
         record['finished_at_utc'] = datetime.now(timezone.utc).isoformat()
         (folder/'summary.json').write_text(json.dumps(record, indent=2)+'\n')

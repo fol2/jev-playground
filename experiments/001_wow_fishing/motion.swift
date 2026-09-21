@@ -22,11 +22,16 @@ func greyPixels(_ image: CGImage) -> [Double] {
 
 #endif
 
+func supportsMotionTemplate(_ centre: CGPoint, width: Int, height: Int) -> Bool {
+    centre.x.isFinite && centre.y.isFinite && centre.x >= 10 && centre.y >= 10
+        && centre.x.rounded()+10 <= Double(width) && centre.y.rounded()+10 <= Double(height)
+}
+
 func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
                  centre: CGPoint) -> PixelMotion? {
     guard width >= 20, height >= 20, width <= Int.max/height,
           centre.x.isFinite, centre.y.isFinite,
-          centre.x >= 0, centre.x < Double(width), centre.y >= 0, centre.y < Double(height) else { return nil }
+          supportsMotionTemplate(centre, width: width, height: height) else { return nil }
     let half=10, radius=12, cx=Int(centre.x.rounded()), cy=Int(centre.y.rounded())
     guard previous.count==width*height,current.count==previous.count,
           cx>=half,cy>=half,cx+half<=width,cy+half<=height else {return nil}
@@ -38,6 +43,8 @@ func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
     guard norm>1 else {return nil}
     template=template.map {$0/norm}
     var scores=[(value:Double,dx:Int,dy:Int)]()
+    let side = radius*2+1
+    var surface = [Double](repeating: -.infinity, count: side*side)
     for dy in -radius...radius {for dx in -radius...radius {
         let x0=cx-half+dx,y0=cy-half+dy
         guard x0>=0,y0>=0,x0+half*2<=width,y0+half*2<=height else {continue}
@@ -48,9 +55,18 @@ func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
         }}
         let correlation=dot/sqrt(max(1,squared-sum*sum/count))
         scores.append((correlation,dx,dy))
+        surface[(dy+radius)*side+dx+radius] = correlation
     }}
     guard let best=scores.max(by:{$0.value<$1.value}) else {return nil}
-    let alternative=scores.filter {abs($0.dx-best.dx)+abs($0.dy-best.dy)>3}.map(\.value).max() ?? 0
+    // Compare distinct local maxima, not the shoulder of the same broad peak.
+    func peak(_ candidate: (value: Double, dx: Int, dy: Int)) -> Bool {
+        for dy in -1...1 { for dx in -1...1 {
+            let x=candidate.dx+radius+dx, y=candidate.dy+radius+dy
+            if x>=0 && x<side && y>=0 && y<side && surface[y*side+x]>candidate.value { return false }
+        }}
+        return true
+    }
+    let alternative=scores.filter {abs($0.dx-best.dx)+abs($0.dy-best.dy)>3 && peak($0)}.map(\.value).max() ?? 0
     // A peak at the search boundary may be a clipped larger movement, not a location.
     guard best.value>=0.55,best.value-alternative>=0.10,
           abs(best.dx)<radius,abs(best.dy)<radius else {return nil}

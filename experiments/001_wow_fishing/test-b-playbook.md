@@ -25,7 +25,9 @@ dy pixels, match correlation]` rows and background brightness change. Displaceme
 are relative to the median of the first four rows. Times come from capture, not
 an assumed 10 Hz interval. Correlation means appearance agreement, not submersion
 or bite probability. No screenshots, audio, tooltip OCR, static-area ratios,
-duplicate motion narrative or Test A verdict are sent.
+duplicate motion narrative or Test A verdict are sent. Short recovery windows formed
+after a supported bite dropout are never submitted because requests are gated while
+the loop is armed.
 
 Both policies use the same fixed-anchor matcher and recovery state machine. A
 gap invalidates history, request generation and pending action together. A late

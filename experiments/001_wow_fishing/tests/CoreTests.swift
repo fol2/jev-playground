@@ -55,6 +55,14 @@ struct CoreTests {
     }
 
     @MainActor static func main() throws {
+        var loot = LootObservation(startedAt: 10)
+        check(!loot.observe(visible: true, at: 10.1), "visible loot is not yet collected")
+        check(!loot.expired(at: 11.2), "auto-loot may take more than the old one-second window")
+        check(!loot.observe(visible: false, at: 11.4), "one missing close icon is not collection")
+        check(loot.observe(visible: false, at: 11.5), "delayed auto-loot closure is confirmed")
+        var unseen = LootObservation(startedAt: 10)
+        check(!unseen.observe(visible: false, at: 10.1), "absent window without appearance is not collection")
+        check(unseen.expired(at: 13.01), "loot waiting is bounded")
         var loop = FishingLoop()
         for i in 0..<7 { feed(&loop, Double(i)/10) }
         check(loop.window == nil, "warm-up uses elapsed capture time, not seven fast frames")
@@ -86,6 +94,21 @@ struct CoreTests {
         for i in 14...25 { feed(&loop, Double(i)/10) }
         check(loop.window != nil, "reacquisition requires a fresh warm-up")
         check(!loop.arm(old, now: 2.51), "old epoch rejected even inside the response deadline")
+
+        loop = warm(); feed(&loop, 1.3, 108)
+        check(loop.arm(loop.window!, now: 1.31), "real bite precedes appearance dropout")
+        loop.invalidate(preserveSupportedBite: true)
+        check(loop.armed && loop.window == nil, "brief template dropout retains only supported recovery deadline")
+        check(loop.takeClick(at: 1.4) == nil, "no click while target is missing")
+        feed(&loop, 1.5); feed(&loop, 1.6)
+        check(loop.takeClick(at: 1.61) == nil, "first stable recovery pair cannot click")
+        feed(&loop, 1.7)
+        check(loop.takeClick(at: 1.71) != nil, "fresh recovered target permits supported bite retrieval")
+        loop = warm(); loop.invalidate(preserveSupportedBite: true)
+        check(!loop.armed, "missing template cannot create a bite")
+        loop = warm(); _ = loop.arm(loop.window!, now: 1.21)
+        loop.invalidate(preserveSupportedBite: true)
+        check(loop.expired(at: 3.21), "dropout cannot extend original bite deadline")
 
         loop = warm(); _ = loop.arm(loop.window!, now: 1.21)
         feed(&loop, 1.51)
@@ -121,6 +144,29 @@ struct CoreTests {
         check(abs(rows.last![0]-0.7) < 0.001, "provider receives the actual 0.7-second window")
         check(rows.count == 7 && rows.allSatisfy { $0.count == 4 }, "compact chronological schema")
         check(loop.window!.state["rules_reel"] == nil, "A verdict is not leaked to B")
+
+        check(!supportsMotionTemplate(CGPoint(x: 3.5, y: 288), width: 1062, height: 338),
+              "observed edge distractor cannot become an untrackable acquisition")
+        check(supportsMotionTemplate(CGPoint(x: 653, y: 31.5), width: 1062, height: 338),
+              "visible float retains enough template support")
+        // Replay the actual failed cast: a supported bite was discarded after one lost template.
+        var replay = FishingLoop(), traceClicks = [Double]()
+        let trace = try String(contentsOfFile: "experiments/001_wow_fishing/evidence/2026-09-21-test-a-reliability/dropout-observations.jsonl", encoding: .utf8)
+        for line in trace.split(separator: "\n") {
+            let row = try JSONSerialization.jsonObject(with: Data(line.utf8)) as! [String: Any]
+            if row["event"] as? String == "tracking_temporarily_unavailable" {
+                replay.invalidate(preserveSupportedBite: true); continue
+            }
+            let now = row["seconds"] as! Double
+            let target = Blob(x: row["x"] as! Double, y: row["y"] as! Double, area: 48,
+                              matchCorrelation: row["pixel_match_correlation"] as! Double)
+            replay.observe(target, capturedAt: row["capture_seconds"] as! Double, now: now,
+                           background: row["background_change"] as! Double)
+            if let evidence = replay.window, evidence.rulesReel { _ = replay.arm(evidence, now: now) }
+            if replay.takeClick(at: now) != nil { traceClicks.append(now) }
+        }
+        check(traceClicks.count == 1 && (26..<27.9).contains(traceClicks[0]),
+              "recorded supported bite survives dropout and clicks only after fresh recovery")
 
         let anchor = texture(), centre = CGPoint(x: 32, y: 32)
         for dy in [0, 1, 4, 8, 4, 1, 0] {

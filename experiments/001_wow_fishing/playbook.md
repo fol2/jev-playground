@@ -8,7 +8,9 @@ Test A uses no model calls. Test B changes only the bite policy; see its
 
 Use the separate [camera setup script](camera-setup.md) to assign and save the
 experiment preset. Do not run it for every trial: it would overwrite the baseline.
-Camera restoration has not yet been integrated into the runner pre-go.
+Pre-go restores the saved preset with the bound chord (`CTRL-ALT-F9`) and stops
+if the local setup receipt is missing. Setup still owns assigning and saving the
+preset; pre-go only restores it, and never rebinds or re-saves.
 
 ## Starting conditions
 
@@ -41,6 +43,8 @@ live trial, from the repository root:
 ```sh
 sh experiments/001_wow_fishing/build.sh
 python3 experiments/001_wow_fishing/run_test_a.py --background
+# A longer interval; 60 to 1800 seconds, because this dispatches real input.
+python3 experiments/001_wow_fishing/run_test_a.py --background --seconds 600
 ```
 
 The build writes `/tmp/jev-fishing-live` and runs native offline checks. Rebuild
@@ -53,19 +57,21 @@ select page 2 and verify Fishing in slot 1. Its timeout is 120 seconds. Each
 subsequent cast verifies the Fishing progress bar and requires a visible float
 within six seconds. Do not invoke internal `--prepared` yourself.
 
-The autonomous interval starts after preparation and lasts 300 seconds plus any
-in-flight cast (normally no more than 345 seconds). Foreground fallback is a
+The autonomous interval starts after preparation and lasts `--seconds` (300 by
+default) plus any in-flight cast, normally no more than 45 seconds extra. Foreground fallback is a
 separate full trial with restored starting state: omit `--background`; never
 splice its results into a failed background interval.
 
 ## Stop and review
 
 Ctrl-C in the runner terminal is the primary stop; the native helper also checks
-Escape. Unconfirmed targets (`stopped_no_visible_float` or `stopped_target_lost`)
-before any retrieval click may recast, sharing the three-consecutive-failure limit
-with ordinary timeouts. They remain failed/unconfirmed attempts in the result.
-All other native stops, uncertain loot or child timeouts stop the run for review.
-Camera/background change now stops rather than recasting or changing heading.
+Escape. Unconfirmed targets (`stopped_no_visible_float`, `stopped_target_lost`
+or `stopped_bite_not_recovered`) before any retrieval click may recast, sharing the
+three-consecutive-failure limit with ordinary timeouts. They remain failed and
+unconfirmed attempts in the result. All other native stops, uncertain loot or child
+timeouts stop the run for review. Camera/background change now stops rather than
+recasting or changing heading, as do the pre-go stops `stopped_camera_setup_missing`
+and `stopped_after_camera_restore`.
 
 The script does not restore the original weapon/page. Inspect remaining overlays
 before a new trial. Review acquisition and first-missing images after target loss;
@@ -75,9 +81,10 @@ actual bag capacity. An unreadable item name alone is not collection failure.
 
 Output lives under `runs/001_wow_fishing/test_a_<UTC>_<id>/`. Inspect `summary.json`,
 `pre-go.log`, every `cycle-NN.log`, and each cycle's referenced `live_*` evidence.
-A strict pass requires a completed interval of at least 300 seconds, exactly one
-pre-go, every recorded cycle verified by a loot-window transition, no gameplay
-intervention, zero provider calls in A and `perfect_run: true`. Successful process
+A strict pass requires a completed interval of at least the requested `--seconds`,
+exactly one pre-go, every recorded cycle verified by a loot-window transition, no
+gameplay intervention, zero provider calls in A and `perfect_run: true`. A longer
+interval is a larger sample, not a weaker bar. Successful process
 exit alone is insufficient. Failed casts must never be excluded.
 
 `mode: background` means all observed focus states were background;

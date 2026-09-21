@@ -1,8 +1,11 @@
 # Initial observations
 
-Current acceptance: **the five-minute autonomous background Test A has passed**.
-See the final acceptance entry below. Earlier incomplete/failed stages are retained
-as history. No live Jev Test B has been performed.
+Current position: the candidate passes offline regression checks and completed a
+ten-minute live Test A at **26/30 verified cycles**, which is **not** a strict pass
+(`perfect_run: false`). See the [ten-minute run](evidence/2026-09-21-test-a-600s/README.md)
+and the final entry below. Earlier incomplete and failed stages are retained as
+history and belong to their own recorded sources. No live Jev Test B has been
+performed against this source.
 
 ## 20 September 2026: one assisted cast
 
@@ -612,3 +615,101 @@ Gaps now invalidate pending decisions and restart stable-history collection;
 Jev receives tracking-uncertainty wording rather than a fabricated disappearance.
 No new live run was started during this audit. Other visual/policy reliability
 issues remain, including the latest B false positive without a tracking gap.
+
+
+## 21 September 2026: reliability corrections — offline proven only
+
+Six corrections, each with an offline regression fixture or decision replay.
+**No live Test A was run for any of them**, so none is an observed improvement.
+
+### Motion peak disambiguation
+
+The ambiguity check now compares only distinct local maxima on the correlation
+surface, so the shoulder of one broad peak no longer counts as a competing object.
+This makes abstention **less** likely, trading possible false negatives for possible
+false positives. Four acquired/first-missing pairs from runs `live_1789999204_DEDF27`,
+`live_1789999266_FDE8E6`, `live_1789999319_A6FA67` and `live_1789999396_5C9900` are
+retained as fixtures with their source hashes, and are asserted to yield a downward
+displacement of 5-11 pixels with `dx` within +/-2. Four pairs are not a rate.
+
+### Template dropout and recovery windows
+
+After a supported bite, a single lost template no longer discards the pending
+decision. The original recovery deadline is retained and never extended, while
+confirmations and the last accepted frame reset. Recovery windows may form from as
+few as two observations; those short windows are never submitted to Jev, because
+requests are gated while the loop is armed. The recorded trace
+`dropout-observations.jsonl` comes from one real cast where a supported bite was
+discarded after a single lost template; it replays to exactly one click after fresh
+recovery. One trace is not evidence that dropouts are generally survivable.
+
+### Acquisition filter and post-cast delay
+
+Acquisition candidates must now satisfy the same 10-pixel template margin as the
+matcher, so an edge distractor cannot become an untrackable acquisition. Post-cast
+acquisition is delayed from 0.8 to 2 seconds to let the float materialise before
+candidates are ranked against moving scenery. The six-second visible-target limit
+is unchanged, so this shortens the available acquisition margin.
+
+### Observation-based loot confirmation
+
+Collection verification is now a bounded three-second observation: the loot window
+must be seen, then absent for two consecutive frames. This replaces the fixed
+eight-iteration loop and its single last-frame fallback. It is a stricter rule
+than the one it replaces; that is a mechanism, not a measured error rate. The
+capture path is unchanged and still crops from a full-window frame, because
+`lootClose` matches a fixed-scale template and `lootLayout` uses absolute pixel
+row bounds.
+
+### Unconfirmed bite recovery
+
+`stopped_bite_not_recovered` before any retrieval click is now recorded as
+`target_unconfirmed` and may recast within the existing three-consecutive-failure
+limit, like `stopped_no_visible_float` and `stopped_target_lost`. After a retrieval
+click it stays terminal. It remains in the denominator, so acceptance is unchanged;
+only the run no longer aborts. Its evidence must still be inspected on review.
+
+### Camera restoration in pre-go
+
+Pre-go restores the saved camera preset with the bound chord (Control+Option+F9),
+having first read the local setup receipt and checked its `restore_key`. A missing
+or unexpected receipt stops with `stopped_camera_setup_missing`. `stopped_after_camera_restore`
+reports that the focus/geometry check failed after the chord was sent; **it does not
+observe whether the camera actually moved**, and nothing here verifies the restored
+view. The setup script still owns assigning, binding and saving.
+
+### CI consolidation
+
+`.github/workflows/fishing-offline.yml` is deleted and its work folded into the
+single Focus Gate, now on `macos-14` because the fishing checks need `swiftc` and
+the native image frameworks. `tools/fishing_offline.py` is the entry point and
+`tools/sdlc.py` routes registered fishing source and evidence to it. See the
+[change record](../../docs/changes/2026-09-21-fishing-gate-consolidation.md). CI
+stays hosted, read-only and provider-free, and never runs on the owner's Mac.
+
+## 21 September 2026: ten-minute live Test A — 26/30, not a strict pass
+
+Run `test_a_20260921T163557Z_23b931` completed 602.19 autonomous seconds after one
+pre-go, with **26/30 verified loot cycles**, zero unverified retrievals and zero
+provider calls. Targeted input; all 31 focus observations were background. This is
+the first live exercise of the same-day corrections above and the largest recorded
+sample, but `perfect_run` is **false** and it is not an acceptance claim.
+
+All 30 casts acquired a target and verified the channel. All 26 collections came
+through the observed loot-window transition with no script click, so the manual
+control fallback was never used. 26 clicks produced 26 collections: no false-positive
+reel was observed in 30 casts, which is an absence, not a measured rate.
+
+The dropout correction fired three times, in cycles 2, 4 and 9 — a supported bite,
+a single lost template about 0.1 s later, restoration, then a click and a catch.
+The previous code discarded the arm on that dropout and the already-dipped float
+would not have re-armed a later window. `stopped_bite_not_recovered` never occurred,
+so making it retryable remains untested live.
+
+Two failures timed out without a bite inside the usual acquisition band. The other
+two lost their target after acquiring at x 207 and x 308, y 165 and 177, well
+outside the x 554-635, median y 76 band of all 26 successes. That is consistent
+with the unresolved initial-object-identity problem, but two cases cannot separate
+misacquisition from an unusual genuine landing, and no positional gate should be
+added on one run's band. Details and the full failure table are in the
+[run evidence](evidence/2026-09-21-test-a-600s/README.md).

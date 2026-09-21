@@ -106,11 +106,32 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(record['status'], 'stopped_after_three_consecutive_failures')
         self.assertEqual(len(calls), 4)
 
+    def test_unrecovered_bite_before_any_click_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], cycles=[
+            [{'event': 'bite_detected_waiting_for_return'}, {'event': 'stopped_bite_not_recovered'}],
+            [{'event': 'loot_collected', 'item': '<unreadable>'}]])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(record['cycles'][0]['outcome'], 'target_unconfirmed')
+        self.assertEqual(record['cycles'][0]['native_outcome'], 'stopped_bite_not_recovered')
+        self.assertFalse(record['perfect_run'])
+
+    def test_unrecovered_bite_after_click_never_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            [{'event': 'right_click'}, {'event': 'stopped_bite_not_recovered'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
+
     def test_target_loss_after_click_never_recasts(self):
         record, calls = self.run_case([{'event': 'pre_go_pass'}],
             [{'event': 'right_click'}, {'event': 'stopped_target_lost'}])
         self.assertEqual(record['status'], 'stopped_for_review')
         self.assertEqual(len(calls), 2)
+
+    def test_interval_length_is_configurable_and_bounded(self):
+        with patch('sys.argv', ['test', '--seconds', '30']), self.assertRaises(SystemExit):
+            runner.main()
+        with patch('sys.argv', ['test', '--seconds', '1801']), self.assertRaises(SystemExit):
+            runner.main()
 
     def test_failed_preparation_never_casts(self):
         record, calls = self.run_case([{'event': 'pre_go_jev_not_ready'}])

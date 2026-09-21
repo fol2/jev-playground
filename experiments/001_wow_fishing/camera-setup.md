@@ -1,9 +1,9 @@
 # One-time camera setup
 
 Camera configuration is separate from preparation and fishing. Choose a clear-water
-pitch and zoom once, then save that baseline. A future pre-go should only restore it
-with **Control+Option+F9**; it must not rebind keys or save the current camera.
-This change does not yet connect camera restoration to Test A/B pre-go.
+pitch and zoom once, then save that baseline. Pre-go now restores it with
+**Control+Option+F9** on each trial; it must not rebind keys or save the current
+camera. This script owns assigning, binding and saving, and is not run per trial.
 
 From the repository root:
 

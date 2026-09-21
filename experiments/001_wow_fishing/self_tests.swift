@@ -4,6 +4,22 @@ import ImageIO
 import Vision
 
 func runSelfTests() throws {
+    let peakFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("evidence/2026-09-21-test-a-reliability")
+    let fixtures = try JSONSerialization.jsonObject(with: Data(contentsOf: peakFolder.appendingPathComponent("peak-fixtures.json"))) as! [[String: Any]]
+    for fixture in fixtures {
+        func image(_ suffix: String) -> CGImage {
+            let url = peakFolder.appendingPathComponent((fixture["prefix"] as! String)+"-"+suffix+".png")
+            return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
+        }
+        let before = image("acquired"), after = image("first-missing"), centre = fixture["centre"] as! [Double]
+        guard let motion = pixelMotion(previous: greyPixels(before), current: greyPixels(after),
+            width: before.width, height: before.height, centre: CGPoint(x: centre[0], y: centre[1])),
+            (5...11).contains(motion.dy), abs(motion.dx)<2 else {
+            throw NSError(domain: "Regression: broad single match peak mistaken for competing objects", code: 33)
+        }
+    }
+
     // Measured sequence from Test A run live_1789923995_3A8353.
     let history = [Blob(x: 360.64, y: 162.9067, area: 75),
         Blob(x: 360.6494, y: 162.4286, area: 77), Blob(x: 361.058, y: 161.6087, area: 69),
@@ -128,5 +144,5 @@ func runSelfTests() throws {
             print("Regression: pixel motion disagrees with labelled fixture \(row)");exit(1)
         }
     }
-    print("Thirty-two local decision and acquisition checks passed; no UI, capture or provider calls.")
+    print("Thirty-six local decision, acquisition and retained-image checks passed; no UI, capture or provider calls.")
 }

@@ -1,7 +1,9 @@
 # 001: WoW fishing — rules and Jev
 
-**Current candidate: offline-tested, not live-accepted.** Read the
-[latest review](latest-review.md): the failed cast may have placed the float inside rock, where it was visually
+**Current candidate: 26/30 verified cycles over ten live minutes; not a strict
+pass.** Read the [ten-minute run](evidence/2026-09-21-test-a-600s/README.md) for what
+that does and does not establish, then the
+[latest review](latest-review.md): an earlier failed cast may have placed the float inside rock, where it was visually
 occluded. The retained stills do not establish a scenery misidentification.
 The [refactor notes](refactor-notes.md) explain the observation contract and scope.
 Raw historical evidence is preserved; interpretation corrections are annotated.
@@ -11,17 +13,22 @@ Raw historical evidence is preserved; interpretation corrections are annotated.
 From the repository root, without WoW or a provider key:
 
 ```sh
+python3 -m tools.fishing_offline
+# or to run individual checks:
 sh experiments/001_wow_fishing/test_core.sh
 python3 -S -m unittest discover -s experiments/001_wow_fishing -p 'test_*.py' -v
 # macOS only: compile the real helper and run retained image/decision fixtures.
 sh experiments/001_wow_fishing/build.sh
 ```
 
-The core suite uses synthetic pixels, fake monotonic time and fake HTTP. Native
-checks also use the four retained development image pairs, not held-out data.
-CI never captures a screen or dispatches input. Swift and Python's standard
-library suffice for these checks. The historical `analyse.py` video decoder still
-needs NumPy and FFmpeg; those are loaded only when decoding is requested.
+The `tools.fishing_offline` module is the superset entry point that CI now runs; it
+performs the core suite, Python unittests, Swift typechecks and offline fixture
+validation. The core suite uses synthetic pixels, fake monotonic time and fake HTTP.
+Native checks also use eight retained development image pairs, not held-out data:
+the original four, plus four acquired/first-missing pairs added for peak
+disambiguation. CI never captures a screen or dispatches input. Swift and Python's
+standard library suffice for these checks. The historical `analyse.py` video decoder
+still needs NumPy and FFmpeg; those are loaded only when decoding is requested.
 
 ## Architecture
 
@@ -32,12 +39,16 @@ pixels, one acquisition patch and seven timestamped observations are retained.
 
 `motion.swift` matches a 20-pixel template against a fixed acquisition image.
 It does not integrate previous position estimates or fall back to a Vision tracker.
-Ambiguous matches and peaks at the +/-12-pixel search boundary abstain. This does
-not verify that the initially acquired changed component is actually a float.
+Ambiguous matches and peaks at the +/-12-pixel search boundary abstain. Only
+distinct local maxima count as competing peaks, so the shoulder of a broad match
+no longer forces abstention. This does not verify that the initially acquired changed
+component is actually a float.
 
 `decision.swift` owns the observation generation and one-shot action state. Missing,
 stale or discontinuous observations invalidate both history and pending decisions.
-A supported signal still needs two distinct recovered frames and a fresh position.
+A brief template dropout after a supported bite keeps the original recovery deadline,
+never extending it, and resets the confirmations and last accepted frame. A supported
+signal still needs two distinct recovered frames and a fresh position.
 
 `jev.swift` allows one in-flight request and rejects old cancelled completions.
 Jev receives actual relative timestamps, displacement, appearance correlation and
@@ -62,11 +73,12 @@ None of those runs tested this candidate.
 Do not infer live readiness from passing offline checks. The [shared/Test A playbook](playbook.md)
 and [Test B differences](test-b-playbook.md) describe a separately authorised trial,
 not an acceptance claim. The runner performs one preparation and then bounded casts
-for 300 seconds. No-visible-target or lost-target outcomes before any retrieval
-click are recorded as `target_unconfirmed` and may recast. These and timeouts count
-towards the existing three-consecutive-failure stop and remain in the denominator.
-Other native `stopped_*` outcomes remain terminal; strong background change does
-not trigger recasting or camera/character movement. A final in-flight cast may finish, up to 45 extra seconds.
+for 300 seconds. No-visible-target, lost-target, or unrecovered-bite outcomes before
+any retrieval click are recorded as `target_unconfirmed` and may recast. These and
+timeouts count towards the existing three-consecutive-failure stop and remain in the
+denominator. Other native `stopped_*` outcomes remain terminal; strong background
+change does not trigger recasting or camera/character movement. A final in-flight
+cast may finish, up to 45 extra seconds.
 
 Targeted input preserves focus and the user may voluntarily watch WoW. The
 [source-attributed transport](probes/background-click/README.md) is unchanged.

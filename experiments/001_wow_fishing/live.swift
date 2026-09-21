@@ -415,6 +415,19 @@ struct Fishing {
         guard valid() else { emit("stopped_focus_or_geometry"); return }
         if check || (execute && !prepared) {
             emit("pre_go_begin")
+            let cameraURL = URL(fileURLWithPath: "data/001_wow_fishing/camera-setup.json")
+            guard let cameraData = try? Data(contentsOf: cameraURL),
+                  let camera = try? JSONSerialization.jsonObject(with: cameraData) as? [String: Any],
+                  camera["restore_key"] as? String == "CTRL-ALT-F9" else {
+                emit("stopped_camera_setup_missing"); return
+            }
+            // One-time setup owns saving/binding. Pre-go only restores the saved view.
+            key(101, down: true, flags: [.maskControl, .maskAlternate])
+            try await Task.sleep(for: .milliseconds(50))
+            key(101, down: false, flags: [.maskControl, .maskAlternate])
+            try await Task.sleep(for: .seconds(1))
+            guard valid() else { emit("stopped_after_camera_restore"); return }
+            emit("camera_restore_requested")
             // Coordinates describe the visually inspected default UI at this window size.
             // Fail on unreadable evidence rather than assuming a different UI layout works.
             let full = SCStreamConfiguration()
@@ -616,7 +629,7 @@ struct Fishing {
             var lastRequest = -100.0, lastTimestamp = -1.0
             var submittedChange = false
             func invalidate(_ reason: String) {
-                loop.invalidate(); jev?.discardPending(); requested = nil
+                loop.invalidate(preserveSupportedBite: reason == "tracker_unavailable"); jev?.discardPending(); requested = nil
                 lastSubmitted = nil; submittedChange = false
                 emit("observation_invalidated", ["reason": reason, "generation": loop.generation])
             }
@@ -660,11 +673,13 @@ struct Fishing {
                 let candidate: Blob?
                 if let tracker {
                     candidate = tracker.observe(image)
-                } else if iterationAt-castAt > 0.8 {
+                } else if iterationAt-castAt > 2 {
+                    // Let the float materialise before ranking new objects against moving scenery.
                     let fresh = changedObjects(pixels, reference: referencePixels, width: width, height: height).filter { item in
                         let x = (crop.minX+item.x*crop.width/Double(width))/bounds.width
                         let y = (crop.minY+item.y*crop.height/Double(height))/bounds.height
-                        return !(x > 0.40 && x < 0.60 && y > 0.43)
+                        return supportsMotionTemplate(CGPoint(x: item.x, y: item.y), width: width, height: height)
+                            && !(x > 0.40 && x < 0.60 && y > 0.43)
                     }
                     candidateTracks = fresh.map { item in
                         if let old = candidateTracks.min(by: { distance($0.latest,item) < distance($1.latest,item) }),
@@ -758,19 +773,20 @@ struct Fishing {
                             // Observe the early window transition: auto-loot can close it before a delayed check.
                             var visibleLootImage: CGImage?
                             var closedWithoutClick = false
-                            for _ in 0..<8 {
+                            var collection = LootObservation(startedAt: ProcessInfo.processInfo.systemUptime)
+                            while !collection.expired(at: ProcessInfo.processInfo.systemUptime) {
                                 guard valid() else { emit("stopped_focus_or_geometry"); return }
-                                if lootClose(lootImage) != nil {
-                                    visibleLootImage = lootImage
-                                } else if visibleLootImage != nil {
+                                let visible = lootClose(lootImage) != nil
+                                if visible { visibleLootImage = lootImage }
+                                if collection.observe(visible: visible, at: ProcessInfo.processInfo.systemUptime) {
                                     closedWithoutClick = true; break
                                 }
-                                try await Task.sleep(for: .milliseconds(80))
+                                try await Task.sleep(for: .milliseconds(100))
                                 after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
                                 lootImage = after.cropping(to: lootRect)!
                             }
                             if let visibleLootImage { save(visibleLootImage,directory.appendingPathComponent("after.jpg")) }
-                            if closedWithoutClick || (visibleLootImage != nil && lootClose(lootImage) == nil) {
+                            if closedWithoutClick {
                                 save(lootImage,directory.appendingPathComponent("collected.jpg"))
                                 emit("loot_collected", ["item": "<unreadable>", "labels_observed": [], "loot_clicks": 0,
                                     "completion_method": "observed_window_closed_without_script_click"])
@@ -823,7 +839,7 @@ struct Fishing {
                     invalidate("tracker_unavailable")
                     emit("tracking_temporarily_unavailable", ["frames": missing, "background_change": background])
                     if missing == 1 { save(image, directory.appendingPathComponent("first-missing.jpg")) }
-                    if missing > 3 { emit("stopped_target_lost"); return }
+                    if missing > 3 && !loop.armed { emit("stopped_target_lost"); return }
                 }
                 let remaining = 0.1-(ProcessInfo.processInfo.systemUptime-iterationAt)
                 if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }

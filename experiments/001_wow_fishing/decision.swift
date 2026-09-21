@@ -78,11 +78,15 @@ struct FishingLoop {
     private(set) var window: MotionWindow?
     var armed: Bool { if case .recovering = phase { return true }; return false }
 
-    mutating func invalidate() {
+    mutating func invalidate(preserveSupportedBite: Bool = false) {
         generation += 1
         observations.removeAll(keepingCapacity: true)
         since = nil; window = nil
         if case .finished = phase { return }
+        if preserveSupportedBite, case let .recovering(reference, deadline, _, _) = phase {
+            phase = .recovering(reference: reference, expiresAt: deadline, confirmations: 0, lastFrame: -.infinity)
+            return
+        }
         phase = .watching
     }
 
@@ -100,7 +104,7 @@ struct FishingLoop {
         since = since ?? capturedAt
         observations.append(FloatObservation(target: target, capturedAt: capturedAt, background: background))
         if observations.count > 7 { observations.removeFirst() }
-        window = observations.count == 7 && capturedAt-since! >= 1
+        window = (observations.count == 7 && capturedAt-since! >= 1) || (armed && observations.count >= 2)
             ? MotionWindow(generation: generation, observations: observations) : nil
     }
 
@@ -131,5 +135,22 @@ struct FishingLoop {
         phase = .recovering(reference: reference, expiresAt: deadline,
                             confirmations: count, lastFrame: window.current.capturedAt)
         return nil
+    }
+}
+
+// Auto-loot is a UI transition, independent of item names and OCR row detection.
+struct LootObservation {
+    private let deadline: Double
+    private var seen = false
+    private var absentFrames = 0
+    private var lastFrame = -Double.infinity
+    init(startedAt: Double) { deadline = startedAt+3 }
+    func expired(at time: Double) -> Bool { !time.isFinite || time >= deadline }
+    mutating func observe(visible: Bool, at time: Double) -> Bool {
+        guard time.isFinite, time > lastFrame, !expired(at: time) else { return false }
+        lastFrame = time
+        if visible { seen = true; absentFrames = 0 }
+        else if seen { absentFrames += 1 }
+        return seen && absentFrames >= 2
     }
 }
