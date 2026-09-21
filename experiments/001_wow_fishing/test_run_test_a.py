@@ -13,7 +13,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root/'experiments/001_wow_fishing'
-            for name in ['live.swift', 'motion.swift', 'motion-fixtures.png', 'jev.swift', 'loot.swift', 'loot-close.png', 'loot-layout.png', 'build.sh', 'page-two.png', 'rod-icon.png', 'split-bobber.png', 'split-bobber-before.png', 'bobber-no-red.png', 'bobber-no-red-before.png', 'run_test_a.py',
+            for name in ['live.swift', 'decision.swift', 'self_tests.swift', 'motion.swift', 'motion-fixtures.png', 'jev.swift', 'loot.swift', 'loot-close.png', 'loot-layout.png', 'build.sh', 'page-two.png', 'rod-icon.png', 'split-bobber.png', 'split-bobber-before.png', 'bobber-no-red.png', 'bobber-no-red-before.png', 'run_test_a.py',
                          'probes/background-click/Adapter.swift',
                          'probes/background-click/NativeWindowServerPreparation.swift',
                          'probes/background-click/NativeBackgroundClickTransport.swift']:
@@ -42,7 +42,11 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(record['input_tokens'], 100)
         self.assertTrue(record['perfect_run'])
         self.assertIn('--prepared', calls[1].args[0])
-        self.assertTrue(all('--jev' in call.args[0] for call in calls))
+        self.assertNotIn('--jev', calls[0].args[0])
+        self.assertIn('--jev', calls[1].args[0])
+        self.assertEqual(record['comparison_scope'], 'bite_policy_only')
+        self.assertIn('decision.swift', record['source_hashes'])
+        self.assertIn('self_tests.swift', record['source_hashes'])
 
     def test_provider_failure_stops_without_rules_fallback(self):
         record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_jev_error'}])
@@ -72,6 +76,16 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(record['input_mode'], 'targeted_without_activation')
         self.assertTrue(record['perfect_run'])
         self.assertEqual(record['focus_observations'], 2)
+
+    def test_camera_change_does_not_trigger_another_cast(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_camera_motion'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
+
+    def test_interruption_before_cast_verification_is_terminal(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_before_cast_verification'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertFalse(record['perfect_run'])
 
     def test_failed_preparation_never_casts(self):
         record, calls = self.run_case([{'event': 'pre_go_jev_not_ready'}])

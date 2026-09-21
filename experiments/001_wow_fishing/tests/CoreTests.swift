@@ -76,7 +76,7 @@ struct CoreTests {
         check(loop.takeClick(at: 1.62) == nil, "click is consumed exactly once")
         loop.invalidate()
         for i in 17...29 { feed(&loop, Double(i)/10) }
-        check(!loop.arm(loop.window!, now: 2.91), "invalidation cannot resurrect a completed cast")
+        check(!loop.arm(loop.window!, now: 2.91), "invalidation cannot resurrectitate a completed cast")
 
         loop = warm()
         let old = loop.window!
@@ -141,7 +141,11 @@ struct CoreTests {
         let flat = [Double](repeating: 20, count: 64*64)
         check(pixelMotion(previous: flat, current: flat, width: 64, height: 64, centre: centre) == nil, "textureless water abstains")
 
+        #if canImport(FoundationNetworking)
         let session = FakeSession(configuration: .ephemeral)
+        #else
+        let session = FakeSession()
+        #endif
         let client = try JevClient(key: "offline-fixture", limit: 8, session: session)
         defer { client.cancel() }
         var events: [[String: Any]] = []

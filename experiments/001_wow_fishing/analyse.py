@@ -17,7 +17,6 @@ import urllib.error
 import urllib.request
 import uuid
 
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = "jev-1.13.0"
@@ -98,6 +97,8 @@ def ask(state, key):
 
 
 def measurements(video):
+    import numpy as np  # Only video decoding requires NumPy, not the pure rules.
+
     probe = subprocess.check_output([
         "ffprobe", "-v", "error", "-read_intervals", "%+36", "-select_streams", "v:0",
         "-show_frames", "-show_streams", "-show_entries",
@@ -146,6 +147,8 @@ def measurements(video):
 
 
 def main():
+    import numpy as np
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("video", type=Path)
     parser.add_argument("--jev", action="store_true", help="Send four measured states to Jev; no retries")
