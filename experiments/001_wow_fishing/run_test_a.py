@@ -1,4 +1,4 @@
-"""Run bounded fishing rules (A) or Jev decisions (B), with exactly one pre-go."""
+"""Compare bite policies with identical preparation, observations and input checks."""
 
 import argparse
 from datetime import datetime, timezone
@@ -31,11 +31,11 @@ def invoke(arguments, timeout):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--background', action='store_true')
-    parser.add_argument('--jev', action='store_true', help='Test B: provider-backed pre-go and fishing decisions')
+    parser.add_argument('--jev', action='store_true', help='Test B: provider-backed bite decisions; shared deterministic preparation')
     args = parser.parse_args()
     label = 'B' if args.jev else 'A'
     if args.jev:
-        if not os.environ.get('TYPESAFE_API_KEY'):
+        if not os.environ.get('TYPESAFE_API_KEY') and (ROOT / '.env').is_file():
             for line in (ROOT / '.env').read_text().splitlines():
                 name, sep, value = line.removeprefix('export ').partition('=')
                 if sep and name.strip() == 'TYPESAFE_API_KEY':
@@ -44,12 +44,12 @@ def main():
             raise SystemExit('Set TYPESAFE_API_KEY locally before Test B')
         os.environ['JEV_CALL_LIMIT'] = '120'
     mode = ['--background'] if args.background else []
-    if args.jev:
-        mode.append('--jev')
+    policy_mode = mode + (['--jev'] if args.jev else [])
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '_' + uuid.uuid4().hex[:6]
     folder = ROOT / 'runs' / '001_wow_fishing' / ('test_' + label.lower() + '_' + run_id)
     folder.mkdir(parents=True)
-    record = {'policy': 'jev' if args.jev else 'rules', 'call_budget': 120 if args.jev else 0, 'status': 'running', 'mode': 'targeted' if args.background else 'foreground',
+    record = {'protocol': 'anchored-pixel-bite-only-v1', 'comparison_scope': 'bite_policy_only',
+              'policy': 'jev' if args.jev else 'rules', 'call_budget': 120 if args.jev else 0, 'status': 'running', 'mode': 'targeted' if args.background else 'foreground',
               'input_mode': 'targeted_without_activation' if args.background else 'foreground_without_activation',
               'game_foreground_observed': False, 'focus_observations': 0,
               'target_seconds': 300, 'pre_go_runs': 1, 'provider_calls': 0,
@@ -57,7 +57,7 @@ def main():
     source = ROOT / 'experiments' / '001_wow_fishing'
     record['source_hashes'] = {
         str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in [source/'live.swift', source/'motion.swift', source/'motion-fixtures.png', source/'jev.swift', source/'loot.swift', source/'loot-close.png', source/'loot-layout.png', source/'build.sh', source/'page-two.png', source/'rod-icon.png', source/'split-bobber.png', source/'split-bobber-before.png', source/'bobber-no-red.png', source/'bobber-no-red-before.png', source/'run_test_a.py',
+        for p in [source/'live.swift', source/'decision.swift', source/'self_tests.swift', source/'motion.swift', source/'motion-fixtures.png', source/'jev.swift', source/'loot.swift', source/'loot-close.png', source/'loot-layout.png', source/'build.sh', source/'page-two.png', source/'rod-icon.png', source/'split-bobber.png', source/'split-bobber-before.png', source/'bobber-no-red.png', source/'bobber-no-red-before.png', source/'run_test_a.py',
                   source/'probes/background-click/Adapter.swift',
                   source/'probes/background-click/NativeWindowServerPreparation.swift',
                   source/'probes/background-click/NativeBackgroundClickTransport.swift']}
@@ -89,7 +89,7 @@ def main():
         # This bounds normal completion to 300 seconds plus at most one 45-second cycle.
         while time.monotonic()-started < 300:
             number = len(record['cycles']) + 1
-            result, events = invoke(['--execute', '--prepared', *mode], 45)
+            result, events = invoke(['--execute', '--prepared', *policy_mode], 45)
             account(events)
             (folder/f'cycle-{number:02d}.log').write_text(result.stdout + result.stderr)
             collected = any(e['event'] == 'loot_collected' for e in events)
@@ -106,8 +106,10 @@ def main():
             if consecutive_failures >= 3:
                 record['status'] = 'stopped_after_three_consecutive_failures'
                 break
-            if result.returncode or any(e['event'] in ['stopped_focus_or_geometry', 'stopped_before_click',
-                                                       'loot_item_unconfirmed', 'loot_not_cleared', 'loot_layout_unconfirmed', 'loot_batch_limit', 'retrieval_unverified', 'stopped_jev_error', 'stopped_jev_budget'] for e in events):
+            # A native safety stop is terminal. Never repair a changed view by recasting.
+            if result.returncode or any(e['event'].startswith('stopped_') or e['event'] in [
+                    'loot_item_unconfirmed', 'loot_not_cleared', 'loot_layout_unconfirmed',
+                    'loot_batch_limit', 'retrieval_unverified'] for e in events):
                 record['status'] = 'stopped_for_review'
                 break
             time.sleep(0.5)

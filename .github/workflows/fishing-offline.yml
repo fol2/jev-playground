@@ -34,6 +34,7 @@ jobs:
       - name: Test the pure core with fake time and HTTP (no capture, input or provider)
         run: sh experiments/001_wow_fishing/test_core.sh
       - name: Compile and run native offline checks (no capture, input or provider)
+        if: always()
         run: sh experiments/001_wow_fishing/build.sh
       - name: Run Python offline tests
         if: always()
