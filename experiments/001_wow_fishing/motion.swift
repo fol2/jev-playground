@@ -36,13 +36,15 @@ func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
     guard previous.count==width*height,current.count==previous.count,
           cx>=half,cy>=half,cx+half<=width,cy+half<=height else {return nil}
     var template=[Double]()
+    template.reserveCapacity(400)
     for y in cy-half..<cy+half {for x in cx-half..<cx+half {template.append(previous[y*width+x])}}
     let count=Double(template.count), mean=template.reduce(0,+)/count
     template=template.map {$0-mean}
     let norm=sqrt(template.reduce(0){$0+$1*$1})
-    guard norm>1 else {return nil}
+    guard norm.isFinite, norm>1 else {return nil}
     template=template.map {$0/norm}
     var scores=[(value:Double,dx:Int,dy:Int)]()
+    scores.reserveCapacity(625)
     let side = radius*2+1
     var surface = [Double](repeating: -.infinity, count: side*side)
     for dy in -radius...radius {for dx in -radius...radius {
@@ -53,11 +55,14 @@ func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
             let value=current[y*width+x]
             sum+=value;squared+=value*value;dot+=value*template[index];index+=1
         }}
+        guard sum.isFinite, squared.isFinite, dot.isFinite else {return nil}
         let correlation=dot/sqrt(max(1,squared-sum*sum/count))
+        guard correlation.isFinite else {return nil}
         scores.append((correlation,dx,dy))
         surface[(dy+radius)*side+dx+radius] = correlation
     }}
-    guard let best=scores.max(by:{$0.value<$1.value}) else {return nil}
+    guard let best=scores.max(by:{$0.value<$1.value}), best.value>=0.55,
+          abs(best.dx)<radius,abs(best.dy)<radius else {return nil}
     // Compare distinct local maxima, not the shoulder of the same broad peak.
     func peak(_ candidate: (value: Double, dx: Int, dy: Int)) -> Bool {
         for dy in -1...1 { for dx in -1...1 {
@@ -68,8 +73,7 @@ func pixelMotion(previous: [Double], current: [Double], width: Int, height: Int,
     }
     let alternative=scores.filter {abs($0.dx-best.dx)+abs($0.dy-best.dy)>3 && peak($0)}.map(\.value).max() ?? 0
     // A peak at the search boundary may be a clipped larger movement, not a location.
-    guard best.value>=0.55,best.value-alternative>=0.10,
-          abs(best.dx)<radius,abs(best.dy)<radius else {return nil}
+    guard best.value-alternative>=0.10 else {return nil}
     func refine(_ horizontal:Bool) -> Double {
         let left=scores.first {$0.dx==best.dx-(horizontal ? 1:0) && $0.dy==best.dy-(horizontal ? 0:1)}?.value
         let right=scores.first {$0.dx==best.dx+(horizontal ? 1:0) && $0.dy==best.dy+(horizontal ? 0:1)}?.value
