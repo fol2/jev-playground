@@ -19,7 +19,7 @@ several casts. It indicates interaction availability, not bite onset. Cursor
 motion/appearance must not become the bite signal. Cast 1 also contains a visible
 splash without the cursor beside the float at that moment.
 
-The strips are sampled at the exact source frame indices/PTS in
+The strips are sampled at the retained-video frame indices/PTS in
 [sampled-frames.json](sampled-frames.json). They illustrate the sequence but are
 not exhaustive frame-by-frame onset labels. Approximate review intervals are in
 [manifest.json](manifest.json); exact earliest visual onset remains to be labelled.
@@ -34,18 +34,20 @@ negative. Casts 1, 3, 4 and 5 show the subsequent loot window in the recording.
 - Observed window bounds: (0, 0, 2560, 1440). Full-screen/windowed mode and UI-scale
   setting were not independently classified; this pilot uses one fixed geometry.
 - Window-only crop: (750, 250, 1000, 550), encoded at 1000 x 550; requested 30 fps,
-  actual presentation timestamps retained. Cursor included, audio disabled.
+  variable frame rate. Cursor included, audio disabled. See the timing correction below.
 - Initial 35-second clips could end too early because capture started before the
   input call. Casts 4 and 5 used a 45-second limit.
 - Retained detail crop: (440, 160, 280, 240) within the recording, without spatial
   resizing or frame-rate reduction. This is a manually selected analysis region,
   not proof that automatic acquisition works.
 - Cropped H.264 was encoded losslessly relative to the decoded capture. Source
-  capture itself was H.264, not a lossless screen master. Per-frame decoded hashes
-  and timestamps were compared before deleting larger duplicates.
+  capture itself was H.264, not a lossless screen master. Decoded crops were compared before deleting larger duplicates. The earlier
+  timestamp check normalised decoder output: exact original PTS preservation was
+  not established and cannot now be recovered. Use this batch for appearance,
+  not precise latency or frame-rate threshold claims.
 - Five detail videos plus metadata and one context still per cast occupy about
-  20.7 MB locally under `data/001_wow_fishing/pilot_20260921/`. Full videos stay out
-  of Git; this folder contains only a small review sheet, manifest and findings.
+  20.7 MB under `data/001_wow_fishing/pilot_20260921/`. The owner explicitly
+  authorised publishing the retained videos and annotations on 21 September.
 - Source and retained file hashes remain in the manifest. The bounded recorder
   source is retained with the local data as `recorder.swift`.
 
@@ -59,8 +61,8 @@ All five retained clips were verified by decoded frame counts (1028, 997, 1006,
 ## Next decision
 
 Use these small clips to compare local appearance change around the float with
-ordinary bobbing and cursor motion. Test the proposed observations at 30, 15 and
-10 fps using actual timestamps before choosing a runtime sampling rate. Do not
+ordinary bobbing and cursor motion. Use the later angle pilot (with directly verified original PTS) for timing
+and sampling-rate experiments. Do not
 add another tracking fallback or tune a downward-pixel threshold solely on these
 four positives. A new scene/scale and complete held-out casts remain necessary.
 No live detector, policy or input behaviour was changed during this pilot.

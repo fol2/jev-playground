@@ -1,0 +1,197 @@
+[
+  {
+    "path": "data/001_wow_fishing/20260920T162733Z_00f93bdd.json",
+    "bytes": 297,
+    "sha256": "645423b03b2ef5be11ccc489bdcabd94e714dd3e95326f4b399d80524e3809e8"
+  },
+  {
+    "path": "data/001_wow_fishing/20260920T162733Z_00f93bdd.mov",
+    "bytes": 12625806,
+    "sha256": "6d8207c3519fa5f61ffbe0c267e58ebc859c7854e564b6367f243c9a0b550611"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/README.md",
+    "bytes": 3609,
+    "sha256": "df333828fe01d980586882b0e2be20f2e1e11e6898f4498c5aa8879997137ce6"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-01-context.png",
+    "bytes": 353812,
+    "sha256": "6ca0156fe2c00bca09830271f47564add999186814454d4113fca24f71cf9fd8"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-01-detail.mp4",
+    "bytes": 6305041,
+    "sha256": "76fee6015dc07ce448381db993351aa54d6bad4639eb64b42cb0fd74ae7268b1"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-01.json",
+    "bytes": 310,
+    "sha256": "27c31ffae59c7f620f080112d9c6fbf90913c04b26f3b4f911faa94a13379bf1"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-02-context.png",
+    "bytes": 353525,
+    "sha256": "abbb0950964a8a0a4d19f67a14e84ea9a333f2986e724b9d29d0350e823e52f6"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-02-detail.mp4",
+    "bytes": 8767082,
+    "sha256": "92d20a185c320ad461ef355d1e28f394d9869cb44b8c19b49d5e007726ae7f9a"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/far-02.json",
+    "bytes": 310,
+    "sha256": "e6446d5ddda11e27ab20ed5b1be7a366cb1f0ab0f0ef97049b3a576fffdcacbb"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-01-context.png",
+    "bytes": 343809,
+    "sha256": "9b804f2897ce234f42969b5d29e57b9033e4df124fc3b56de30362d2f2aed081"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-01-tail-context.png",
+    "bytes": 347191,
+    "sha256": "29af62ecc768901be252046413c2272c4dada06b12b51a38ecbb8daab184b703"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-01-tail-detail.mp4",
+    "bytes": 7342981,
+    "sha256": "be9dc730f06b70cd5b60f3758a81d9260792cfe5fc2d4af266c40bea643501ea"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-01-tail.json",
+    "bytes": 310,
+    "sha256": "2e0e0683bdf2f8001df218ed335dbf54abbf4a2fa69d9fbb499c17f6a836950b"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-01.json",
+    "bytes": 310,
+    "sha256": "1a4b2ee354baa0a7dfb16ea64c1f517cd9d3308ffdb6bd7e8426e31bf922d9d9"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-02-context.png",
+    "bytes": 347431,
+    "sha256": "31313cdfc76dbf7b7dc541315fcb063f7d10526f83c10000124de5b2bd1d4b62"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-02-detail.mp4",
+    "bytes": 8582346,
+    "sha256": "79fafad48964ff091ca118574a6eb64e8df6ec92504b05d4915bf78a20339ca4"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/high-02.json",
+    "bytes": 310,
+    "sha256": "b436c035175173937497e6199d01673c5029baf3106370e9fa62eca0b6b3305e"
+  },
+  {
+    "path": "data/001_wow_fishing/angles_20260921/session.json",
+    "bytes": 5026,
+    "sha256": "753bd718928774ca3df9d443026f88246be33c3fb08094f29bcf0903ec523acb"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/annotations.json",
+    "bytes": 6656,
+    "sha256": "f7f230163015ee5b4b04b1781d1559eef6052161dc265ec8c1c091248c5bf0e6"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/capture-check.json",
+    "bytes": 309,
+    "sha256": "b5b126d7c9bb10c98328576748a82f94afb48aba3126a666f4610c83fd8bbf7c"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-01-context.png",
+    "bytes": 352779,
+    "sha256": "c218bffdd1e184547f017f747c5694680192650ad6f825ad78c4715e8a8fb5fa"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-01-detail.mp4",
+    "bytes": 3188712,
+    "sha256": "267b164dea823c068bd2e2bfa45e79fbcb89600f9c2a51cf3ce36d66cdaf39b1"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-01-valid.json",
+    "bytes": 310,
+    "sha256": "60e95f9de8c24c7d4f875950a65f3a94bd119dd817e86fbdd946b6e9e4c1d1fe"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-01.json",
+    "bytes": 310,
+    "sha256": "19f6e8369177da32eaa9d5863406097afa1f56dec8fa1fdec5c43d086719f9e1"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-02-context.png",
+    "bytes": 349692,
+    "sha256": "b828689959ae01dd76e86215c38b27ce4314281fcd4503485280a06161e0f1c9"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-02-detail.mp4",
+    "bytes": 3765790,
+    "sha256": "79fb426299887749c645fb468e8a1633b4ac92228dc666c48347088da93d28dc"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-02.json",
+    "bytes": 310,
+    "sha256": "8ce6235e65aa5f738e1da5811d9c65b6172f24e84215ea1e24a9f1d042614787"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-03-context.png",
+    "bytes": 338538,
+    "sha256": "68f6176a5bb8001c04f5e186ac99b902226c5a79e88f909ac1da540dca4ec4e1"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-03-detail.mp4",
+    "bytes": 3595270,
+    "sha256": "0e1a45ce5b6c21379788358b3c0ac5edfe40136c008e3a01c11968fc9c862f49"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-03.json",
+    "bytes": 310,
+    "sha256": "35079bb633c95948b8104a03e72cffb72ac561ab9a3ab1ad9af35bb6b722057e"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-04-context.png",
+    "bytes": 378412,
+    "sha256": "f87ae9c5d841a36af6b5e0ea870a5465b027955fb52b434f5f2e72f1665bc317"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-04-detail.mp4",
+    "bytes": 4088204,
+    "sha256": "2ebfbd7a42ce27f01266eec41bbde08ff083d3ce42ee89f1115fff12098e5c51"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-04.json",
+    "bytes": 310,
+    "sha256": "94b746835e5a0fba37d01e53ef27c3e52af87692807695cd4a365b14346d683a"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-05-context.png",
+    "bytes": 355623,
+    "sha256": "5d4e310d2a070d9bf1ad2f258dfa8d1bd1ad6a5a44116836532feddb73af2a6f"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-05-detail.mp4",
+    "bytes": 4270119,
+    "sha256": "0e216ec7438fbf6e426beb2765dfc477a2aac053944ab1109b0855f32a88a74a"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/cast-05.json",
+    "bytes": 310,
+    "sha256": "40e023c81fbd5b66334f5da8ab5edf60c7d0ad931f579981c3221b43119d0bb2"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/check-buffer.json",
+    "bytes": 309,
+    "sha256": "9123a57dedd8a4800e396a6838b8ed74a123e1a68c73e25983368a9ec2cc3fd5"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/check-writer.json",
+    "bytes": 309,
+    "sha256": "11cf830c45107d005b6acfdf9098ce754ae5a6b970f87a2ead977e7adf523294"
+  },
+  {
+    "path": "data/001_wow_fishing/pilot_20260921/recorder.swift",
+    "bytes": 3494,
+    "sha256": "833ed1ab6790924f8022b71773e2cd1793db8150383ad52b945f9ebd9cf81d47"
+  }
+]

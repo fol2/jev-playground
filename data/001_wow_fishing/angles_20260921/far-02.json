@@ -1,0 +1,19 @@
+{
+  "audio" : false,
+  "crop_window_coordinates" : [
+    750,
+    250,
+    1000,
+    550
+  ],
+  "cursor" : true,
+  "output_pixels" : [
+    1000,
+    550
+  ],
+  "requested_fps" : 30,
+  "seconds" : 45,
+  "started_utc" : "2026-09-21T12:42:08Z",
+  "window_bounds" : "{{0, 0}, {2560, 1440}}",
+  "window_id" : 5890
+}
