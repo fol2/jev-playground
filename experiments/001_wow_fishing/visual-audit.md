@@ -1,7 +1,7 @@
 # Visual regression audit — 21 September 2026
 
 The expanded visual pipeline is not an accepted replacement for the earlier
-fixed-scene baseline. The observation contract has a locally tested correction awaiting live validation. Passing local checks is not five-minute fishing acceptance.
+fixed-scene baseline. The observation contract has a locally tested correction with failed live validation recorded below. Passing local checks is not five-minute fishing acceptance.
 
 ## Confirmed regression: tracker dropout became a bite
 
@@ -58,7 +58,7 @@ patch sequences are sufficient for these regressions; they do not replace live
 acceptance. Retain the earlier baseline and all failed runs, and change one layer
 at a time. No universal environmental support or five-minute parity is claimed.
 
-## Pixel-motion correction awaiting live validation
+## Pixel-motion correction and subsequent live failure
 
 The current snapshot uses Vision for localisation and direct frame-to-frame image
 correlation for displacement. The acquisition footprint is retained as reference
@@ -72,3 +72,13 @@ The [compact review evidence](evidence/2026-09-21-visual-regression/README.md)
 contains logs, source hashes, small signal patches and a parallel-review hand-off.
 The priority is to simplify the observation-to-action loop, not accumulate more
 special cases. The monolithic controller remains a known maintenance problem.
+
+## Subsequent live attempt on commit 98bd6a6
+
+[Retained live evidence](evidence/2026-09-21-pixel-motion-live/README.md): 4/7 verified
+loot cycles over 147.99 seconds; stopped after three consecutive failures. Cycle 6
+acquired scenery at (198.55, 143.36), while the visible float was around (590, 167).
+The acquisition event overclaims object identity: a persistent changed component
+is not sufficient visual proof of a float. Cycles 5 and 7 timed out; retained stills
+are insufficient to establish exact bite timing. The observer remains unaccepted.
+No further recovery patches were added during or after this run.
