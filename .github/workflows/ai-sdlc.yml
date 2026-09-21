@@ -1,0 +1,50 @@
+{
+  "name": "AI-SDLC",
+  "on": {
+    "pull_request": {
+      "branches": [
+        "main"
+      ]
+    },
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "ai-sdlc-${{ github.event.pull_request.number || github.ref }}",
+    "cancel-in-progress": true
+  },
+  "jobs": {
+    "focus": {
+      "name": "Focus Gate",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Validate the exact source candidate",
+          "env": {
+            "BASE": "${{ github.event.pull_request.base.sha || github.event.before }}",
+            "HEAD": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "EVENT": "${{ github.event_name }}"
+          },
+          "shell": "bash",
+          "run": "set -euo pipefail\nif [ -z \"$BASE\" ]; then BASE=\"$(git rev-parse HEAD^)\"; fi\nargs=(check --base \"$BASE\" --head \"$HEAD\")\nif [ \"$EVENT\" = \"workflow_dispatch\" ]; then args+=(--full); fi\npython3 tools/sdlc.py \"${args[@]}\" > \"$RUNNER_TEMP/sdlc.json\"\ncat \"$RUNNER_TEMP/sdlc.json\"\n{ printf '### Exact-head source evidence\n```json\n'; cat \"$RUNNER_TEMP/sdlc.json\"; printf '\n```\n'; } >> \"$GITHUB_STEP_SUMMARY\"\n"
+        }
+      ]
+    }
+  }
+}
