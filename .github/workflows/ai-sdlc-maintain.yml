@@ -1,0 +1,38 @@
+{
+  "name": "AI-SDLC maintenance",
+  "on": {
+    "workflow_run": {
+      "workflows": [
+        "AI-SDLC"
+      ],
+      "types": [
+        "completed"
+      ]
+    }
+  },
+  "permissions": {
+    "contents": "read",
+    "issues": "write",
+    "actions": "read"
+  },
+  "concurrency": {
+    "group": "ai-sdlc-main-repair",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "repair": {
+      "name": "Record repair intent",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 3,
+      "if": "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'",
+      "steps": [
+        {
+          "uses": "actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd",
+          "with": {
+            "script": "const run = context.payload.workflow_run;\nconst repo = context.repo;\nconst fullName = `${repo.owner}/${repo.repo}`;\nif (!run || run.event !== 'push' || run.head_branch !== 'main' ||\n    run.head_repository?.full_name !== fullName ||\n    run.path !== '.github/workflows/ai-sdlc.yml' ||\n    !/^[0-9a-f]{40}$/.test(run.head_sha) || !Number.isSafeInteger(run.id)) return;\nif (!['success', 'failure', 'timed_out', 'action_required'].includes(run.conclusion)) return;\nconst {data: workflow} = await github.rest.actions.getWorkflow({...repo, workflow_id: 'ai-sdlc.yml'});\nif (workflow.id !== run.workflow_id || workflow.path !== run.path) return;\nconst {data: branch} = await github.rest.repos.getBranch({...repo, branch: 'main'});\nif (branch.commit.sha !== run.head_sha) return; // superseded runs are history, not current incidents\nconst marker = '<!-- ai-sdlc-current-main-repair -->';\nconst issues = await github.paginate(github.rest.issues.listForRepo, {...repo, state: 'open', creator: 'github-actions[bot]', per_page: 100});\nconst issue = issues.find(i => !i.pull_request && i.user?.login === 'github-actions[bot]' && i.body?.startsWith(marker));\nif (run.conclusion === 'success') {\n  if (issue) await github.rest.issues.update({...repo, issue_number: issue.number, state: 'closed', state_reason: 'completed'});\n  return;\n}\nconst body = `${marker}\n# Repair intent: current-main source gate\nOutcome: restore the failing maintained contract without weakening acceptance.\nHead: ${run.head_sha}\nEvidence: https://github.com/${fullName}/actions/runs/${run.id}\nConclusion: ${run.conclusion}\nConstraints: source-only; no live-machine effects, providers, credentials or spend.\nNext executing agent: claim this issue, diagnose the exact failure, add its regression,\nimplement one bounded repair PR, review, merge and observe main. Do not replay unrelated\nresearch or retry unchanged evidence. This issue is an intent, not a running AI worker.`;\nif (issue) {\n  if (issue.body !== body) await github.rest.issues.update({...repo, issue_number: issue.number, body});\n} else {\n  await github.rest.issues.create({...repo, title: '[AI-SDLC repair] Current-main source gate', body});\n}\n"
+          }
+        }
+      ]
+    }
+  }
+}
