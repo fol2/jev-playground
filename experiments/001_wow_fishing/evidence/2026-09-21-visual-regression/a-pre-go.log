@@ -1,0 +1,6 @@
+{"event":"focus_observed","game_foreground":false,"seconds":0.30750224998337217,"targeted_input":true}
+{"event":"pre_go_begin","seconds":0.30989316664636135}
+{"event":"dismissed_character_beta_error","seconds":2.5302340000052936}
+{"event":"pre_go_rod_verified","seconds":3.6041690416750498}
+{"event":"pre_go_controls_verified","page":2,"seconds":4.7140454166510608,"slot":1}
+{"event":"pre_go_pass","output":"runs\/001_wow_fishing\/live_1789951818_B9FCD0","seconds":4.7141446666500997,"water":"requires_post_cast_visible_float"}

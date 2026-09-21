@@ -1,0 +1,9 @@
+{"event":"focus_observed","game_foreground":false,"seconds":0.30235637500300072,"targeted_input":true}
+{"event":"pre_go_begin","seconds":0.30731070833280683}
+{"event":"dismissed_character_beta_error","seconds":2.2466142916819081}
+{"event":"pre_go_switching_from_main_weapon","seconds":3.2539990833320189}
+{"correlation":0.83374980020886313,"event":"pre_go_rod_icon_candidate","seconds":3.7123224583338015,"x":0.88380000000000003,"y":0.82400000000000007}
+{"event":"dismissed_character_beta_error_after_equipping","seconds":6.8438361666630954}
+{"event":"pre_go_rod_verified","seconds":7.8930030833289493}
+{"event":"pre_go_controls_verified","page":2,"seconds":8.9117032083449885,"slot":1}
+{"event":"pre_go_pass","output":"runs\/001_wow_fishing\/live_1789954302_5DBC39","seconds":8.9117870416666847,"water":"requires_post_cast_visible_float"}

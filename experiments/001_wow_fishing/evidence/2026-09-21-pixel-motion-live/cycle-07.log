@@ -1,0 +1,9 @@
+{"event":"focus_observed","game_foreground":false,"seconds":0.30733620832324959,"targeted_input":true}
+{"crop":[51,115,2125,677],"event":"ready","execute":true,"height":338,"output":"runs\/001_wow_fishing\/live_1789954428_4776E7","seconds":0.47271687499596737,"width":1062}
+{"event":"cast","seconds":0.6246817083156202}
+{"event":"cast_channel_verified","seconds":1.3004238749854267}
+{"area":21,"event":"target_acquired","novelty":1005.6666666666667,"seconds":2.4049025833082851,"x":573.41666666666663,"y":180.83333333333334}
+{"event":"post_cast_visible_float_verified","seconds":2.4077726666582748}
+{"background_change":2.071744124403605,"event":"tracking_temporarily_unavailable","frames":1,"seconds":22.353897666645935}
+{"event":"tracking_restored_waiting_for_stable_history","gap_frames":1,"seconds":22.453760333330138}
+{"event":"timed_out_without_click","seconds":30.661006708309287}

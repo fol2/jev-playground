@@ -13,10 +13,39 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CODE = {"tools/sdlc.py", "tools/merge_pr.py", "tests/test_sdlc.py",
-        "tests/test_merge_pr.py", "tests/test_maintenance.cjs"}
+        "tests/test_merge_pr.py", "tests/test_maintenance.cjs", "tools/fishing_offline.py",
+        "tests/test_visual_route.py"}
 POLICY = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore",
           ".github/pull_request_template.md", "docs/agents/ai-sdlc.md",
           ".github/workflows/ai-sdlc.yml", ".github/workflows/ai-sdlc-maintain.yml"}
+FISHING = "experiments/001_wow_fishing/"
+FISHING_CODE = {FISHING + name for name in """
+analyse.py background.swift build.sh decision.swift jev.swift live.swift loot.swift motion.swift
+probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
+probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
+record.py run_test_a.py self_tests.swift setup_camera.sh setup_camera.swift test_analyse.py
+test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
+""".split()} | {"data/001_wow_fishing/pilot_20260921/recorder.swift"}
+
+VISUAL = "experiments/002_wow_visual/"
+VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
+# Load and count the suite here. Running the file trusts its own __main__, so deleting
+# that one line would exit 0 having run nothing; a missing module raises instead.
+VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
+                "suite = unittest.defaultTestLoader.loadTestsFromModule(m); "
+                "assert suite.countTestCases() >= 6, 'visual contract suite lost its tests'; "
+                "sys.exit(not unittest.TextTestRunner().run(suite).wasSuccessful())")
+
+
+def fishing_path(path: str) -> bool:
+    if path in FISHING_CODE or path == ".github/workflows/fishing-offline.yml":
+        return True
+    suffix = PurePosixPath(path).suffix
+    if path.startswith(FISHING):
+        return suffix in {".md", ".png", ".jpg", ".json", ".jsonl", ".log"} or path == FISHING + "probes/background-click/LICENSE"
+    return path.startswith("data/001_wow_fishing/") and suffix in {".mp4", ".mov", ".png", ".json", ".md"}
+
+
 REQUIRED = CODE | POLICY | {"README.md"}
 
 
@@ -35,6 +64,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
     if not changes:
         raise GateError("empty diff: no acceptance claim to validate")
     full = False
+    fishing = False
+    visual = False
     for status, path in changes:
         parts = PurePosixPath(path).parts
         if (not path or path.startswith("/") or "\\" in path or
@@ -43,14 +74,19 @@ def route(changes: list[tuple[str, str]]) -> dict:
             raise GateError("malformed diff path/status")
         if path in CODE | POLICY:
             full = True
-        elif path == "README.md" or (len(parts) == 3 and parts[:2] == ("docs", "changes")
-                                      and path.endswith(".md")):
+        elif path in VISUAL_CODE or path == VISUAL + "README.md":
+            visual = True
+        elif fishing_path(path):
+            fishing = True
+        elif path in {"README.md", "experiments/README.md"} or (
+                len(parts) == 3 and parts[:2] == ("docs", "changes") and path.endswith(".md")):
             full |= status != "M"  # added/deleted documentation gets the full contract
         else:
             raise GateError(f"unclassified path: {path}; register actual offline proof before promotion")
     return {"checks": ["integrity", "governance"] +
-            (["python-tests", "automation-tests"] if full else []),
-            "reason": "authority/code/addition/deletion" if full else "allowlisted documentation only",
+            (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []) +
+            (["visual-offline"] if visual else []),
+            "reason": "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
             "omitted": {"F3": "no real-runtime claim or live observation authority",
                         "F4": "source delivery grants no live-effect authority",
                         "model_calls": "deterministic proof; no provider or model runtime"}}
@@ -76,7 +112,7 @@ def inspect(base: str, head: str, cwd: Path = ROOT) -> dict:
         mode = metadata.split()[0]
         if mode not in {b"100644", b"100755"}:
             raise GateError("symlink/submodule is not a validated source surface")
-        if mode == b"100755" and name.decode() not in CODE:
+        if mode == b"100755" and name.decode() not in CODE | FISHING_CODE | VISUAL_CODE:
             raise GateError("unregistered executable mode")
         if name.decode() not in REQUIRED and name.decode() not in {p for _, p in changes}:
             route([("M", name.decode())])  # do not hide pre-existing unknown executable inputs
@@ -114,7 +150,8 @@ def contracts(root: Path = ROOT) -> None:
         if events != ({"pull_request", "push", "workflow_dispatch"} if name == "ai-sdlc" else {"workflow_run"}):
             raise GateError("workflow trigger drift")
         for job in workflow["jobs"].values():
-            if job.get("runs-on") != "ubuntu-24.04" or "permissions" in job or "container" in job:
+            expected_runner = "macos-14" if name == "ai-sdlc" else "ubuntu-24.04"
+            if job.get("runs-on") != expected_runner or "permissions" in job or "container" in job:
                 raise GateError("workflow runner/permission drift")
             for step in job["steps"]:
                 uses = step.get("uses", "")
@@ -140,19 +177,22 @@ def main() -> int:
     try:
         report = inspect(args.base, args.head)
         if args.full:
-            report["checks"] = ["integrity", "governance", "python-tests", "automation-tests"]
+            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "visual-offline"]))
             report["reason"] = "explicit full offline verification"
         if args.command == "check":
             contracts()
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
-                        "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"]}
+                        "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
+                        "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
+                        "visual-offline": [sys.executable, "-S", "-c", VISUAL_SUITE]}
             for check in report["checks"]:
                 if check in commands:
                     subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
             report["result"] = "PASS"
-        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
         report["model_tokens"] = 0  # this deterministic command only, not the author session
+        # Hash before timing: a manifest nobody can reproduce on a second run anchors nothing.
         report["manifest_sha256"] = hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
+        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
         print(json.dumps(report, indent=2))
         return 0
     except (GateError, OSError, UnicodeError, json.JSONDecodeError, SyntaxError,

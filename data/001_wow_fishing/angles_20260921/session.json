@@ -1,0 +1,157 @@
+{
+  "purpose": "small camera-angle and distance pilot; no automatic reel or Jev calls",
+  "window_bounds": [
+    0,
+    0,
+    2560,
+    1440
+  ],
+  "observed_minimap_coordinates": "65.1,73.2",
+  "previous_pilot_minimap_coordinates": "65.3,72.7",
+  "scene_confounded_against_previous_pilot": true,
+  "camera_bindings": {
+    "save_view_1": "Control+Option+F10",
+    "set_view_1": "Control+Option+F9",
+    "previous_bindings": "unbound",
+    "character_specific_checkbox": false
+  },
+  "camera_test": "Save current view, left-drag to near-overhead view, Set View 1 visibly returned to original pitch. Then left-drag upwards 35 screenshot pixels to establish visible-water baseline and save it. No movement or character-turn keys issued.",
+  "casts": [
+    {
+      "id": "high-01",
+      "files": [
+        "high-01.mp4",
+        "high-01-tail.mp4"
+      ],
+      "human_report": "cast occurred, no successful collection",
+      "note": "CUA actions were rejected for user-state drift before eventual cast; review timing before treating footage as complete."
+    },
+    {
+      "id": "high-02",
+      "files": [
+        "high-02.mp4"
+      ],
+      "human_report": "bite seen and fish collected"
+    },
+    {
+      "id": "far-01",
+      "files": [
+        "far-01.mp4"
+      ],
+      "human_report": "bite seen and fish collected"
+    },
+    {
+      "id": "far-02",
+      "files": [
+        "far-02.mp4"
+      ],
+      "human_report": "bite seen and fish collected"
+    }
+  ],
+  "zoom_restoration": "Set View 1 returned visible baseline framing and avatar size after two scroll-out actions; observed minimap coordinates unchanged.",
+  "recordings": [
+    {
+      "file": "high-01.mp4",
+      "sha256": "b3dbc49ca2b07a8e4585559a19a1c75eaf912e999e34aa319c5a60fb862c6743",
+      "bytes": 11368998,
+      "frames": 1295,
+      "duration": "45.070000",
+      "gaps_over_250ms": [],
+      "retention": "Context PNG and source hash; no cast visible in inspected recording."
+    },
+    {
+      "file": "high-01-tail.mp4",
+      "sha256": "c015186ac950f2afa23f440a3e33cf9c565e8f44ca81cfbb8ab6c7c673a365c5",
+      "bytes": 8907047,
+      "frames": 1002,
+      "duration": "35.231667",
+      "gaps_over_250ms": [],
+      "retained_file": "high-01-tail-detail.mp4",
+      "detail_crop": [
+        430,
+        70,
+        200,
+        180
+      ],
+      "retained_sha256": "be9dc730f06b70cd5b60f3758a81d9260792cfe5fc2d4af266c40bea643501ea",
+      "retained_bytes": 7342981,
+      "verified_decoded_pixels": true,
+      "verified_pts_tolerance_seconds": 0.0001,
+      "source_removed_after_verification": true
+    },
+    {
+      "file": "high-02.mp4",
+      "sha256": "c6e04af65ddd6ffca8bd6bf1e0622812bb3515368d5bcf6ba655f9236c6854aa",
+      "bytes": 11383684,
+      "frames": 1300,
+      "duration": "45.131667",
+      "gaps_over_250ms": [],
+      "retained_file": "high-02-detail.mp4",
+      "detail_crop": [
+        390,
+        0,
+        200,
+        180
+      ],
+      "retained_sha256": "79fafad48964ff091ca118574a6eb64e8df6ec92504b05d4915bf78a20339ca4",
+      "retained_bytes": 8582346,
+      "verified_decoded_pixels": true,
+      "verified_pts_tolerance_seconds": 0.0001,
+      "source_removed_after_verification": true
+    },
+    {
+      "file": "far-01.mp4",
+      "sha256": "a4532348f8006d9877142d918c3dd37075f0a263aa8542a24488f0d2f3881629",
+      "bytes": 11479079,
+      "frames": 801,
+      "duration": "45.306667",
+      "gaps_over_250ms": [
+        {
+          "before": 4.656667,
+          "after": 22.425,
+          "gap": 17.768333
+        },
+        {
+          "before": 22.425,
+          "after": 22.758333,
+          "gap": 0.333333
+        }
+      ],
+      "retained_file": "far-01-detail.mp4",
+      "detail_crop": [
+        460,
+        100,
+        200,
+        180
+      ],
+      "retained_sha256": "76fee6015dc07ce448381db993351aa54d6bad4639eb64b42cb0fd74ae7268b1",
+      "retained_bytes": 6305041,
+      "verified_decoded_pixels": true,
+      "verified_pts_tolerance_seconds": 0.0001,
+      "source_removed_after_verification": true
+    },
+    {
+      "file": "far-02.mp4",
+      "sha256": "1254b80da4b2ab1ee6b80fd086db84945e00b2a29cfa3a109c57d7e10848ac0e",
+      "bytes": 11458308,
+      "frames": 1310,
+      "duration": "45.268333",
+      "gaps_over_250ms": [],
+      "retained_file": "far-02-detail.mp4",
+      "detail_crop": [
+        520,
+        80,
+        200,
+        180
+      ],
+      "retained_sha256": "92d20a185c320ad461ef355d1e28f394d9869cb44b8c19b49d5e007726ae7f9a",
+      "retained_bytes": 8767082,
+      "verified_decoded_pixels": true,
+      "verified_pts_tolerance_seconds": 0.0001,
+      "source_removed_after_verification": true
+    }
+  ],
+  "retained_bytes": 32748818,
+  "timing_verification": "Compared decoded per-frame pixels and ffprobe PTS directly. Encoder and MP4 time base explicitly set to original 1/600. Every frame within 0.0001 seconds; no interpolation of the recorded gap.",
+  "source_scope": "Human-controlled collection, no Jev requests, no autonomous bite policy."
+}

@@ -1,0 +1,143 @@
+"""Provider-free checks of Test B budgeting and stop behaviour."""
+import json
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+import run_test_a as runner
+
+
+class RunnerTests(unittest.TestCase):
+    def run_case(self, prego, cycle=None, *, cycles=None):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root/'experiments/001_wow_fishing'
+            for name in ['live.swift', 'decision.swift', 'self_tests.swift', 'motion.swift', 'motion-fixtures.png', 'jev.swift', 'loot.swift', 'loot-close.png', 'loot-layout.png', 'build.sh', 'page-two.png', 'rod-icon.png', 'split-bobber.png', 'split-bobber-before.png', 'bobber-no-red.png', 'bobber-no-red-before.png', 'run_test_a.py',
+                         'probes/background-click/Adapter.swift',
+                         'probes/background-click/NativeWindowServerPreparation.swift',
+                         'probes/background-click/NativeBackgroundClickTransport.swift']:
+                path = source/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('fixture')
+            results = [(SimpleNamespace(returncode=0, stdout='', stderr=''), prego)]
+            cycles = cycles if cycles is not None else ([cycle] if cycle is not None else [])
+            results.extend((SimpleNamespace(returncode=0, stdout='', stderr=''), events) for events in cycles)
+            clock = [0] + [t for i in range(len(cycles)) for t in (i*10, i*10+5)] + [301, 301]
+            with patch.object(runner, 'ROOT', root), patch.object(runner, 'invoke', side_effect=results) as invoke, \
+                 patch('sys.argv', ['test', '--background', '--jev']), \
+                 patch.dict('os.environ', {'TYPESAFE_API_KEY': 'offline-fixture'}), \
+                 patch.object(runner.time, 'monotonic', side_effect=clock), \
+                 patch.object(runner.time, 'sleep'), patch('builtins.print'):
+                runner.main()
+                record = json.loads(next(root.glob('runs/*/*/summary.json')).read_text())
+                return record, invoke.call_args_list
+
+    def test_counts_actual_requests_and_usage(self):
+        record, calls = self.run_case(
+            [{'event': 'jev_request'}, {'event': 'pre_go_pass'}],
+            [{'event': 'jev_request'}, {'event': 'jev_response', 'request_seconds': 0.3,
+              'response': {'usage': {'input_tokens': 100, 'output_tokens': 20}}},
+             {'event': 'loot_collected', 'item': 'Fresh fish'}])
+        self.assertEqual(record['provider_calls'], 2)
+        self.assertEqual(record['input_tokens'], 100)
+        self.assertTrue(record['perfect_run'])
+        self.assertIn('--prepared', calls[1].args[0])
+        self.assertNotIn('--jev', calls[0].args[0])
+        self.assertIn('--jev', calls[1].args[0])
+        self.assertEqual(record['comparison_scope'], 'bite_policy_only')
+        self.assertIn('decision.swift', record['source_hashes'])
+        self.assertIn('self_tests.swift', record['source_hashes'])
+
+    def test_provider_failure_stops_without_rules_fallback(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_jev_error'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertFalse(record['perfect_run'])
+        self.assertEqual(len(calls), 2)
+
+    def test_unverified_retrieval_stops_for_review(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'retrieval_unverified'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(record['unverified_retrievals'], 1)
+        self.assertFalse(record['perfect_run'])
+
+    def test_unknown_label_is_not_a_collection_failure(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            [{'event': 'loot_collected', 'item': '<unreadable>', 'labels_observed': [], 'loot_clicks': 0}])
+        self.assertEqual(record['verified_loot_cycles'], 1)
+        self.assertTrue(record['perfect_run'])
+        self.assertEqual(record['cycles'][0]['loot_clicks'], 0)
+
+    def test_user_foreground_choice_does_not_fail_or_claim_full_background(self):
+        record, calls = self.run_case(
+            [{'event': 'focus_observed', 'game_foreground': True}, {'event': 'pre_go_pass'}],
+            [{'event': 'focus_observed', 'game_foreground': False},
+             {'event': 'loot_collected', 'item': '<unreadable>', 'loot_clicks': 0}])
+        self.assertEqual(record['mode'], 'targeted_mixed_focus')
+        self.assertEqual(record['input_mode'], 'targeted_without_activation')
+        self.assertTrue(record['perfect_run'])
+        self.assertEqual(record['focus_observations'], 2)
+
+    def test_camera_change_does_not_trigger_another_cast(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_camera_motion'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
+
+    def test_interruption_before_cast_verification_is_terminal(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], [{'event': 'stopped_before_cast_verification'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertFalse(record['perfect_run'])
+
+    def test_unconfirmed_targets_recast_within_existing_limit(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], cycles=[
+            [{'event': 'stopped_no_visible_float'}],
+            [{'event': 'stopped_target_lost'}],
+            [{'event': 'loot_collected', 'item': '<unreadable>'}]])
+        self.assertEqual(len(calls), 4)
+        self.assertEqual([c['outcome'] for c in record['cycles'][:2]],
+                         ['target_unconfirmed', 'target_unconfirmed'])
+        self.assertEqual(record['cycles'][0]['native_outcome'], 'stopped_no_visible_float')
+        self.assertEqual(record['verified_loot_cycles'], 1)
+        self.assertFalse(record['perfect_run'])
+
+    def test_three_unconfirmed_casts_stop(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            cycles=[[{'event': 'stopped_no_visible_float'}]]*3)
+        self.assertEqual(record['status'], 'stopped_after_three_consecutive_failures')
+        self.assertEqual(len(calls), 4)
+
+    def test_unrecovered_bite_before_any_click_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}], cycles=[
+            [{'event': 'bite_detected_waiting_for_return'}, {'event': 'stopped_bite_not_recovered'}],
+            [{'event': 'loot_collected', 'item': '<unreadable>'}]])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(record['cycles'][0]['outcome'], 'target_unconfirmed')
+        self.assertEqual(record['cycles'][0]['native_outcome'], 'stopped_bite_not_recovered')
+        self.assertFalse(record['perfect_run'])
+
+    def test_unrecovered_bite_after_click_never_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            [{'event': 'right_click'}, {'event': 'stopped_bite_not_recovered'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
+
+    def test_target_loss_after_click_never_recasts(self):
+        record, calls = self.run_case([{'event': 'pre_go_pass'}],
+            [{'event': 'right_click'}, {'event': 'stopped_target_lost'}])
+        self.assertEqual(record['status'], 'stopped_for_review')
+        self.assertEqual(len(calls), 2)
+
+    def test_interval_length_is_configurable_and_bounded(self):
+        with patch('sys.argv', ['test', '--seconds', '30']), self.assertRaises(SystemExit):
+            runner.main()
+        with patch('sys.argv', ['test', '--seconds', '1801']), self.assertRaises(SystemExit):
+            runner.main()
+
+    def test_failed_preparation_never_casts(self):
+        record, calls = self.run_case([{'event': 'pre_go_jev_not_ready'}])
+        self.assertEqual(record['status'], 'pre_go_failed')
+        self.assertEqual(len(calls), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

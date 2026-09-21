@@ -3,7 +3,8 @@
   "on": {
     "pull_request": {
       "branches": [
-        "main"
+        "main",
+        "experiment/test-b-parity"
       ]
     },
     "push": {
@@ -23,7 +24,7 @@
   "jobs": {
     "focus": {
       "name": "Focus Gate",
-      "runs-on": "ubuntu-24.04",
+      "runs-on": "macos-14",
       "timeout-minutes": 5,
       "steps": [
         {
@@ -44,7 +45,10 @@
           "shell": "bash",
           "run": "set -euo pipefail\nif [ -z \"$BASE\" ]; then BASE=\"$(git rev-parse HEAD^)\"; fi\nargs=(check --base \"$BASE\" --head \"$HEAD\")\nif [ \"$EVENT\" = \"workflow_dispatch\" ]; then args+=(--full); fi\npython3 tools/sdlc.py \"${args[@]}\" > \"$RUNNER_TEMP/sdlc.json\"\ncat \"$RUNNER_TEMP/sdlc.json\"\n{ printf '### Exact-head source evidence\n```json\n'; cat \"$RUNNER_TEMP/sdlc.json\"; printf '\n```\n'; } >> \"$GITHUB_STEP_SUMMARY\"\n"
         }
-      ]
+      ],
+      "env": {
+        "TYPESAFE_API_KEY": ""
+      }
     }
   }
 }
