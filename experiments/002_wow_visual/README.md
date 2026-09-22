@@ -63,8 +63,8 @@ latency and tokens per useful decision before connecting any executor.
 ## Next work and boundaries
 
 [M0](m0/README.md) comes before HUD extraction. It is a bounded native turn/move/stop
-probe with a no-effect default, fake-time proof and a proposed live envelope. It
-has not been run against the game.
+probe with a no-effect default and fake-time proof. On 22 September 2026, two six-pulse
+background checks found no transport blocker. That is not a reliability claim.
 
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on
