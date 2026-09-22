@@ -6,8 +6,8 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from tools import sdlc
-from tools.sdlc import FISHING, VISUAL, VISUAL_CODE, GateError, route
+from tools import motor_offline, sdlc
+from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, VISUAL, VISUAL_CODE, GateError, route
 
 
 class VisualRouteTests(unittest.TestCase):
@@ -55,6 +55,42 @@ class VisualRouteTests(unittest.TestCase):
         outcome = subprocess.run([sdlc.sys.executable, "-S", "-c", sdlc.VISUAL_SUITE],
                                  cwd=sdlc.ROOT, capture_output=True, text=True)
         self.assertEqual(outcome.returncode, 0, outcome.stderr[-400:])
+
+    def test_motor_probe_selects_its_native_proof(self):
+        for path in MOTOR_PATHS:
+            for status in ("A", "M", "D"):
+                with self.subTest(path=path, status=status):
+                    checks = route([(status, path)])["checks"]
+                    self.assertIn("motor-offline", checks)
+                    self.assertNotIn("visual-offline", checks)
+                    self.assertNotIn("fishing-offline", checks)
+
+    def test_unregistered_motor_paths_fail_closed(self):
+        for path in (MOTOR + "Executor.swift", MOTOR + "nested/Probe.swift", MOTOR + "evidence.json", MOTOR + "run.sh"):
+            with self.subTest(path=path), self.assertRaises(GateError):
+                route([("A", path)])
+
+    def test_gate_runs_the_motor_proof_module(self):
+        with patch.object(sdlc, "inspect", return_value={"checks": ["motor-offline"]}), \
+             patch.object(sdlc, "contracts"), patch.object(sdlc.subprocess, "run") as run, \
+             patch.object(sdlc.sys, "argv", ["sdlc", "check", "--base", "base"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sdlc.main(), 0)
+        self.assertEqual(run.call_args.args[0], [sdlc.sys.executable, "-m", "tools.motor_offline"])
+
+    def test_motor_suite_must_report_its_counted_checks(self):
+        self.assertEqual(motor_offline.counted("header\nmotor checks passed: 114\n"), 114)
+        for output in ("", "motor checks passed: 5", "motor checks passed: 114 extra",
+                       "motor checks passed: 114\nmotor checks passed: 114"):
+            with self.subTest(output=output), self.assertRaises(GateError):
+                motor_offline.counted(output)
+
+    def test_dry_run_evidence_must_release_every_key(self):
+        down, up = {"event": "key_down"}, {"event": "key_up"}
+        motor_offline.released([down, up], 1)
+        for rows in ([], [down], [down, up, down], [down, up, {"event": "release_unconfirmed"}]):
+            with self.subTest(rows=rows), self.assertRaises(GateError):
+                motor_offline.released(rows, 1)
 
     def test_combined_change_keeps_both_consumers_and_governance(self):
         checks = route([("M", "tools/sdlc.py"), ("M", FISHING + "motion.swift"),

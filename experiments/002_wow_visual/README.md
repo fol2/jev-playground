@@ -62,6 +62,10 @@ latency and tokens per useful decision before connecting any executor.
 
 ## Next work and boundaries
 
+[M0](m0/README.md) comes before HUD extraction. It is a bounded native turn/move/stop
+probe with a no-effect default, fake-time proof and a proposed live envelope. It
+has not been run against the game.
+
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on
 that evidence and limits quest work to one NPC/objective/return. Fishing perception
