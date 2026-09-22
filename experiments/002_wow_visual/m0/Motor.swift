@@ -13,10 +13,11 @@ enum Primitive: String, CaseIterable {
     case turnLeft = "turn-left", turnRight = "turn-right", forward
 }
 
-/// WoW's two shipped default bindings for these actions. The live client's bindings are
-/// unverified, so execution requires the owner to name the profile confirmed in-game.
+/// Fixed key profiles. `arrows` and `wasd` are WoW's shipped defaults (A/D turn). `wqe` is
+/// the owner's layout, where A/D strafe and Q/E turn: live check 1 sent A/D as "turns" and
+/// strafed. A wrong profile sends the wrong action, so execution needs the owner-confirmed one.
 enum KeyProfile: String, CaseIterable {
-    case arrows, wasd
+    case arrows, wasd, wqe
     func code(_ primitive: Primitive) -> UInt16 {
         switch (self, primitive) {
         case (.arrows, .turnLeft): return 123
@@ -25,6 +26,9 @@ enum KeyProfile: String, CaseIterable {
         case (.wasd, .turnLeft): return 0
         case (.wasd, .turnRight): return 2
         case (.wasd, .forward): return 13
+        case (.wqe, .turnLeft): return 12
+        case (.wqe, .turnRight): return 14
+        case (.wqe, .forward): return 13
         }
     }
 }
@@ -83,7 +87,7 @@ func parseCommand(_ arguments: [String]) throws -> Command {
     while let argument = rest.popFirst() {
         if argument == "--keys" {
             guard profile == nil, let value = rest.popFirst(), let parsed = KeyProfile(rawValue: value) else {
-                throw ProbeError("--keys needs exactly one of: arrows, wasd")
+                throw ProbeError("--keys needs exactly one of: arrows, wasd, wqe")
             }
             profile = parsed
         } else if argument.hasPrefix("-") {
@@ -99,11 +103,11 @@ func parseCommand(_ arguments: [String]) throws -> Command {
     case .dryRun:
         return Command(mode: mode, profile: profile ?? .arrows, plan: try parsePlan(tokens.isEmpty ? envelopePlan : tokens))
     case .execute:
-        guard let profile else { throw ProbeError("--execute requires --keys arrows|wasd, confirmed in-game") }
+        guard let profile else { throw ProbeError("--execute requires --keys arrows|wasd|wqe, confirmed in-game") }
         guard !tokens.isEmpty else { throw ProbeError("--execute requires the explicit approved plan") }
         return Command(mode: mode, profile: profile, plan: try parsePlan(tokens))
     case .release:
-        guard let profile, tokens.isEmpty else { throw ProbeError("--release requires --keys arrows|wasd and no pulses") }
+        guard let profile, tokens.isEmpty else { throw ProbeError("--release requires --keys arrows|wasd|wqe and no pulses") }
         return Command(mode: mode, profile: profile, plan: [])
     }
 }
