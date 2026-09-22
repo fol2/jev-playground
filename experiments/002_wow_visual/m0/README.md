@@ -15,7 +15,7 @@ movement, and a visual change is not avatar facing.
 | File | Role | What its proof covers |
 | --- | --- | --- |
 | `Motor.swift` | Pure core: fixed allowlist, argument limits, input lease, frame gate, response heuristic, batch runner | Time, frames and key sink are injected |
-| `MotorTests.swift` | 114 fake-time checks | **Dispatch intent only**: argument, lease, gate and batch logic |
+| `MotorTests.swift` | 115 fake-time checks | **Dispatch intent only**: argument, lease, gate and batch logic |
 | `Probe.swift` | Native shell: preflight, dry-run, execute, release | Real timers and signals; live paths are compiled but not run |
 
 Reused, not reinvented: fishing's background key route (`live.swift` `key()`: a
@@ -73,7 +73,7 @@ requested nothing: no capture, input, permission prompt, window title or game-fi
 From the repository root:
 
 ```sh
-python3 -m tools.motor_offline      # 114 counted checks, argument refusal, dry-run release, SIGINT release
+python3 -m tools.motor_offline      # 115 counted checks, argument refusal, dry-run release, SIGINT release
 python3 tools/sdlc.py check --base origin/main --head HEAD   # the Focus Gate route (clean tree)
 ```
 
@@ -118,9 +118,14 @@ Evidence goes to `runs/002_wow_visual/m0_<UTC>_<id>/`, which Git ignores:
 
 - `events.jsonl`: key-down/up times, lateness, frame rejections, stops.
 - `manifest.json`: git head/dirty, machine, target pid/window/bounds/capture stream,
-  focus at start, profile, plan, per-pulse reports, frame counts, `model_calls: 0`.
+  focus at start and end, profile, plan, frame counts and `model_calls: 0`. It also holds
+  the per-pulse reports. Each report has a `trace` with one
+  `[capture PTS − key-down ms, admission age ms, grey change]` row per frame, so the
+  response and settle times can be recomputed.
 - `labels.json`: to be filled in by the owner.
 - `pNN-before.jpg` and `pNN-after.jpg`: at most 12 window-only JPEGs, at most 640 px wide.
+  No video is kept. If these frames and the trace cannot separate avatar movement from
+  camera-only change, add a short window recording.
 
 Screenshots can show character, realm or chat, so treat them as private until reviewed.
 

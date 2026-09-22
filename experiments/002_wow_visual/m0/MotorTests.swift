@@ -322,6 +322,10 @@ struct MotorTests {
             check(result.pulses.allSatisfy { $0["avatar_movement"] as? String == "UNLABELLED" && $0["dispatch"] as? String == "fake_sink" },
                   "reports keep dispatch, visual effect and avatar movement separate")
             check(driver.snapshots.count == 12 && lease.pulsesUsed == 6 && !lease.isHolding, "evidence frames and budget accounted")
+            let trace = result.pulses[0]["trace"] as? [[Double]] ?? []
+            check(trace.count == (result.pulses[0]["baseline_frames"] as? Int ?? -1) + (result.pulses[0]["window_frames"] as? Int ?? -1)
+                  && trace.allSatisfy { $0.count == 3 && $0[1] >= 0 } && trace.contains { $0[0] > 0 && $0[2] == 20 },
+                  "per-frame trace keeps capture time, admission age and change for audit")
         }
         do {
             let (result, sink, _, _) = await run(["forward:200", "turn-left:100"], scene: { pts, sink in

@@ -334,7 +334,7 @@ let stopVerdicts: Set<String> = ["release_unclear", "observation_incomplete", "i
 /// releases a held key before this returns; no release waits for this observer loop.
 func runBatch(_ plan: [Pulse], lease: InputLease, gate start: FrameGate, driver: ProbeDriver) async -> BatchResult {
     var gate = start
-    var history: [Frame] = []
+    var history: [(frame: Frame, age: Double)] = []  // in-order frames with their age on admission
     var pulses: [[String: Any]] = []
     var verdicts: [String] = []
 
@@ -342,7 +342,7 @@ func runBatch(_ plan: [Pulse], lease: InputLease, gate start: FrameGate, driver:
         let now = driver.now()
         for frame in driver.frames() {
             let verdict = gate.admit(frame, now: now)
-            if verdict == .fresh || verdict == .stale { history.append(frame) }  // stale: real, just late
+            if verdict == .fresh || verdict == .stale { history.append((frame, now - frame.pts)) }  // stale: real, late
             if verdict != .fresh && verdict != .stale {
                 driver.emit("frame_rejected", ["verdict": verdict.rawValue, "pts": frame.pts.isFinite ? frame.pts : -1])
             }
@@ -381,8 +381,9 @@ func runBatch(_ plan: [Pulse], lease: InputLease, gate start: FrameGate, driver:
         if let reason = await observe(until: grant.deadline + Limits.settle + Limits.tail) { lease.cancel(reason) }
         driver.snapshot(name + "-after")
         let up = lease.lastRelease.flatMap { $0.at >= grant.downAt ? $0 : nil }
-        let baseline = history.filter { $0.pts >= baselineStart && $0.pts < grant.downAt }.map(\.diff)
-        let window = history.filter { $0.pts > grant.downAt }
+        let traced = history.filter { $0.frame.pts >= baselineStart }
+        let baseline = traced.filter { $0.frame.pts < grant.downAt }.map(\.frame.diff)
+        let window = traced.map(\.frame).filter { $0.pts > grant.downAt }
         let response = analyseResponse(baseline: baseline, after: window, downAt: grant.downAt, upAt: up?.at ?? .infinity)
         var record: [String: Any] = [
             "index": index + 1, "pulse": pulse.token, "key_code": Int(grant.code),
@@ -390,6 +391,8 @@ func runBatch(_ plan: [Pulse], lease: InputLease, gate start: FrameGate, driver:
             "up_at": up?.at as Any? ?? NSNull(), "up_reason": up?.reason as Any? ?? NSNull(),
             "baseline_frames": baseline.count, "window_frames": window.count,
             "dispatch": driver.dispatchLabel, "avatar_movement": "UNLABELLED",
+            // [capture PTS minus key-down, frame age when admitted, grey change] per frame
+            "trace": traced.map { [Double(ms($0.frame.pts - grant.downAt)), Double(ms($0.age)), ($0.frame.diff * 100).rounded() / 100] },
         ]
         record.merge(response.fields) { current, _ in current }
         pulses.append(record)

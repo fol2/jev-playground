@@ -381,6 +381,8 @@ func execute(_ command: Command, profile: KeyProfile) async throws -> Int32 {
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
 
+    manifest["focus_at_end"] = ["frontmost_bundle": orNull(NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
+                                "wow_frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier]
     manifest["outcome"] = result.outcome
     manifest["stop_reason"] = orNull(lease.stopReason)
     manifest["pulses"] = result.pulses
