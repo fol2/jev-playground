@@ -14,7 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 CODE = {"tools/sdlc.py", "tools/merge_pr.py", "tests/test_sdlc.py",
         "tests/test_merge_pr.py", "tests/test_maintenance.cjs", "tools/fishing_offline.py",
-        "tests/test_visual_route.py"}
+        "tests/test_visual_route.py", "tools/motor_offline.py"}
 POLICY = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore",
           ".github/pull_request_template.md", "docs/agents/ai-sdlc.md",
           ".github/workflows/ai-sdlc.yml", ".github/workflows/ai-sdlc-maintain.yml"}
@@ -29,6 +29,8 @@ test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
 
 VISUAL = "experiments/002_wow_visual/"
 VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
+MOTOR = VISUAL + "m0/"
+MOTOR_PATHS = {MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")}
 # Load and count the suite here. Running the file trusts its own __main__, so deleting
 # that one line would exit 0 having run nothing; a missing module raises instead.
 VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
@@ -66,6 +68,7 @@ def route(changes: list[tuple[str, str]]) -> dict:
     full = False
     fishing = False
     visual = False
+    motor = False
     for status, path in changes:
         parts = PurePosixPath(path).parts
         if (not path or path.startswith("/") or "\\" in path or
@@ -76,6 +79,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             full = True
         elif path in VISUAL_CODE or path == VISUAL + "README.md":
             visual = True
+        elif path in MOTOR_PATHS:
+            motor = True
         elif fishing_path(path):
             fishing = True
         elif path in {"README.md", "experiments/README.md"} or (
@@ -85,8 +90,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             raise GateError(f"unclassified path: {path}; register actual offline proof before promotion")
     return {"checks": ["integrity", "governance"] +
             (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []) +
-            (["visual-offline"] if visual else []),
-            "reason": "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
+            (["visual-offline"] if visual else []) + (["motor-offline"] if motor else []),
+            "reason": "registered M0 motor probe" if motor else "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
             "omitted": {"F3": "no real-runtime claim or live observation authority",
                         "F4": "source delivery grants no live-effect authority",
                         "model_calls": "deterministic proof; no provider or model runtime"}}
@@ -177,14 +182,15 @@ def main() -> int:
     try:
         report = inspect(args.base, args.head)
         if args.full:
-            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "visual-offline"]))
+            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "visual-offline", "motor-offline"]))
             report["reason"] = "explicit full offline verification"
         if args.command == "check":
             contracts()
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
                         "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
                         "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
-                        "visual-offline": [sys.executable, "-S", "-c", VISUAL_SUITE]}
+                        "visual-offline": [sys.executable, "-S", "-c", VISUAL_SUITE],
+                        "motor-offline": [sys.executable, "-m", "tools.motor_offline"]}
             for check in report["checks"]:
                 if check in commands:
                     subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
