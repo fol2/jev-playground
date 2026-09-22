@@ -137,6 +137,10 @@ struct MotorTests {
 
         check(Primitive.allCases.map { KeyProfile.arrows.code($0) } == [123, 124, 126], "arrow allowlist is fixed")
         check(Primitive.allCases.map { KeyProfile.wasd.code($0) } == [0, 2, 13], "WASD allowlist is fixed")
+        check(Primitive.allCases.map { KeyProfile.wqe.code($0) } == [12, 14, 13], "W/Q/E allowlist is fixed: Q/E turn, never A/D")
+        check(try! parseCommand(["--execute", "--keys", "wqe", "turn-right:200"])
+              == Command(mode: .execute, profile: .wqe, plan: [Pulse(primitive: .turnRight, milliseconds: 200)]),
+              "owner layout profile parses")
     }
 
     static func makeLease(_ profile: KeyProfile = .arrows) -> (FakeClock, FakeSink, InputLease, Events) {

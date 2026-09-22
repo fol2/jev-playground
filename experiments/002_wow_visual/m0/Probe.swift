@@ -20,8 +20,8 @@ let escapeKey: CGKeyCode = 53
 let usage = """
     usage: m0-probe [--preflight]
            m0-probe --dry-run [PULSE...]
-           m0-probe --execute --keys arrows|wasd PULSE...
-           m0-probe --release --keys arrows|wasd
+           m0-probe --execute --keys arrows|wasd|wqe PULSE...
+           m0-probe --release --keys arrows|wasd|wqe
     PULSE: turn-left|turn-right|forward:100|200, at most \(Limits.maxPulses)
     """
 
