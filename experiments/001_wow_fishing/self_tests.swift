@@ -144,5 +144,41 @@ func runSelfTests() throws {
             print("Regression: pixel motion disagrees with labelled fixture \(row)");exit(1)
         }
     }
-    print("Thirty-six local decision, acquisition and retained-image checks passed; no UI, capture or provider calls.")
+    // Issue #10: the pre-go overlay guards must match the English client, not only zh-Hant.
+    func rendered(_ text: String) -> CGImage {
+        let context = CGContext(data: nil, width: 640, height: 80, bitsPerComponent: 8, bytesPerRow: 2560,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 0.08, green: 0.06, blue: 0.04, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 640, height: 80))
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        NSAttributedString(string: text, attributes: [.font: NSFont.boldSystemFont(ofSize: 30),
+            .foregroundColor: NSColor(red: 1, green: 0.82, blue: 0, alpha: 1)]).draw(at: CGPoint(x: 20, y: 20))
+        NSGraphicsContext.current = nil
+        return context.makeImage()!
+    }
+    for title in ["Game Menu", "Return to Game", "LUA ERROR", "Items", "遊戲選單"] {
+        guard try containsText(rendered(title), blockingOverlayText) else {
+            print("Regression: overlay title \(title) not recognised; pre-go would skip its guard"); exit(1)
+        }
+    }
+    guard try containsText(rendered("Lua Error"), luaErrorText),
+          try !containsText(rendered("Pesky Cirrusfly"), blockingOverlayText) else {
+        print("Regression: Lua error title missed, or ordinary text blocks pre-go"); exit(1)
+    }
+    // The real English Game Menu band (23 September 2026), back at its place in the 2560x1320 window.
+    let menuURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("game-menu-en.jpg")
+    let menu = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(menuURL as CFURL, nil)!, 0, nil)!
+    let window = CGContext(data: nil, width: 2560, height: 1320, bitsPerComponent: 8, bytesPerRow: 10240,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    window.draw(menu, in: CGRect(x: 512, y: 1320-369-menu.height, width: menu.width, height: menu.height))
+    guard try containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
+        print("Regression: the real English Game Menu does not block pre-go"); exit(1)
+    }
+    // The same real band with the menu painted out keeps only nameplates: it must not block.
+    window.setFillColor(CGColor(red: 0.05, green: 0.06, blue: 0.04, alpha: 1))
+    window.fill(CGRect(x: 512+625, y: 1320-369-520, width: 285, height: 445))
+    guard try !containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
+        print("Regression: real nameplates without an overlay block pre-go"); exit(1)
+    }
+    print("Forty-five local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

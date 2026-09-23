@@ -49,7 +49,8 @@ struct CameraSetup {
             try require(expectedCameraKey(primary.text, "F9"), "Localised modifier text")
             try require(!expectedCameraKey("CTRL-F9", "F9"), "Missing modifier rejected")
             try require(!expectedCameraKey("CTRL-ALT-F10", "F9"), "Wrong function key rejected")
-            print("Camera setup: 7 offline checks passed; no capture or input.")
+            try require(expectedCameraKey("ALT-CTRL-F9", "F9"), "English modifier text")  // issue #10
+            print("Camera setup: 8 offline checks passed; no capture or input.")
             return
         }
         guard args.contains("--execute") && !args.contains("--help") else {
