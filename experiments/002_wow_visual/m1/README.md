@@ -1,4 +1,4 @@
-# M1 — closed loop to a manually designated target
+# M1/M2 — closed loop to a designated target
 
 Status: **live-checked on 23 September 2026. The loop worked end to end once, with
 WoW off screen.**
@@ -12,6 +12,10 @@ WoW off screen.**
 Not yet observed live: a multi-pulse re-centre and occlusion handling. One success per
 condition is an existence proof, not a rate. See
 [Live checks](#live-checks-23-september-2026).
+
+**M2** (below) replaces the manual oracle with the game's own designation: one Tab, then
+WoW's white-outlined target nameplate for bearing and the unit's selection circle for the
+visible stop. It reached that stop twice live. See [M2](#m2--game-designated-target-23-september-2026).
 
 Question ([#5](https://github.com/fol2/jev-playground/issues/5)): M0 showed that
 background Q/E/W pulses turn, move and stop the avatar. Can a deterministic loop use
@@ -31,8 +35,9 @@ claim.
 | File | Role | What its proof covers |
 | --- | --- | --- |
 | `Seek.swift` | Pure core: arguments, tracker, controller loop and a simulated world | Time, frames, sightings and key sink are injected |
-| `SeekTests.swift` | 66 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
-| `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute; the WoW window need not be on screen | Real timers and signals; live paths are compiled but not run offline |
+| `SeekTests.swift` | 98 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
+| `Plate.swift` | M2 perception: the white-outlined target nameplate and the selection circle under it | Synthetic frames in the checks; validated on captured frames locally |
+| `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute (M1), target (M2); the WoW window need not be on screen | Real timers and signals; live paths are compiled but not run offline |
 
 Reused, not reinvented: M0's input lease, frame gate, pid key route, window capture,
 signal trap, preflight and release. M1 builds `m0/Probe.swift` with `-D SEEK`, which only
@@ -235,3 +240,83 @@ What this shows, and what it does not:
   multi-pulse re-centre and occlusion handling have not been seen live. The designation is an oracle chosen by the author, and the 5 %
   scale grid is coarse. Night lighting kept the template contrast low (s.d. about 12 grey
   levels), yet it tracked.
+
+## M2 — game-designated target (23 September 2026)
+
+After M1, #5 asks to replace the manual oracle with actual perception. The cheapest
+candidate is the game's own UI. There is no ML and no model call.
+
+```sh
+/tmp/m1-seek --target --keys wqe [--stop-row 0.45]   # one Tab, then the M1 loop
+```
+
+- **Designation.** One Tab (target nearest enemy) is sent as a 60 ms tap, outside the
+  lease because it moves nothing. Within 1 s a full-resolution frame must show exactly
+  one white-outlined nameplate. Otherwise the run ends `HOLD_NO_TARGET_PLATE` with no
+  movement key and a `p00-refused` frame.
+- **Bearing.** WoW outlines only the target's nameplate in white.
+  - The detector anchors on the bar's uninterrupted bottom edge, 3 rows thick and
+    about 133 px at 2560×1320.
+  - It needs the top edge only as ≥ 70 % coverage, because name descenders cut it. The
+    level badge is a separate box and is excluded.
+  - x is the bar's centre, which is the unit's bearing. Detection runs afresh in every
+    frame, so there is no drift.
+- **Visible stop.** The loop stops when the bottom row of the unit's selection circle
+  reaches the stop row (default 0.45 of the height).
+  - The circle is the largest neutral-yellow blob that is not bar-shaped, sits under
+    the plate, and is centred within 0.75 plate widths of it.
+  - Far circles read as unseen, which counts as "not yet". While the circle is unseen,
+    facing is judged on bearing only (`bearing_only`).
+  - This is a visible condition, not a distance.
+- **Envelope.** As for M1, plus one Tab per run. Only neutral mobs that the owner
+  confirmed are non-aggressive, and no attack. Captured frames stay local; there are no
+  names or frames in the repository.
+
+### Discovery and two rejected stop cues
+
+- **Capture only, plus four discovery Tabs** (a scratch tool, not this probe).
+  - In the village Tab found no enemy, so the owner moved the character to a grove of
+    neutral mobs.
+  - The action bar is on screen, but **no hotkey or icon turned red out of range**, not
+    even melee `1` at over 20 yd. The planned action-bar range stop is therefore
+    unavailable on this client and UI.
+- **Nameplate row: rejected on evidence (run 3).** The nameplate floats at about camera
+  height.
+  - While the unit and its circle grew over ten W pulses, the circle fell from 0.29 to
+    0.37 of the height but the plate stayed within 0.01.
+  - The circle's row became the third candidate. It was reviewed against that run's
+    frames first, following #5's two-candidate rule.
+
+### Live runs
+
+The same client, capture 2560×1320 and profile `wqe` were used for every run. WoW was
+on another Space throughout, never frontmost. Key-ups were 0–6 ms late, and there were
+zero model calls. Labels are the author's.
+
+| Run | Source | Outcome | Notes |
+| --- | --- | --- | --- |
+| 1 | `b711f6f` | `STOPPED_budget_spent_before_visible_stop` | Tab picked a distant Vuldren. One 80 ms E centred it (x 0.104 → −0.008), and ten W kept it within 0.017. The plate-row stop never fired. |
+| 2 | `b711f6f` | `HOLD_NO_TARGET_PLATE`, no movement | The "y" in Pesky Cirrusfly cut the top edge into 61 + 56 px. Repaired in `46d80a4` (anchor on the bottom edge). |
+| 3 | `46d80a4` | `STOPPED_budget_spent_before_visible_stop` | Evidence that the circle falls while the plate does not. Circle stop added in `bd3a106`. |
+| 4 | `bd3a106` | `VISIBLE_STOP_REACHED` | Pesky Cirrusfly. One 99 ms E (0.154 → 0.004). Circle rows 0.26 → 0.46, monotonic. Stopped with the unit just ahead, on the last allowed W. |
+| 5 | `bd3a106` | `VISIBLE_STOP_REACHED`, **false** | The target was still far. A neighbour's yellow glow 238 px aside was read as the circle. Early stops are safe. Repaired in `0c24f4f` (the circle must sit under the plate); run 5's frame then reads unseen. |
+| 6 | `0c24f4f` | `VISIBLE_STOP_REACHED` | A near Cirrusfly. One 96 ms E, facing `consistent` (circle 0.41 → 0.46), stopped just ahead of it. |
+
+The detectors were re-checked on the captured frames after each repair:
+
+- Plate: 8 of 8 targets found, 0 of 3 no-target frames flagged.
+- Circle: monotonic wherever visible in runs 3–4.
+
+What this shows, and what it does not:
+
+- **Shown:** the manual oracle can be replaced by the game's own designation and UI.
+  Tab, nameplate bearing and the circle row drove centring, facing and approach to a
+  visible stop, twice after the fixes (runs 4 and 6).
+- **Limits:**
+  - Two good stops and one false stop are existence evidence, not a rate.
+  - The circle stop depends on the circle colour (neutral yellow only) and on its being
+    visible. Grass and the unit's body hide it at range, and a moving unit can outrun
+    the 2.5 s forward budget.
+  - Tab's choice is the game's, and it is not always the nearest unit.
+  - Hostile (red) and friendly (green) circles, occlusion, and a target that leaves the
+    view mid-run have not been seen live.
