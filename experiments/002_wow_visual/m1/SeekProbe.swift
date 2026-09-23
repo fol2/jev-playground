@@ -73,13 +73,13 @@ final class SeekShell: ShellDriver, SeekDriver {
         super.init(log: log, live: live)
     }
 
-    func sight(expect: Double) -> Sighting? {
+    func sight(_ prediction: Prediction?) -> Sighting? {
         if let world { return world.sighting(at: origin + (((hostNow() - origin) * 30).rounded(.down)) / 30) }
         guard let live, let tracker, let frame = live.feed.latestFrame else { return nil }
         if let cached, cached.pts == frame.pts { return cached.sighting }
         let started = hostNow()
         let image = grey(frame.image, width: trackWidth)
-        guard let match = tracker.sight(image, expect: expect) else { return nil }
+        guard let match = tracker.sight(image, prediction) else { return nil }
         shown = match
         let sighting = Sighting(pts: frame.pts, x: match.x / Double(image.width) - 0.5, y: match.y / Double(image.height) - 0.5,
                                 scale: match.scale, score: match.score)

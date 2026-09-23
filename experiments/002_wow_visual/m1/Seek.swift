@@ -186,8 +186,16 @@ func locate(_ template: Grey, in image: Grey, scales: [Double], near: (x: Double
     return Match(x: best.x, y: best.y, scale: best.scale, score: best.score, runnerUp: runnerUp)
 }
 
-/// Follows the designation from its last confident match, moved by the predicted shift.
-/// Only confident matches move it, so an occluder cannot drag the search away.
+/// Where to search after a pulse: the target's x before it (fraction from the middle) and the
+/// shift the controller predicts. Absolute, so searching several frames after one pulse never
+/// applies the shift twice (live run 2 lost its target that way).
+struct Prediction {
+    let x: Double
+    let shift: Double
+}
+
+/// Follows the designation: around the prediction, else its last confident match. Only
+/// confident matches move it, so an occluder cannot drag the search away.
 final class Tracker {
     let template: Grey
     let minScore: Double
@@ -199,11 +207,11 @@ final class Tracker {
         self.minScore = minScore
     }
 
-    func sight(_ image: Grey, expect: Double) -> Match? {
+    func sight(_ image: Grey, _ prediction: Prediction?) -> Match? {
         let width = Double(image.width)
         let match = locate(template, in: image, scales: [0.95, 1, 1.05, 1.1, 1.15, 1.2].map { $0 * last.scale },
-                           near: (last.x + expect * width, last.y),
-                           reach: (0.06 * width + 0.5 * abs(expect) * width, 0.12 * Double(image.height)))
+                           near: (prediction.map { ($0.x + $0.shift + 0.5) * width } ?? last.x, last.y),
+                           reach: (0.06 * width + 0.5 * abs(prediction?.shift ?? 0) * width, 0.12 * Double(image.height)))
         if let match, match.score >= minScore { last = match }
         return match
     }
@@ -226,9 +234,9 @@ func fields(_ sighting: Sighting) -> [String: Any] {
 }
 
 protocol SeekDriver: ProbeDriver {
-    /// The target in the newest frame, searched around its last confident position moved by
-    /// `expect` (predicted x shift); nil before any frame.
-    func sight(expect: Double) -> Sighting?
+    /// The target in the newest frame, searched around the prediction (else its last confident
+    /// position); nil before any frame.
+    func sight(_ prediction: Prediction?) -> Sighting?
 }
 
 struct SeekResult {
@@ -261,7 +269,7 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
     }
 
     /// No input is sent while waiting, so a short occlusion costs time, never a blind pulse.
-    func sighting(after since: Double, expect: Double) async -> Sighting? {
+    func sighting(after since: Double, _ prediction: Prediction?) async -> Sighting? {
         let from = since + config.settle
         var unseenFrom: Double?
         var lastPTS = -Double.infinity
@@ -269,7 +277,7 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
             if let reason = check() { lease.cancel(reason); return nil }
             lease.expire()
             let now = driver.now()
-            if now >= from, let seen = driver.sight(expect: expect), seen.pts >= from, seen.pts > lastPTS,
+            if now >= from, let seen = driver.sight(prediction), seen.pts >= from, seen.pts > lastPTS,
                now - seen.pts <= Limits.maxFrameAge {
                 lastPTS = seen.pts
                 if seen.score >= config.minScore {
@@ -312,8 +320,8 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
             await driver.sleep(Limits.poll)
         }
         guard let up = lease.lastRelease, up.at >= grant.downAt, lease.stopReason == nil else { return nil }
-        let after = await sighting(after: up.at, expect: expect)
-        if after != nil { driver.snapshot(name + "-after") }
+        let after = await sighting(after: up.at, Prediction(x: before.x, shift: expect))
+        driver.snapshot(name + (after == nil ? "-end" : "-after"))
         let record: [String: Any] = [
             "index": pulses.count + 1, "phase": phase, "pulse": pulse.token, "key_code": Int(grant.code),
             "down_at": grant.downAt, "up_at": up.at, "up_reason": up.reason, "lateness_ms": ms(up.at - grant.deadline),
@@ -355,7 +363,7 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
     }
     if let reason { lease.cancel(reason) }
 
-    if lease.stopReason == nil, var current = await sighting(after: driver.now() - config.settle, expect: 0) {
+    if lease.stopReason == nil, var current = await sighting(after: driver.now() - config.settle, nil) {
         driver.snapshot("p00-start")
         run: do {
             guard let centred = await centre(current, phase: "centre") else { break run }

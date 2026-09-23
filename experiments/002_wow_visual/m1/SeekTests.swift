@@ -25,7 +25,7 @@ final class FakeSeekDriver: SeekDriver {
     var frameAt: (Double) -> Frame? = { Frame(stream: "s", pts: $0, width: 64, height: 36, diff: 0.2) }
     var faultAt: (Double) -> String? = { _ in nil }
     var observerStall = 0.0
-    var expects: [Double] = []
+    var predictions: [Prediction] = []
     private var tick = 0
     private var lastFrame: Double?
     private var pending: [(at: Double, lease: InputLease)] = []
@@ -58,8 +58,8 @@ final class FakeSeekDriver: SeekDriver {
         }
         return out
     }
-    func sight(expect: Double) -> Sighting? {
-        expects.append(expect)
+    func sight(_ prediction: Prediction?) -> Sighting? {
+        if let prediction { predictions.append(prediction) }
         return lastFrame.map { world.sighting(at: $0) }
     }
     func scheduleRelease(_ lease: InputLease, at deadline: Double) {
@@ -194,15 +194,19 @@ struct SeekTests {
 
         let tracker = Tracker(template: target, start: found, minScore: 0.6)
         let turned = paste(target, into: scene, x: 100, y: 32)
-        let after = tracker.sight(turned, expect: 0.4)!
+        let turn = Prediction(x: 48.0 / 160 - 0.5, shift: 0.4)
+        let after = tracker.sight(turned, turn)!
         check(abs(after.x - 108) < 1 && abs(after.y - 40) < 1 && after.score > 0.95, "the predicted shift guides a large turn")
+        let again = tracker.sight(turned, turn)!
+        check(abs(again.x - 108) < 1 && again.score > 0.95,
+              "searching another frame after the same pulse does not apply the shift twice (live run 2)")
         // Approach grows the target a little per step; the search follows up to 1.2x per sighting.
-        _ = tracker.sight(paste(resized(target, width: 19, height: 19), into: scene, x: 98, y: 30), expect: 0)
-        let grown = tracker.sight(paste(resized(target, width: 23, height: 23), into: scene, x: 96, y: 28), expect: 0)!
+        _ = tracker.sight(paste(resized(target, width: 19, height: 19), into: scene, x: 98, y: 30), nil)
+        let grown = tracker.sight(paste(resized(target, width: 23, height: 23), into: scene, x: 96, y: 28), nil)!
         check(abs(grown.scale - 1.44) <= 0.06 && grown.score > 0.8 && abs(grown.x - 107.5) < 2,
               "apparent growth is measured against the designation, step by step")
         let before = tracker.last.x
-        let hidden = tracker.sight(scene, expect: 0)
+        let hidden = tracker.sight(scene, nil)
         check(hidden.map { $0.score < 0.6 } ?? true, "an occluded target scores below the loss threshold")
         check(tracker.last.x == before, "an unseen frame does not move the tracker")
 
@@ -254,7 +258,8 @@ struct SeekTests {
                   "facing is checked separately after centring")
             check((run.result.final?.scale ?? 0) >= 1.6 && abs(run.result.final?.x ?? 1) <= 0.06,
                   "the visible stop is apparent growth with the target still centred")
-            check(run.driver.expects.contains { $0 > 0 }, "a left turn predicts a rightward target shift for the tracker")
+            check(run.driver.predictions.first.map { $0.x < -0.2 && $0.shift > 0 } == true,
+                  "a left turn predicts a rightward shift from the target's pre-pulse position")
             let turns = run.result.pulses.filter { ($0["phase"] as? String) == "centre" }
             check(turns.allSatisfy { record in
                 guard let token = record["pulse"] as? String, let milliseconds = Int(token.split(separator: ":")[1]) else { return false }
