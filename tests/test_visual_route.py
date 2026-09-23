@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from tools import motor_offline, sdlc
-from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, SEEK, FIGHT, VISUAL, VISUAL_CODE, GateError, route
+from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, SEEK, FIGHT, NAV, VISUAL, VISUAL_CODE, GateError, route
 
 
 class VisualRouteTests(unittest.TestCase):
@@ -68,7 +68,8 @@ class VisualRouteTests(unittest.TestCase):
     def test_unregistered_motor_paths_fail_closed(self):
         for path in (MOTOR + "Executor.swift", MOTOR + "nested/Probe.swift", MOTOR + "evidence.json", MOTOR + "run.sh",
                      SEEK + "Executor.swift", SEEK + "look.png", SEEK + "run.sh", VISUAL + "m2/Seek.swift",
-                     FIGHT + "Executor.swift", FIGHT + "run.sh", FIGHT + "evidence.json"):
+                     FIGHT + "Executor.swift", FIGHT + "run.sh", FIGHT + "evidence.json",
+                     NAV + "Executor.swift", NAV + "run.sh", NAV + "frames.jpg", NAV + "nested/Nav.swift"):
             with self.subTest(path=path), self.assertRaises(GateError):
                 route([("A", path)])
 

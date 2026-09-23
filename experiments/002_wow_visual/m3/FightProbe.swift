@@ -79,49 +79,34 @@ final class LiveHost: FightHost {
     let origin: Double
     let session: Session
     let feed: FrameFeed
-    let sink: PidKeySink
     let directory: URL
     let log: Log
-    private let lock = NSLock()
+    let keys: LiveKeys
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
-    private var held: Set<UInt16> = []
-    private var cancelled = false  // set by releaseAll: no key goes down after the exit sweep
-    private var bolt: HeldKey?
     var walkedMs = 0
     var turnedMs = 0
-    var codesPosted: [UInt16] = []
 
     init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log) {
         self.origin = hostNow()
         self.session = session
         self.feed = feed
-        self.sink = sink
         self.directory = directory
         self.log = log
+        let keys = LiveKeys(sink: sink, releaseCodes: FightLimits.releaseCodes, clock: hostNow) { event, fields in
+            var row = fields
+            row["t"] = hostNow()
+            log.emit(event, row)
+        }
+        self.keys = keys
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "m3.watchdog", qos: .userInteractive))
         self.watchdog = timer
         timer.schedule(deadline: .now() + 0.2, repeating: 0.2)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            let due = self.withHeld { self.bolt.map { $0.expired(now: self.now()) } ?? false }
-            guard due else { return }
-            let had = self.withHeld { self.held.contains(FightLimits.bolt) }
-            self.lift(FightLimits.bolt)
-            if had && self.withHeld({ !self.held.contains(FightLimits.bolt) }) {
-                self.emit("watchdog", ["released": Int(FightLimits.bolt)])
-            }
-        }
+        timer.setEventHandler { keys.sweepExpired() }
         timer.resume()
     }
 
     deinit { watchdog.cancel() }
-
-    private func withHeld<T>(_ body: () -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body()
-    }
 
     func now() -> Double { hostNow() - origin }
     func sleep(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000)) }
@@ -130,7 +115,8 @@ final class LiveHost: FightHost {
         row["t"] = hostNow()
         log.emit(event, row)
     }
-    var holdingKeys: Bool { withHeld { !held.isEmpty } }
+    var holdingKeys: Bool { keys.holding }
+    var codesPosted: [UInt16] { keys.codesPosted }
     func wowFrontmost() -> Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
     }
@@ -172,50 +158,24 @@ final class LiveHost: FightHost {
         return main.observe(rgba(image), plates: plates)
     }
 
-    func releaseBolt() { lift(FightLimits.bolt) }
+    func releaseBolt() { keys.lift(FightLimits.bolt) }
 
+    /// The exit sweep over FightLimits.releaseCodes; no key goes down afterwards (LiveKeys).
     func releaseAll() {
-        withHeld { cancelled = true }
         watchdog.cancel()
-        for code in FightLimits.releaseCodes { lift(code, listed: true) }
-    }
-
-    /// Grant before the post, as InputLease does: a partly delivered down must still be released.
-    /// Posts happen under the lock and stop once releaseAll has run, so a down cannot land after
-    /// the SIGINT sweep has lifted its key.
-    private func press(_ code: UInt16) {
-        let posted: Bool = withHeld {
-            guard !cancelled else { return false }
-            held.insert(code)
-            do { try sink.post(code, down: true) } catch {
-                emit("key_down_failed", ["code": Int(code), "error": "\(error)"])
-            }
-            return true
-        }
-        if posted { codesPosted.append(code) }
-    }
-
-    /// Keep the grant until a key-up posts. `listed` sweeps FightLimits.releaseCodes on exit.
-    private func lift(_ code: UInt16, listed: Bool = false) {
-        withHeld {
-            guard held.contains(code) || listed else { return }
-            if confirmKeyUp(code, sink: sink, emit: emit) {
-                held.remove(code)
-                if code == FightLimits.bolt { bolt = nil }
-            }
-        }
+        keys.releaseAll()
     }
 
     private func tap(_ code: UInt16) async {
-        press(code)
+        keys.press(code)
         await sleep(0.06)
-        lift(code)
+        keys.lift(code)
     }
 
     private func hold(_ code: UInt16, _ ms: Int) async {
-        press(code)
+        keys.press(code)
         await sleep(Double(ms) / 1000)
-        lift(code)
+        keys.lift(code)
         if code == FightLimits.forward { walkedMs += ms } else { turnedMs += ms }
     }
 
@@ -249,23 +209,15 @@ final class LiveHost: FightHost {
         return "still out of range after 14 steps"
     }
 
-    private func armBolt(now: Double) {
-        withHeld {
-            var grant = HeldKey(code: FightLimits.bolt, until: 0)
-            grant.refresh(now: now)
-            bolt = grant
-        }
-    }
-
     private func castHeld() async -> String {
         let pre = look("cast", plates: false)
-        armBolt(now: now())
-        if withHeld({ !held.contains(FightLimits.bolt) }) { press(FightLimits.bolt) }
+        keys.grant(FightLimits.bolt, seconds: FightLimits.watchdogSeconds)
+        if !keys.isDown(FightLimits.bolt) { keys.press(FightLimits.bolt) }
         var watch = CastWatch(pre: pre)
         let until = now() + 3.0
         while now() < until {
             await sleep(0.1)
-            armBolt(now: now())
+            keys.grant(FightLimits.bolt, seconds: FightLimits.watchdogSeconds)
             let o = look("cast", plates: false)
             if o.errorRed && !pre.errorRed && !o.casting && !watch.seen {
                 releaseBolt()
@@ -467,7 +419,7 @@ func fightExecute() async throws -> Int32 {
     return result.holdingKeys ? 3 : (result.outcome == "KILLED_AND_LOOTED" ? 0 : 2)
 }
 
-#if FIGHT
+#if FIGHT && !NAV  // M4's NavProbe.swift reuses this file's helpers under -D NAV
 @main
 struct M3Fight {
     static func main() async {

@@ -27,6 +27,7 @@ struct FightTests {
         packets()
         arguments()
         await watchdog()
+        liveKeys()
         await sim()
         print("fight checks passed: \(checks)")
     }
@@ -272,7 +273,7 @@ struct FightTests {
         let text = String(decoding: try! JSONSerialization.data(withJSONObject: state), as: UTF8.self).lowercased()
         check(!text.contains("api_key") && !text.contains("typesafe") && !text.contains("authorization"),
               "statePacket JSON never contains the API key")
-        let q = actionQuestion([.wait, .stop, .heal])
+        let q = actionQuestion([FightAction.wait, .stop, .heal])
         check(q["type"] as? String == "choice", "the action question is a choice")
         let criteria = q["criteria"] as? [String: String] ?? [:]
         check(Set(criteria.keys) == ["WAIT", "STOP", "HEAL"] && criteria["BUFF_WEAPON"] == nil,
@@ -396,12 +397,62 @@ struct FightTests {
     }
 }
 
+extension FightTests {
+    /// The shared live key state (M3 LiveHost, M4 LiveNavBody) on a fake sink and a fake clock.
+    static func liveKeys() {
+        var t = 0.0
+        var rows: [String] = []
+        let sink = FailUpSink()
+        let keys = LiveKeys(sink: sink, releaseCodes: [12, 13, 14], clock: { t }) { name, _ in rows.append(name) }
+        check(keys.press(13) && keys.isDown(13) && keys.holding && sink.downs == [13] && keys.codesPosted == [13],
+              "LiveKeys press posts the down and holds the key")
+        keys.grant(13, seconds: 1.5)
+        t = 1.5
+        keys.sweepExpired()
+        check(keys.isDown(13), "LiveKeys watchdog does not fire at exactly the grant")
+        keys.grant(13, seconds: 1.5)
+        t = 2.9
+        keys.sweepExpired()
+        check(keys.isDown(13), "a refreshed grant keeps the key held")
+        t = 3.1
+        keys.sweepExpired()
+        check(!keys.isDown(13) && sink.ups == [13] && rows.contains("watchdog"),
+              "an expired grant is lifted by sweepExpired and logged")
+
+        keys.press(14)
+        keys.grant(14, seconds: 1)
+        t = 5
+        sink.failUps = Limits.releaseAttempts
+        keys.sweepExpired()
+        check(keys.isDown(14) && rows.contains("release_unconfirmed"),
+              "an unconfirmed watchdog key-up keeps the key held")
+        keys.sweepExpired()
+        check(!keys.isDown(14) && sink.ups.last == 14, "the next sweep retries and lifts it")
+
+        keys.press(12)
+        keys.lift(12)
+        check(!keys.holding && sink.ups.last == 12, "lift posts the key-up of a held key")
+        let upsBefore = sink.ups.count
+        keys.lift(13)
+        check(sink.ups.count == upsBefore, "lift of a key not held posts nothing")
+
+        keys.press(13)
+        keys.releaseAll()
+        check(!keys.holding && Set(sink.ups.suffix(3)) == [12, 13, 14],
+              "releaseAll sweeps every listed code with a key-up")
+        let downsBefore = sink.downs.count
+        check(!keys.press(13) && sink.downs.count == downsBefore && !keys.holding,
+              "after releaseAll no key goes down again")
+    }
+}
+
 final class FailUpSink: KeySink {
     var failUps = 0
     var ups: [UInt16] = []
+    var downs: [UInt16] = []
     func post(_ code: UInt16, down: Bool) throws {
         if !down && failUps > 0 { failUps -= 1; throw ProbeError("fake key-up failure") }
-        if !down { ups.append(code) }
+        if down { downs.append(code) } else { ups.append(code) }
     }
 }
 
