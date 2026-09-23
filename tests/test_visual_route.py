@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from tools import motor_offline, sdlc
-from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, VISUAL, VISUAL_CODE, GateError, route
+from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, SEEK, VISUAL, VISUAL_CODE, GateError, route
 
 
 class VisualRouteTests(unittest.TestCase):
@@ -66,7 +66,8 @@ class VisualRouteTests(unittest.TestCase):
                     self.assertNotIn("fishing-offline", checks)
 
     def test_unregistered_motor_paths_fail_closed(self):
-        for path in (MOTOR + "Executor.swift", MOTOR + "nested/Probe.swift", MOTOR + "evidence.json", MOTOR + "run.sh"):
+        for path in (MOTOR + "Executor.swift", MOTOR + "nested/Probe.swift", MOTOR + "evidence.json", MOTOR + "run.sh",
+                     SEEK + "Executor.swift", SEEK + "look.png", SEEK + "run.sh", VISUAL + "m2/Seek.swift"):
             with self.subTest(path=path), self.assertRaises(GateError):
                 route([("A", path)])
 
@@ -84,6 +85,10 @@ class VisualRouteTests(unittest.TestCase):
                        "motor checks passed: 114\nmotor checks passed: 114"):
             with self.subTest(output=output), self.assertRaises(GateError):
                 motor_offline.counted(output)
+        self.assertEqual(motor_offline.counted("seek checks passed: 62", "seek", 60), 62)
+        for output in ("motor checks passed: 62", "seek checks passed: 59"):
+            with self.subTest(output=output), self.assertRaises(GateError):
+                motor_offline.counted(output, "seek", 60)
 
     def test_dry_run_evidence_must_release_every_key(self):
         down, up = {"event": "key_down"}, {"event": "key_up"}
@@ -91,6 +96,10 @@ class VisualRouteTests(unittest.TestCase):
         for rows in ([], [down], [down, up, down], [down, up, {"event": "release_unconfirmed"}]):
             with self.subTest(rows=rows), self.assertRaises(GateError):
                 motor_offline.released(rows, 1)
+        motor_offline.released([down, up, down, up])  # M1: any number, each one released
+        for rows in ([], [down], [down, up, down]):
+            with self.subTest(rows=rows), self.assertRaises(GateError):
+                motor_offline.released(rows)
 
     def test_combined_change_keeps_both_consumers_and_governance(self):
         checks = route([("M", "tools/sdlc.py"), ("M", FISHING + "motion.swift"),

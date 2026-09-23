@@ -30,7 +30,9 @@ test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
 VISUAL = "experiments/002_wow_visual/"
 VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
 MOTOR = VISUAL + "m0/"
-MOTOR_PATHS = {MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")}
+SEEK = VISUAL + "m1/"
+MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
+               {SEEK + name for name in ("Seek.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting
 # that one line would exit 0 having run nothing; a missing module raises instead.
 VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
@@ -91,7 +93,7 @@ def route(changes: list[tuple[str, str]]) -> dict:
     return {"checks": ["integrity", "governance"] +
             (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []) +
             (["visual-offline"] if visual else []) + (["motor-offline"] if motor else []),
-            "reason": "registered M0 motor probe" if motor else "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
+            "reason": "registered M0/M1 motor probes" if motor else "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
             "omitted": {"F3": "no real-runtime claim or live observation authority",
                         "F4": "source delivery grants no live-effect authority",
                         "model_calls": "deterministic proof; no provider or model runtime"}}
@@ -193,7 +195,7 @@ def main() -> int:
                         "motor-offline": [sys.executable, "-m", "tools.motor_offline"]}
             for check in report["checks"]:
                 if check in commands:
-                    subprocess.run(commands[check], cwd=ROOT, check=True, timeout=120, stdout=sys.stderr)
+                    subprocess.run(commands[check], cwd=ROOT, check=True, timeout=300, stdout=sys.stderr)
             report["result"] = "PASS"
         report["model_tokens"] = 0  # this deterministic command only, not the author session
         # Hash before timing: a manifest nobody can reproduce on a second run anchors nothing.

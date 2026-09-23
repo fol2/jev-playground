@@ -118,6 +118,15 @@ protocol KeySink: AnyObject {
 
 typealias Emit = (String, [String: Any]) -> Void
 
+/// What one lease may ever send. M0 is the fixed six-pulse envelope; M1 passes a wider but
+/// still capped budget, including total held time per primitive.
+struct Budget {
+    let maxPulses: Int
+    let allows: (Pulse) -> Bool
+    let maxTotalMs: [Primitive: Int]
+    static let m0 = Budget(maxPulses: Limits.maxPulses, allows: { Limits.durations.contains($0.milliseconds) }, maxTotalMs: [:])
+}
+
 func ms(_ seconds: Double) -> Int { Int((seconds * 1000).rounded()) }
 
 /// Holds at most one key until its deadline. Expiry is idempotent, so an independent timer
@@ -132,16 +141,19 @@ final class InputLease {
     private let sink: KeySink
     private let clock: () -> Double
     private let emit: Emit
+    private let budget: Budget
     private var held: Grant?
     private var used = 0
+    private var spent: [Primitive: Int] = [:]
     private var stop: String?
     private var released: Release?
 
-    init(profile: KeyProfile, sink: KeySink, clock: @escaping () -> Double, emit: @escaping Emit) {
+    init(profile: KeyProfile, sink: KeySink, clock: @escaping () -> Double, emit: @escaping Emit, budget: Budget = .m0) {
         self.profile = profile
         self.sink = sink
         self.clock = clock
         self.emit = emit
+        self.budget = budget
     }
 
     private func locked<T>(_ body: () throws -> T) rethrows -> T {
@@ -154,14 +166,27 @@ final class InputLease {
     var stopReason: String? { locked { stop } }
     var lastRelease: Release? { locked { released } }
     var pulsesUsed: Int { locked { used } }
+    var spentMs: [Primitive: Int] { locked { spent } }
+
+    /// Why this pulse would be refused now; nil when acquire would post it.
+    func refusal(_ pulse: Pulse) -> String? { locked { refusalLocked(pulse) } }
+
+    private func refusalLocked(_ pulse: Pulse) -> String? {
+        if let stop { return "stopped (\(stop))" }
+        guard held == nil else { return "one key at a time" }
+        guard used < budget.maxPulses else { return "command budget spent" }
+        guard budget.allows(pulse) else { return "duration outside allowlist" }
+        if let cap = budget.maxTotalMs[pulse.primitive], spent[pulse.primitive, default: 0] + pulse.milliseconds > cap {
+            return "\(pulse.primitive.rawValue) time budget spent"
+        }
+        return nil
+    }
 
     func acquire(_ pulse: Pulse) throws -> Grant {
         try locked {
-            if let stop { throw ProbeError("refused: stopped (\(stop))") }
-            guard held == nil else { throw ProbeError("refused: one key at a time") }
-            guard used < Limits.maxPulses else { throw ProbeError("refused: command budget spent") }
-            guard Limits.durations.contains(pulse.milliseconds) else { throw ProbeError("refused: duration outside allowlist") }
+            if let refusal = refusalLocked(pulse) { throw ProbeError("refused: " + refusal) }
             used += 1
+            spent[pulse.primitive, default: 0] += pulse.milliseconds
             let now = clock()
             let grant = Grant(code: profile.code(pulse.primitive), pulse: pulse, downAt: now,
                               deadline: now + Double(pulse.milliseconds) / 1000)
