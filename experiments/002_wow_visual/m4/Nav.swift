@@ -58,9 +58,19 @@ func arrowFacing(_ image: RGBA) -> Double? {
     guard image.pixels.count == image.width * image.height * 4,
           image.width >= NavHUD.arrowX1, image.height >= NavHUD.arrowY1 else { return nil }
     let w = image.width
+    // The selected quest's bright ring can cross the box: its core and a 2 px margin count as neither
+    // silver nor navy (live hunt, 23 Sept: a ring over the arrow's tip turned the reading around).
+    var ring = Set<Int>()
+    for y in NavHUD.arrowY0 - 2..<NavHUD.arrowY1 + 2 {
+        for x in NavHUD.arrowX0 - 2..<NavHUD.arrowX1 + 2 {
+            let i = (y * w + x) * 4
+            guard MinimapHUD.bright(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) else { continue }
+            for dy in -2...2 { for dx in -2...2 { ring.insert((y + dy) * w + x + dx) } }
+        }
+    }
     var silver = Set<Int>(), navy: [(Int, Int)] = []
     for y in NavHUD.arrowY0..<NavHUD.arrowY1 {
-        for x in NavHUD.arrowX0..<NavHUD.arrowX1 {
+        for x in NavHUD.arrowX0..<NavHUD.arrowX1 where !ring.contains(y * w + x) {
             let i = (y * w + x) * 4
             let r = Int(image.pixels[i]), g = Int(image.pixels[i + 1]), b = Int(image.pixels[i + 2])
             if NavHUD.silver(r, g, b) {
@@ -445,6 +455,7 @@ final class SimPad: KeySink {
     private let lock = NSLock()
     private var down: Set<UInt16> = []
     var failUps = 0  // the next key-ups that throw
+    var onDown: ((UInt16) -> Void)?  // SimHunt's Tab and Esc
     func post(_ code: UInt16, down isDown: Bool) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -452,6 +463,7 @@ final class SimPad: KeySink {
             failUps -= 1
             throw ProbeError("fake key-up failure")
         }
+        if isDown && !down.contains(code) { onDown?(code) }
         if isDown { down.insert(code) } else { down.remove(code) }
     }
     var pressed: Set<UInt16> {
@@ -555,6 +567,7 @@ final class SimNav: NavBody {
 struct NavCommand: Equatable {
     enum Mode: String {
         case preflight = "--preflight", dryRun = "--dry-run", replay = "--replay", simJev = "--sim-jev", execute = "--execute"
+        case huntDryRun = "--hunt-dry-run", huntSimJev = "--hunt-sim-jev", hunt = "--hunt"
     }
     let mode: Mode
     var profile: KeyProfile?
@@ -562,6 +575,7 @@ struct NavCommand: Equatable {
     var toY: Double?
     var arrive = NavLimits.arriveDefault
     var label = "destination"
+    var ghost = false  // the character is dead and walks as a ghost: its empty health bar is not read
     var directory: String?
     var scenario: String?
 }
@@ -583,7 +597,12 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     }
     var seen: Set<String> = []
     while let option = rest.popFirst() {
-        guard mode == .execute || mode == .simJev else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        guard [.execute, .simJev, .hunt].contains(mode) else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        if mode == .execute && option == "--ghost" {
+            guard !command.ghost else { throw ProbeError("'--ghost' is repeated") }
+            command.ghost = true
+            continue
+        }
         guard seen.insert(option).inserted, let value = rest.popFirst(), !value.hasPrefix("-") else {
             throw ProbeError("'\(option.prefix(40))' is repeated or has no value")
         }
@@ -591,7 +610,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value
-        case (.execute, "--keys"):
+        case (.execute, "--keys"), (.hunt, "--keys"):
             guard value == "wqe", let profile = KeyProfile(rawValue: value) else {
                 throw ProbeError("--keys needs wqe, confirmed in-game")
             }
@@ -618,6 +637,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         }
     }
     if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
+    if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }
     if mode == .execute {
         guard command.profile != nil else { throw ProbeError("--execute requires --keys wqe, confirmed in-game") }
         guard command.toX != nil else { throw ProbeError("--execute requires --to X,Y") }

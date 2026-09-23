@@ -13,8 +13,8 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
-MIN_FIGHT_CHECKS = 113  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 98  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 120  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 165  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -85,6 +85,12 @@ def nav_trap() -> None:
         raise GateError("navExecute does not defer body.releaseAll")
     if "LiveKeys(sink: sink, releaseCodes: NavLimits.releaseCodes" not in probe:
         raise GateError("M4 keys do not go through LiveKeys with NavLimits.releaseCodes")
+    hunt = Path(ROOT, NAV + "HuntProbe.swift").read_text()
+    execute = hunt.split("func huntExecute", 1)[-1]
+    if "also: { host.releaseAll() }, holding: { host.holding }" not in execute or "defer { host.releaseAll() }" not in execute:
+        raise GateError("huntExecute does not trap signals and defer onto host.releaseAll and host.holding")
+    if "keys.releaseAll()\n        lock.withLock { fighting }?.releaseAll()" not in hunt:
+        raise GateError("the hunt's release does not sweep both its own keys and the current fight's")
 
 
 def fight_trap() -> None:
@@ -166,25 +172,36 @@ def main():
         interrupted_dry([fight, "--dry-run"])
 
         nav_tests, nav = str(Path(tmp, "nav-tests")), str(Path(tmp, "m4-nav"))
-        build(nav_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift", NAV + "NavTests.swift")
+        build(nav_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift", NAV + "NavTests.swift",
+              NAV + "Hunt.swift", NAV + "HuntTests.swift")
         nav_checks = suite(nav_tests, "nav", MIN_NAV_CHECKS)
         build(nav, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift",
               SEEK + "SeekProbe.swift", FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
+              NAV + "Hunt.swift", NAV + "HuntProbe.swift",
               CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift",
               CLICK + "NativeBackgroundClickTransport.swift",
               flags=("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"))
         refuses(nav, (["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--sim-jev"],
                       ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
                       ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],
-                      ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "5"]))
+                      ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "5"], ["--hunt"],
+                      ["--hunt", "--keys", "arrows"], ["--hunt", "--keys", "wqe", "extra"], ["--hunt-dry-run", "x"],
+                      ["--hunt-sim-jev", "x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"]))
         nav_dry = subprocess.run([nav, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         nav_rows = [json.loads(line) for line in nav_dry.stdout.splitlines() if line.strip()]
         nav_summary = nav_rows[-1] if nav_rows else {}
         if (nav_summary.get("event") != "summary" or nav_summary.get("outcome") != "ARRIVED"
                 or nav_summary.get("holding") is not False):
             raise GateError("M4 dry-run did not reach ARRIVED with keys released")
+        hunt_dry = subprocess.run([nav, "--hunt-dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
+        hunt_rows = [json.loads(line) for line in hunt_dry.stdout.splitlines() if line.strip()]
+        hunt_summary = hunt_rows[-1] if hunt_rows else {}
+        if (hunt_summary.get("event") != "summary" or not hunt_summary.get("fights")
+                or hunt_summary.get("holding") is not False or hunt_summary.get("provider_calls") != 0):
+            raise GateError("M4 hunt dry-run did not fight with keys released and no provider call")
         nav_trap()
         interrupted_dry([nav, "--dry-run"])
+        interrupted_dry([nav, "--hunt-dry-run"])
     print(f"M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses), the simulated M3 fight ({fight_summary.get('decisions')} "

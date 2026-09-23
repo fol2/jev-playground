@@ -41,6 +41,7 @@ enum FightLimits {
     static let maxDecisions = 40
     static let maxSeconds = 150.0
     static let playerSafety = 0.3
+    static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
     static let startHealth = 0.9
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
@@ -322,7 +323,12 @@ func offset(_ o: Obs) -> Double? {
     o.plate.map { ($0.centre - Double(HUD.width) / 2) / Double(HUD.width) }
 }
 
+/// Below playerSafety in combat the fight goes on and healing comes first (the owner, 23 Sept: a stop
+/// there handed a fight to an owner who was away, and the character died standing still).
 func admissible(_ o: Obs, _ e: Episode) -> [FightAction] {
+    if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
+        return o.casting ? [.wait] : [.heal]
+    }
     var out: [FightAction] = [.wait, .stop]
     if !o.buff { out.append(.buffWeapon) }
     let alive = Episode.alive(o)
@@ -377,7 +383,7 @@ func statePacket(obs o: Obs, episode e: Episode, lastAction: String, lastResult:
     }
     let last: [String: Any] = ["name": lastAction, "result": lastResult]
     let state: [String: Any] = [
-        "goal": "Defeat one hostile creature with this level-2 shaman, collect its loot, and stay alive. Loot any corpse already waiting first. The owner is supervising.",
+        "goal": "Defeat one hostile creature with this shaman, collect its loot, and stay alive. Loot any corpse already waiting first. The owner is supervising.",
         "character": character, "target": target, "last_action": last, "events_since_last_decision": events,
     ]
     return state
@@ -446,12 +452,16 @@ func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: St
     return JevChoice(action: action, confidence: confidence, probabilities: probabilities)
 }
 
+/// True when the text shares two 4-letter runs with a name (one for a 4-letter name). OCR read a
+/// Juvenile Vuldren corpse as "Xypenil Uuldren"; a single shared run let "Yala Windwatcher" pass for
+/// a Roiling Wind.
 func fuzzyNameMatch(_ text: String, _ names: [String]) -> Bool {
     let letters = text.lowercased().filter(\.isLetter)
     return names.contains { name in
         let n = Array(name.lowercased().filter(\.isLetter))
         guard n.count >= 4 else { return false }
-        return (0...(n.count - 4)).contains { letters.contains(String(n[$0..<$0 + 4])) }
+        let runs = (0...(n.count - 4)).filter { letters.contains(String(n[$0..<$0 + 4])) }.count
+        return runs >= min(2, n.count - 3)
     }
 }
 
@@ -554,7 +564,8 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
     return sorted[i]
 }
 
-func runFight(host: FightHost, jev: JevClient) async -> FightResult {
+/// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
+func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth) async -> FightResult {
     var episode = Episode()
     var lastAction = "none", lastResult = "episode start"
     var decisions = 0, jevCalls = 0
@@ -574,14 +585,14 @@ func runFight(host: FightHost, jev: JevClient) async -> FightResult {
     if host.startCorpseVisible() { episode.killed = true; episode.oldCorpse = true }
 
     var prev = host.observe(plates: true)
-    if prev.player < FightLimits.startHealth { return finish("HOLD_PLAYER_HEALTH") }
+    if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
 
     loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         let o = host.observe(plates: true)
         episode.update(o)
-        if o.player < FightLimits.playerSafety { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
+        if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
         let ev = events(previous: prev, current: o, errorText: o.errorRed ? host.errorText() : nil)
         let allowed = admissible(o, episode)
@@ -629,6 +640,9 @@ func runFight(host: FightHost, jev: JevClient) async -> FightResult {
                 continue
             }
             if !episode.looted && lastResult.hasPrefix("no corpse") {
+                // Our own kill with no corpse label to click (an elemental leaves none; a far corpse's
+                // name is too small to read): the kill stands. Live, Jev otherwise tried LOOT 20 times.
+                if !episode.oldCorpse { outcome = "KILLED_NO_CORPSE"; break loop }
                 episode.killed = false
                 episode.oldCorpse = false
             }
@@ -679,6 +693,7 @@ final class SimFight: FightHost {
     var plateX: Double?
     var groundRow: Int?
     var corpseLootable = false
+    var leavesCorpse = true
     var boltHeld = false
     var boltGrant: HeldKey?
     var down: Set<UInt16> = []
@@ -796,7 +811,7 @@ final class SimFight: FightHost {
             targetHP = 0
             selected = false
             plateX = nil
-            corpseLootable = true
+            corpseLootable = leavesCorpse
         }
     }
 

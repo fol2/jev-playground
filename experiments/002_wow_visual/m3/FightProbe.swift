@@ -55,22 +55,35 @@ func tokenUsage(_ body: [String: Any]) -> (prompt: Int, completion: Int) {
     return (prompt, completion)
 }
 
+/// TypeSafe's System One. The same question is asked again, up to twice and 2 s apart, after HTTP 529
+/// (overloaded) or a timeout: on 23 Sept both ended live walks and hunts, and a fight that stops
+/// leaves the character standing in combat. Any other failure, or a third, is the caller's to handle.
 struct LiveJev: JevClient {
     let key: String
+    var timeout = FightLimits.jevTimeout
+    var retries = 2
     func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
-        var request = URLRequest(url: URL(string: "https://api.typesafe.ai/v1/systemone")!,
-                                 timeoutInterval: FightLimits.jevTimeout)
+        var request = URLRequest(url: URL(string: "https://api.typesafe.ai/v1/systemone")!, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = ["model": FightLimits.model, "state": state, "questions": ["action": question]]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200, let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ProbeError("Jev HTTP \(status)")
+        for attempt in 0...retries {
+            let transient: Error
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 200, let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] { return body }
+                guard status == 529 else { throw ProbeError("Jev HTTP \(status)") }
+                transient = ProbeError("Jev HTTP 529")
+            } catch let error as URLError where error.code == .timedOut {
+                transient = error
+            }
+            if attempt == retries { throw transient }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        return body
+        throw ProbeError("unreachable")
     }
 }
 
@@ -85,6 +98,7 @@ final class LiveHost: FightHost {
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
     var walkedMs = 0
+    var corpseNames = fightNames  // M4b adds the creature a hunt fights
     var turnedMs = 0
 
     init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log) {
@@ -133,7 +147,7 @@ final class LiveHost: FightHost {
     }
 
     func startCorpseVisible() -> Bool {
-        guard let image = latestImage(), let label = corpseLabel(image, fightNames) else { return false }
+        guard let image = latestImage(), let label = corpseLabel(image, corpseNames) else { return false }
         write(image, to: directory.appendingPathComponent("start-corpse.jpg"), type: .jpeg)
         emit("start_corpse", ["x": Int(label.midX), "y": Int(label.maxY), "height": Int(label.height)])
         return true
@@ -253,7 +267,7 @@ final class LiveHost: FightHost {
     }
 
     private func loot(_ episode: inout Episode) async -> String {
-        guard let image = latestImage(), let label = corpseLabel(image, fightNames) else {
+        guard let image = latestImage(), let label = corpseLabel(image, corpseNames) else {
             return "no corpse label visible"
         }
         let fx = label.midX / Double(HUD.width), fy = (label.maxY + 200) / Double(HUD.height)

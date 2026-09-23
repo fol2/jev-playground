@@ -3,9 +3,10 @@
 // keys go through M3's LiveKeys on a pid-targeted sink. Modes, from no effect to live effect:
 //   (none) | --preflight            M0's read-only facts; no capture, input, network or files
 //   --dry-run                       SimNav "wall" + ScriptedJev; no capture, OS input or network
-//   --replay DIR                    arrow and coordinates readers on saved frames; no input or network
+//   --replay DIR                    arrow, coordinates, tracker, target and Game Menu readers on saved frames
 //   --sim-jev --scenario NAME       SimNav + Jev via TypeSafe; no capture or OS input
 //   --execute --keys wqe --to X,Y   window capture, pid-targeted W/Q/E, Jev via TypeSafe
+//   --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe   M4b hunts (HuntProbe.swift)
 // Recovery after a crash or kill: m0-probe --release --keys wqe, and tap W, Q and E in WoW.
 import AppKit
 import Vision
@@ -15,21 +16,27 @@ let navUsage = """
            m4-nav --dry-run
            m4-nav --replay DIR
            m4-nav --sim-jev --scenario open|wall|pocket
-           m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT]
-    Live keys: W, Q, E. Recovery: m0-probe --release --keys wqe
+           m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
+           m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
+    Live keys: W, Q, E; a hunt adds Tab, Esc and M3's 1-4. Recovery: m0-probe --release --keys wqe
     """
 
-/// The coordinates under the minimap, upscaled x3: Vision misreads the ~10 px digits at 1x.
-func coordsText(_ image: CGImage) -> String {
-    let box = CGRect(x: NavHUD.coordsX, y: NavHUD.coordsY, width: NavHUD.coordsWidth, height: NavHUD.coordsHeight)
+/// OCR lines of one HUD box, top to bottom, after a x3 upscale: Vision misreads ~10 px text at 1x.
+func upscaledText(_ image: CGImage, _ box: CGRect) -> [String] {
     guard let crop = image.cropping(to: box),
           let context = CGContext(data: nil, width: Int(box.width) * 3, height: Int(box.height) * 3, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return "" }
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
     context.interpolationQuality = .high
     context.draw(crop, in: CGRect(x: 0, y: 0, width: context.width, height: context.height))
-    guard let scaled = context.makeImage() else { return "" }
-    return ocr(scaled).map(\.0).joined(separator: " ")
+    guard let scaled = context.makeImage() else { return [] }
+    return ocr(scaled).sorted { $0.1.maxY > $1.1.maxY }.map(\.0)  // Vision's boxes grow upwards
+}
+
+/// The coordinates under the minimap.
+func coordsText(_ image: CGImage) -> String {
+    upscaledText(image, CGRect(x: NavHUD.coordsX, y: NavHUD.coordsY, width: NavHUD.coordsWidth, height: NavHUD.coordsHeight))
+        .joined(separator: " ")
 }
 
 func apiKey() throws -> String {
@@ -48,6 +55,7 @@ final class LiveNavBody: NavBody {
     let keys: LiveKeys
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
+    var ghost = false  // a ghost's health bar is empty: report full health so the walk does not stop for it
 
     init(session: Session, feed: FrameFeed, sink: KeySink, directory: URL, log: Log) {
         self.session = session
@@ -94,7 +102,7 @@ final class LiveNavBody: NavBody {
         }
         let hud = observe(pixels, plates: false)
         emit("look", ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
-        return NavObs(x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
+        return NavObs(x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player)
     }
 
     var holding: Bool { keys.holding }
@@ -180,8 +188,14 @@ func navReplay(_ directory: String) throws -> Int32 {
         }
         let text = coordsText(image)
         let at = parseCoords(text)
+        let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
         log.emit("frame", ["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
-                           "coords_text": text, "x": orNull(at?.x), "y": orNull(at?.y)])
+                           "coords_text": text, "x": orNull(at?.x), "y": orNull(at?.y),
+                           "objectives": parseTracker(upscaledText(image, HuntHUD.tracker)).map { "\($0.quest): \($0.done)/\($0.need) \($0.text)" },
+                           "target": target, "target_health": Int(observe(rgba(image), plates: false).target * 100),
+                           "plates": nameplates(rgba(image)).map { ["hostile": $0.hostile, "x": Int($0.centre), "y": $0.y0, "name": plateName(image, $0)] },
+                           "area": orNull(questArea(rgba(image)).map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
+                           "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")])
     }
     log.emit("summary", ["frames": names.count, "effects": "none: saved frames only"])
     return 0
@@ -203,7 +217,7 @@ func navSimJev(_ command: NavCommand) async throws -> Int32 {
     }
     log.emit("start", ["run_id": run.id, "mode": "sim-jev", "scenario": name,
                        "effects": "SimNav + Jev via TypeSafe; no capture or OS input"])
-    let result = await runNav(body: world, jev: LiveJev(key: key), destination: destination)
+    let result = await runNav(body: world, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
     let manifest: [String: Any] = [
         "schema": "m4-run/v1", "run_id": run.id, "mode": "sim-jev", "scenario": name,
         "started_utc": ISO8601DateFormatter().string(from: Date()),
@@ -238,6 +252,7 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
     _ = await Task.detached { coordsText(first.image) }.value  // Vision's first OCR in a process takes ~30 s
     let sink = PidKeySink(pid: session.app.processIdentifier)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    body.ghost = command.ghost
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
@@ -257,9 +272,11 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
         "keys": ["profile": "wqe", "codes": NavLimits.releaseCodes.map { Int($0) }],
         "capture": "window-only ScreenCaptureKit at \(HUD.width)x\(HUD.height), audio off, cursor hidden",
         "destination": ["label": destination.label, "x": destination.x, "y": destination.y, "arrive": destination.arrive],
+        "ghost": command.ghost,
     ]
     body.emit("start", ["run_id": run.id, "mode": "execute", "x": start.x, "y": start.y, "facing": start.facing])
-    let result = await runNav(body: body, jev: LiveJev(key: key), destination: destination)
+    guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
+    let result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     try recordRun(result, into: run.url, manifest: manifest)
@@ -288,6 +305,9 @@ struct M4Nav {
             case .replay: exit(try navReplay(command.directory ?? "."))
             case .simJev: exit(try await navSimJev(command))
             case .execute: exit(try await navExecute(command))
+            case .huntDryRun: exit(try await huntDryRun())
+            case .huntSimJev: exit(try await huntSimJev())
+            case .hunt: exit(try await huntExecute())
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

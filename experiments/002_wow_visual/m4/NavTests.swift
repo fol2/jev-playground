@@ -1,4 +1,4 @@
-// Offline M4a checks with synthetic minimap arrows, a simulated zone map and scripted Jev
+// Offline M4 checks with synthetic minimap arrows, a simulated zone map and scripted Jev
 // replies. They prove the readers, geometry, admissibility, reply validation, the walk skill and
 // the episode's stops: SIMULATION ONLY. Nothing here shows that WoW turns and runs as SimNav does,
 // that the calibration matches a live frame, or that Jev would choose these moves.
@@ -27,6 +27,7 @@ struct NavTests {
         arguments()
         await skill()
         await episodes()
+        await hunts()
         print("nav checks passed: \(checks)")
     }
 
@@ -40,7 +41,8 @@ struct NavTests {
     }
 
     /// A minimap arrow as the client draws it: a navy tail dot and a silver head pointing `heading`.
-    static func arrow(_ heading: Double, lavender: Bool = false, head: Bool = true, icon: (dx: Int, dy: Int)? = nil) -> RGBA {
+    static func arrow(_ heading: Double, lavender: Bool = false, head: Bool = true, icon: (dx: Int, dy: Int)? = nil,
+                      ring: Int? = nil) -> RGBA {
         var pixels = blank().pixels
         let cx = 2423.0, cy = 197.0, h = heading * .pi / 180
         for dy in -1...1 { for dx in -1...1 { set(&pixels, Int(cx) + dx, Int(cy) + dy, 30, 40, 110) } }
@@ -53,6 +55,12 @@ struct NavTests {
             }
         }
         if lavender { for x in NavHUD.arrowX0..<NavHUD.arrowX1 { set(&pixels, x, 184, 150, 130, 220) } }
+        if let ring {  // the selected quest's bright ring on row `ring`, with its dark blue halo over the arrow
+            for x in NavHUD.arrowX0 - 2..<NavHUD.arrowX1 + 2 {
+                for y in ring - 1...ring + 1 { set(&pixels, x, y, 170, 205, 240) }
+                for y in [ring - 3, ring - 2, ring + 2, ring + 3] { set(&pixels, x, y, 24, 32, 44) }
+            }
+        }
         if let icon {  // a quest icon's near-white highlight, as the live frames show beside the arrow
             for dy in 0...2 { for dx in 0...2 { set(&pixels, Int(cx) + icon.dx + dx, Int(cy) + icon.dy + dy, 235, 225, 200) } }
         }
@@ -66,6 +74,8 @@ struct NavTests {
         }
         check(arrowFacing(arrow(90, lavender: true)).map { abs(angleError(90, $0)) <= 15 } ?? false,
               "a lavender quest outline crossing the box is not taken for the navy tail")
+        check(arrowFacing(arrow(0, ring: 184)).map { abs(angleError(0, $0)) <= 15 } ?? false,
+              "the selected quest's ring and halo across the arrow's tip do not turn the reading round")
         check(arrowFacing(arrow(0, icon: (8, 6))).map { abs(angleError(0, $0)) <= 15 } ?? false,
               "a quest icon's highlight beside the arrow is not taken for its tip")
         check(arrowFacing(arrow(0, icon: (1, 2))).map { abs(angleError(0, $0)) <= 15 } ?? false,
@@ -202,6 +212,10 @@ struct NavTests {
         let live = try? parseNav(["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "1", "--label", "Yala Windwatcher"])
         check(live?.toX == 47.1 && live?.toY == 21.8 && live?.arrive == 1 && live?.label == "Yala Windwatcher" && live?.profile == .wqe,
               "execute parses its destination, radius and label")
+        check((try? parseNav(["--execute", "--keys", "wqe", "--ghost", "--to", "47.2,20.5"]))?.ghost == true && live?.ghost == false
+              && (try? parseNav(["--execute", "--keys", "wqe", "--ghost", "--ghost", "--to", "47.2,20.5"])) == nil
+              && (try? parseNav(["--sim-jev", "--ghost"])) == nil,
+              "--ghost is a flag of --execute only, once")
         let refused: [[String]] = [
             ["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--replay", "a", "b"], ["--replay", "-x"],
             ["--sim-jev"], ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
