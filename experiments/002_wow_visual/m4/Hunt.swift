@@ -133,7 +133,9 @@ struct PlateBar: Equatable {
 
 enum PlateScan {
     static let rows = 0.03..<0.72, columns = 0.86  // the game view, as M1's PlateLimits
-    static let minRun = 45, width = 50...200, height = 4...12, bridge = 3
+    // The owner's UI (23 Sept evening): plates are a fixed ~186x15 px at any distance, so a run much
+    // shorter or longer is terrain or a body, not a plate.
+    static let minRun = 120, width = 130...240, height = 10...20, bridge = 3
     static let solid = 0.85, solidRows = 3, border = 0.6
     static func kind(_ r: Int, _ g: Int, _ b: Int) -> Bool? {  // true hostile red, false neutral yellow
         if r - b >= 25 && abs(r - g) <= 14 && r >= 40 { return false }

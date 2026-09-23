@@ -10,7 +10,7 @@ import Vision
 
 /// Capture-pixel boxes of the 2560x1320 layout, read by OCR after a x3 upscale.
 enum HuntHUD {
-    static let tracker = CGRect(x: 2260, y: 400, width: 300, height: 300)  // objectives, below "All Objectives"
+    static let tracker = CGRect(x: 2200, y: 400, width: 360, height: 300)  // objectives, below "All Objectives"
     static let targetName = CGRect(x: 1590, y: 950, width: 330, height: 50)
     static let gameMenu = CGRect(x: 1150, y: 440, width: 260, height: 70)  // the Game Menu's title
 }
@@ -18,9 +18,9 @@ enum HuntHUD {
 let hunterPreference: [HuntAction] = [.fight, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
                                       .detourLeft90, .detourLeft45, .backTrack] + HuntAction.compass
 
-/// The name above an untargeted plate bar, OCR'd after a x3 upscale ("Roiling Winds" at 7 px bars).
+/// The name above an untargeted plate bar (about 20 px text over a 15 px bar), OCR'd after a x3 upscale.
 func plateName(_ image: CGImage, _ bar: PlateBar) -> String {
-    upscaledText(image, CGRect(x: bar.x0 - 20, y: bar.y0 - 26, width: bar.x1 - bar.x0 + 50, height: 24)).joined(separator: " ")
+    upscaledText(image, CGRect(x: bar.x0 - 20, y: bar.y0 - 34, width: bar.x1 - bar.x0 + 70, height: 32)).joined(separator: " ")
 }
 
 /// The fields read from pixels alone: the M3 bars and ring, the minimap arrow and the quest area.

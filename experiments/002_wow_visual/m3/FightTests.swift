@@ -66,6 +66,12 @@ struct FightTests {
         var mana = blank()
         paint(&mana, x0: HUD.manaX0, x1: HUD.manaX0 + HUD.manaSpan, y0: HUD.manaY, y1: HUD.manaY + 1, r: 20, g: 20, b: 180)
         check(abs(observe(mana, plates: false).mana - 1) < 1e-9, "mana present: a full blue row reads 1")
+        var texted = blank()
+        paint(&texted, x0: HUD.manaX0, x1: HUD.manaX0 + 78, y0: HUD.manaY, y1: HUD.manaY1, r: 30, g: 60, b: 200)
+        paint(&texted, x0: HUD.manaX0 + 40, x1: HUD.manaX0 + 90, y0: HUD.manaY, y1: HUD.manaY1, r: 235, g: 235, b: 235)
+        paint(&texted, x0: HUD.manaX0 + 90, x1: HUD.manaX0 + 97, y0: HUD.manaY, y1: HUD.manaY1, r: 30, g: 60, b: 200)
+        check(abs(observe(texted, plates: false).mana - 97.0 / 130) < 1e-9,
+              "mana under the owner's number text: the fill's right end counts, not the blue pixels")
 
         var ring = blank()
         paint(&ring, x0: HUD.combatX0, x1: HUD.combatX1, y0: HUD.combatY0, y1: HUD.combatY0 + 4, r: 200, g: 0, b: 0)

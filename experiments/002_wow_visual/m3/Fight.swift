@@ -7,12 +7,13 @@ import Foundation
 enum HUD {
     static let width = 2560
     static let height = 1320
-    /// Player health: green fill of the character health bar, one row.
-    static let playerX0 = 801, playerX1 = 931, playerY = 997, playerSpan = 130
+    /// Player health: green fill of the character health bar, one row above the owner's "81 / 81" text.
+    static let playerX0 = 801, playerX1 = 931, playerY = 990, playerSpan = 130
     /// Target health: green fill of the target health bar, one row.
     static let targetX0 = 1630, targetX1 = 1760, targetY = 997, targetSpan = 130
-    /// Player mana: blue fill of the mana bar, one row.
-    static let manaX0 = 801, manaX1 = 931, manaY = 1013, manaSpan = 127
+    /// Player mana: the right end of the blue fill across the mana bar's rows. The "148 / 148" text covers
+    /// the bar's full height, so a count would read a full bar as half; the fill's end is off by at most a glyph.
+    static let manaX0 = 801, manaX1 = 931, manaY = 1010, manaY1 = 1018, manaSpan = 130
     /// Combat ring: red pixels around the character portrait.
     static let combatX0 = 720, combatX1 = 810, combatY0 = 950, combatY1 = 1045, combatMin = 300
     /// Cast bar: grey/yellow track (x 1172-1388, y 1200-1210) and yellow fill on row 1205 / 216.
@@ -26,7 +27,7 @@ enum HUD {
     static let errorX0 = 1000, errorX1 = 1560, errorY0 = 140, errorY1 = 200, errorMin = 20
 
     static func green(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 110 && g > r + 40 && g > b + 60 }
-    static func blue(_ r: Int, _ g: Int, _ b: Int) -> Bool { b > 140 && b > r + 60 }
+    static func blue(_ r: Int, _ g: Int, _ b: Int) -> Bool { b > 100 && b > r + 60 && b > g + 40 }  // incl. the dim left end
     static func combatRed(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 150 && g < 70 && b < 70 }
     static func castYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 150 && g > 120 && b < 100 }
     static func castTrack(_ r: Int, _ g: Int, _ b: Int) -> Bool {
@@ -237,8 +238,8 @@ func observe(_ image: RGBA, plates: Bool) -> Obs {
         / Double(HUD.playerSpan)
     o.target = Double(hudCount(image, x0: HUD.targetX0, x1: HUD.targetX1, y0: HUD.targetY, y1: HUD.targetY + 1, HUD.green))
         / Double(HUD.targetSpan)
-    o.mana = min(1, Double(hudCount(image, x0: HUD.manaX0, x1: HUD.manaX1, y0: HUD.manaY, y1: HUD.manaY + 1, HUD.blue))
-        / Double(HUD.manaSpan))
+    let manaEnd = (HUD.manaX0..<HUD.manaX1).last { hudCount(image, x0: $0, x1: $0 + 1, y0: HUD.manaY, y1: HUD.manaY1, HUD.blue) > 0 }
+    o.mana = manaEnd.map { Double($0 + 1 - HUD.manaX0) / Double(HUD.manaSpan) } ?? 0
     o.combat = hudCount(image, x0: HUD.combatX0, x1: HUD.combatX1, y0: HUD.combatY0, y1: HUD.combatY1, HUD.combatRed) > HUD.combatMin
     let yellow = hudCount(image, x0: HUD.castX0, x1: HUD.castX1, y0: HUD.castFillY, y1: HUD.castFillY + 1, HUD.castYellow)
     let track = hudCount(image, x0: HUD.castX0, x1: HUD.castX1, y0: HUD.castY0, y1: HUD.castY1, HUD.castTrack)

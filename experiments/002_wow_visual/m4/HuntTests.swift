@@ -48,7 +48,7 @@ extension NavTests {
     }
 
     /// A game-view frame with plate bars: (x0, y0, colour, outline colour).
-    static func bars(_ list: [(x: Int, y: Int, rgb: (UInt8, UInt8, UInt8), outline: (UInt8, UInt8, UInt8))], width: Int = 95,
+    static func bars(_ list: [(x: Int, y: Int, rgb: (UInt8, UInt8, UInt8), outline: (UInt8, UInt8, UInt8))], width: Int = 186,
                      noise: Bool = false) -> RGBA {
         let w = 2560, h = 1320
         var px = [UInt8](repeating: 0, count: w * h * 4)
@@ -57,9 +57,9 @@ extension NavTests {
         for bar in list {
             for x in bar.x - 2..<bar.x + width + 2 {
                 for y in bar.y - 2..<bar.y { put(x, y, bar.outline) }
-                for y in bar.y + 7..<bar.y + 9 { put(x, y, bar.outline) }
+                for y in bar.y + 15..<bar.y + 17 { put(x, y, bar.outline) }
             }
-            for x in bar.x..<bar.x + width { for y in bar.y..<bar.y + 7 { put(x, y, bar.rgb) } }
+            for x in bar.x..<bar.x + width { for y in bar.y..<bar.y + 15 { put(x, y, bar.rgb) } }
         }
         if noise {  // a red-orange creature body: patchy, no outline
             for y in 600..<612 { for x in 1200..<1300 where (x / 3 + y) % 4 != 0 { put(x, y, (150, 60, 30)) } }
@@ -71,12 +71,12 @@ extension NavTests {
         let dark: (UInt8, UInt8, UInt8) = (18, 18, 4)
         let seen = nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark),
                                     (x: 1700, y: 170, rgb: (62, 60, 20), outline: dark)], noise: true))
-        check(seen.count == 2 && seen.contains { $0.hostile && abs($0.centre - 847) < 3 }
-              && seen.contains { !$0.hostile && abs($0.centre - 1747) < 3 },
+        check(seen.count == 2 && seen.contains { $0.hostile && abs($0.centre - 893) < 3 }
+              && seen.contains { !$0.hostile && abs($0.centre - 1793) < 3 },
               "a dim red and a dim yellow plate bar are found with their colours and centres; a patchy body is not")
         check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: (230, 230, 230))])).isEmpty,
               "the white-outlined (targeted) plate is left to findTargetPlate")
-        check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)], width: 30)).isEmpty,
+        check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)], width: 100)).isEmpty,
               "a bar narrower than a plate is not one")
     }
 
