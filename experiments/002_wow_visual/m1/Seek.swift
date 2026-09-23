@@ -16,14 +16,15 @@ struct SeekConfig {
     var tolerance = 0.03        // centred: |x| within this (x runs -0.5 left edge ... 0.5 right)
     var approachTolerance = 0.06
     var growth = 1.6            // visible stop: apparent size vs the designation, not a distance
-    var stopRow: Double?        // M2 visible stop instead: the target's y (as x, from the middle) reaching this
+    var stopRow: Double?        // M2 visible stop instead: the target's ground row (y, from the middle) reaching this;
+                                // an unseen ground row is -0.5, the top: not yet
     var minScore = 0.6          // tracker correlation below this is an unseen target
     var settle = 0.3            // decide only on frames this long after key-up (M0: motion ended <= 68 ms)
     var lossWait = 1.0          // short occlusion allowance, with no input, before stopping
     var maxCentring = 6         // turn pulses per centring phase
 
-    /// What approach should increase: apparent scale (M1) or the nameplate's row (M2), which
-    /// falls down the screen as the unit gets closer.
+    /// What approach should increase: apparent scale (M1) or the selection circle's row (M2),
+    /// which falls down the screen as the unit gets closer.
     func progress(_ sighting: Sighting) -> Double { stopRow == nil ? sighting.scale : sighting.y }
     func reached(_ sighting: Sighting) -> Bool { progress(sighting) >= (stopRow ?? growth) }
     var slack: Double { stopRow == nil ? 0.03 : 0.005 }  // how far a forward pulse may set progress back
@@ -57,7 +58,7 @@ struct SeekCommand: Equatable {
     var look: String?
     var box: Box?
     var growth = SeekConfig().growth
-    var stopRow = 0.38  // --target only
+    var stopRow = 0.45  // --target only: the selection circle's bottom row, fraction of the height from the top
 }
 
 /// Parses everything before any effect. Missing or unknown arguments never default to input.
@@ -391,9 +392,13 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
             guard let moved = await step(.forward, SeekLimits.forwardMs, phase: "facing", from: centred, expect: 0) else {
                 break run
             }
-            let consistent = abs(moved.x) <= config.approachTolerance && config.progress(moved) >= config.progress(centred) - config.slack
+            // M2's ground row is often unseen at range; then only the bearing can be judged.
+            let known = config.stopRow == nil || (centred.y > -0.5 && moved.y > -0.5)
+            let consistent = abs(moved.x) <= config.approachTolerance
+                && (!known || config.progress(moved) >= config.progress(centred) - config.slack)
             let record: [String: Any] = ["x_before": r3(centred.x), "x_after": r3(moved.x), "progress_before": r3(config.progress(centred)),
-                                         "progress_after": r3(config.progress(moved)), "verdict": consistent ? "consistent" : "inconsistent"]
+                                         "progress_after": r3(config.progress(moved)),
+                                         "verdict": !consistent ? "inconsistent" : known ? "consistent" : "bearing_only"]
             facing = record
             driver.emit("facing_check", record)
             guard consistent else { lease.cancel("facing_inconsistent"); break run }
@@ -426,6 +431,7 @@ final class SimWorld: KeySink {
     var dead = 0.04
     var forwardSkew = 0.0       // degrees between facing and the direction forward moves
     var turnsApplied = true
+    var groundVisibleWithin = Double.infinity  // M2: beyond this range the ground row is unseen (-0.5)
     var hidden: (Double) -> Bool = { _ in false }
     private let lock = NSLock()
     private let profile: KeyProfile
@@ -476,8 +482,8 @@ final class SimWorld: KeySink {
         let bearing = atan2(right, ahead)
         let visible = ahead > 0 && abs(bearing) < .pi / 4 && !hidden(t)
         let range = (dx * dx + dy * dy).squareRoot()
-        // y: a nameplate-like row that falls towards the middle as the unit gets closer (M2).
-        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: -0.3 + 3 / range, scale: distance / range,
-                        score: visible ? 0.95 : 0.2)
+        // y: a ground row that falls towards the middle as the unit gets closer (M2).
+        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: range > groundVisibleWithin ? -0.5 : -0.3 + 3 / range,
+                        scale: distance / range, score: visible ? 0.95 : 0.2)
     }
 }

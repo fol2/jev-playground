@@ -103,3 +103,59 @@ func findTargetPlate(_ image: RGBA) -> Plate? {
         return plates.count == 1 ? plates[0] : nil
     }
 }
+
+enum RingLimits {
+    static let below = 0.005...0.3   // rows under the plate searched, fraction of height
+    static let minPixels = 0.00001   // fraction of the frame; smaller (far) circles read as not yet visible
+    static let maxAspect = 8.0       // wider than this is another unit's health bar, not a circle
+}
+
+/// Neutral (yellow) selection-circle colour, measured mean RGB 144-162, 152-168, 59-73.
+func ringColour(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
+    r > 120 && g > 120 && Double(b) < 0.55 * Double(min(r, g)) && abs(Int(r) - Int(g)) < 70
+}
+
+/// The bottom row of the target's selection circle: the largest circle-coloured blob under
+/// its nameplate. Unlike the nameplate, which floats near camera height, this ground point
+/// falls down the screen as the unit gets closer (live M2 run 3: 0.29 to 0.37 of the height
+/// over ~15 yd). Neutral circles only; nil when absent, too small (far) or bar-shaped.
+func findGround(_ image: RGBA, below plate: Plate) -> Int? {
+    let width = image.width, height = image.height, span = plate.x1 - plate.x0
+    let x0 = max(0, plate.x0 - span), x1 = min(width, plate.x1 + span)
+    let y0 = min(height, plate.bottom + Int(RingLimits.below.lowerBound * Double(height)))
+    let y1 = min(height, plate.bottom + Int(RingLimits.below.upperBound * Double(height)))
+    guard image.pixels.count == width * height * 4, x1 > x0, y1 > y0 else { return nil }
+    let w = x1 - x0, h = y1 - y0
+    var mask = [Bool](repeating: false, count: w * h)
+    for y in y0..<y1 {
+        for x in x0..<x1 {
+            let i = (y * width + x) * 4
+            mask[(y - y0) * w + (x - x0)] = ringColour(image.pixels[i], image.pixels[i + 1], image.pixels[i + 2])
+        }
+    }
+    // Largest 8-connected blob; grass and the unit's body break the circle into arcs.
+    var best: (count: Int, left: Int, right: Int, top: Int, bottom: Int)?
+    var seen = [Bool](repeating: false, count: w * h)
+    for start in mask.indices where mask[start] && !seen[start] {
+        var stack = [start], count = 0
+        var (left, right, top, bottom) = (w, 0, h, 0)
+        seen[start] = true
+        while let index = stack.popLast() {
+            count += 1
+            let (x, y) = (index % w, index / w)
+            (left, right, top, bottom) = (min(left, x), max(right, x), min(top, y), max(bottom, y))
+            for dy in -1...1 {
+                for dx in -1...1 where (dx, dy) != (0, 0) {
+                    let (nx, ny) = (x + dx, y + dy)
+                    guard nx >= 0, nx < w, ny >= 0, ny < h else { continue }
+                    let next = ny * w + nx
+                    if mask[next] && !seen[next] { seen[next] = true; stack.append(next) }
+                }
+            }
+        }
+        if count > best?.count ?? 0 { best = (count, left, right, top, bottom) }
+    }
+    guard let blob = best, Double(blob.count) >= RingLimits.minPixels * Double(width * height),
+          Double(blob.right - blob.left + 1) <= RingLimits.maxAspect * Double(blob.bottom - blob.top + 1) else { return nil }
+    return y0 + blob.bottom
+}

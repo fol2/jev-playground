@@ -98,13 +98,16 @@ final class SeekShell: ShellDriver, SeekDriver {
         if plates {  // M2: detected afresh in every frame; nothing to drift, nothing to predict
             let image = rgba(frame.image)
             let plate = findTargetPlate(image)
+            let ground = plate.flatMap { findGround(image, below: $0) }
             if let plate { shownPlate = plate }
+            // x from the nameplate (the unit's bearing); y from its selection circle, -0.5 while unseen.
             let sighting = Sighting(pts: frame.pts, x: plate.map { $0.centre / Double(image.width) - 0.5 } ?? 0,
-                                    y: plate.map { Double($0.top) / Double(image.height) - 0.5 } ?? 0, scale: 1,
+                                    y: ground.map { Double($0) / Double(image.height) - 0.5 } ?? -0.5, scale: 1,
                                     score: plate == nil ? 0 : 1)
             cached = (frame.pts, sighting)
             var row = fields(sighting)
             row["plate"] = plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] } ?? NSNull()
+            row["ground_row"] = orNull(ground)
             row["track_ms"] = ms(hostNow() - started)
             emit("sighting", row)
             return sighting

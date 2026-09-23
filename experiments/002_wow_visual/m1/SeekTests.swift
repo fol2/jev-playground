@@ -170,8 +170,8 @@ struct SeekTests {
               && command.growth == 1.6, "execute carries keys, frame, box and the default visible stop")
         check(try! parseSeek(good + ["--stop-growth", "2"]).growth == 2, "stop growth is settable within bounds")
         let target = try! parseSeek(["--target", "--keys", "wqe"])
-        check(target.mode == .target && target.profile == .wqe && target.stopRow == 0.38 && target.look == nil,
-              "M2 target mode needs only the key profile; the stop row defaults to 0.38 of the height")
+        check(target.mode == .target && target.profile == .wqe && target.stopRow == 0.45 && target.look == nil,
+              "M2 target mode needs only the key profile; the stop row defaults to 0.45 of the height")
         check(try! parseSeek(["--target", "--keys", "wqe", "--stop-row", "0.5"]).stopRow == 0.5, "stop row is settable within bounds")
         let targetRefused: [[String]] = [["--target"], ["--target", "--keys", "wqe", "--look", "f.png"],
                                          ["--target", "--keys", "wqe", "--box", "1,1,20,20"],
@@ -313,6 +313,29 @@ struct SeekTests {
         offset.fill(100, 160, 160, 162, (235, 235, 235))
         offset.fill(150, 169, 222, 171, (235, 235, 235))
         check(findTargetPlate(offset.image) == nil, "edges that do not overlap are not one nameplate")
+        // The selection circle under the target: a flat yellow ellipse, broken by the unit's body.
+        func ring(_ scene: inout Scene, cx: Int, cy: Int, rx: Int, ry: Int) {
+            for y in (cy - ry)...(cy + ry) { for x in (cx - rx)...(cx + rx) {
+                let (dx, dy) = (Double(x - cx) / Double(rx), Double(y - cy) / Double(ry))
+                if dx * dx + dy * dy <= 1 && !(abs(x - cx) < rx / 3 && y < cy) { scene.fill(x, y, x + 1, y + 1, (160, 168, 64)) }
+            } }
+        }
+        let aimed = findTargetPlate(targeted.image)!
+        var circled = targeted
+        ring(&circled, cx: 510, cy: 230, rx: 40, ry: 10)
+        check(findGround(circled.image, below: aimed) == 240, "the selection circle's bottom row is the ground row")
+        var barred = targeted  // another unit's yellow health bar under the target, no circle
+        barred.fill(470, 200, 545, 207, (200, 200, 40))
+        check(findGround(barred.image, below: aimed) == nil, "a health bar is too flat to be a selection circle")
+        barred.fill(470, 200, 545, 207, (200, 200, 40))
+        ring(&barred, cx: 510, cy: 250, rx: 40, ry: 10)
+        check(findGround(barred.image, below: aimed) == 260, "the circle wins over a nearby bar")
+        var far = targeted
+        ring(&far, cx: 510, cy: 200, rx: 2, ry: 1)  // 7 px, under the 8.4 px floor at 1280x660
+        check(findGround(far.image, below: aimed) == nil, "a circle too small to measure reads as not yet visible")
+        var orange = targeted  // the unit's own orange body is not circle-coloured
+        orange.fill(490, 200, 530, 240, (240, 150, 40))
+        check(findGround(orange.image, below: aimed) == nil, "the unit's orange body is not the circle")
         var truncated = scene
         truncated.pixels.removeLast(4)
         check(findTargetPlate(RGBA(width: Scene.width, height: Scene.height, pixels: truncated.pixels)) == nil,
@@ -323,16 +346,21 @@ struct SeekTests {
         var config = SeekConfig()
         config.stopRow = -0.12
         do {
-            let run = await seek(bearing: -20, config: config)
+            let run = await seek(bearing: -20, config: config) { _, world, _, _ in world.groundVisibleWithin = 20 }
             check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && sound(run)
                   && (run.result.final?.y ?? -1) >= -0.12 && (run.result.final?.scale ?? 9) < 1.6,
-                  "M2: the loop stops on the target's row, not on apparent growth")
-            check(run.result.facing?["verdict"] as? String == "consistent", "M2: forward that lowers the plate is consistent")
+                  "M2: the loop stops on the ground row, not on apparent growth")
+            check(run.result.facing?["verdict"] as? String == "bearing_only",
+                  "M2: with the circle not yet visible, facing is judged on bearing only and the approach continues")
         }
         do {
-            let run = await seek(bearing: 0, config: config) { _, world, _, _ in world.forwardSkew = 180 }
+            let run = await seek(bearing: -10, distance: 18, config: config)
+            check(run.result.facing?["verdict"] as? String == "consistent", "M2: forward that lowers the ground row is consistent")
+        }
+        do {
+            let run = await seek(bearing: 0, distance: 15, config: config) { _, world, _, _ in world.forwardSkew = 180 }
             check(run.result.outcome == "STOPPED_facing_inconsistent" && sound(run) && run.lease.pulsesUsed == 1,
-                  "M2: forward that raises the target's plate fails the facing check")
+                  "M2: forward that raises the ground row fails the facing check")
         }
         do {
             let run = await seek(bearing: 0, distance: 80, config: config)
