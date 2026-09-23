@@ -223,16 +223,18 @@ class ShellDriver: ProbeDriver {
 
 /// Human emergency stop by Ctrl-C/kill: release on a queue the batch cannot block.
 /// SIGKILL, crashes and power loss cannot run this; use --release or the key in WoW.
-func trapSignals(_ lease: InputLease, _ log: Log, also: (() -> Void)? = nil) -> [DispatchSourceSignal] {
+func trapSignals(_ lease: InputLease, _ log: Log, also: (() -> Void)? = nil,
+                 holding: (() -> Bool)? = nil) -> [DispatchSourceSignal] {
     let queue = DispatchQueue(label: "m0.signals", qos: .userInteractive)
     return [("SIGINT", SIGINT), ("SIGTERM", SIGTERM), ("SIGHUP", SIGHUP)].map { name, number in
         signal(number, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: number, queue: queue)
         source.setEventHandler {
-            also?()  // M2: Tab's key-up, which is not under the lease
+            also?()  // M2 Tab, M3 host.releaseAll: keys not under the lease
             lease.cancel(name)
-            log.emit("exit", ["reason": name, "holding": lease.isHolding])
-            exit(lease.isHolding ? 3 : 130)
+            let still = lease.isHolding || (holding?() ?? false)
+            log.emit("exit", ["reason": name, "holding": still])
+            exit(still ? 3 : 130)
         }
         source.resume()
         return source

@@ -287,6 +287,10 @@ candidate is the game's own UI. There is no ML and no model call.
   - The action bar is on screen, but **no hotkey or icon turned red out of range**, not
     even melee `1` at over 20 yd. The planned action-bar range stop is therefore
     unavailable on this client and UI.
+  - **Correction (M3, 23 September).** This was wrong for spells. Slot 2's hotkey digit
+    (Lightning Bolt) turns dark red, about r 90–162 with g and b below 70, beyond the
+    spell's range. M2's targets were within that range, and the Attack slot's `1` has no
+    range colouring. [M3](../m3/README.md) uses the digit as its range cue.
 - **Nameplate row: rejected on evidence (run 3).** The nameplate floats at about camera
   height.
   - While the unit and its circle grew over ten W pulses, the circle fell from 0.29 to

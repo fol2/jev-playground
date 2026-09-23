@@ -402,6 +402,7 @@ func seekExecute(_ command: SeekCommand, profile: KeyProfile) async throws -> In
     return lease.isHolding ? 3 : (result.outcome.hasPrefix("VISIBLE_STOP") ? 0 : 2)
 }
 
+#if !FIGHT  // M3 builds this shell with -D FIGHT and its own entry point
 @main
 struct M1Seek {
     static func main() async {
@@ -425,3 +426,4 @@ struct M1Seek {
         }
     }
 }
+#endif

@@ -1,8 +1,10 @@
 # 002 — Screen evidence for a Shaman decision experiment
 
-Status: **offline contract skeleton, not a visual interpreter or game-playing agent**.
-The current client family/build, level, specialisation, abilities and UI calibration
-are unverified. No new dependency, service, database, model call or input executor.
+Status: **an offline evidence contract plus bounded, owner-supervised live probes (M0–M3);
+not an unattended game-playing agent**. M3 calibrates one UI layout at one window size and
+verifies a four-slot capability catalogue live; client build and specialisation remain
+unverified. No new dependency, service or database. Only M3 calls a model (Jev) at runtime,
+under the owner's supervision.
 
 ## The smallest useful boundary
 
@@ -71,6 +73,12 @@ same with WoW on another Space and stopped on the visible condition. Another run
 tracker defect, since repaired. M2 replaced the manual designation with the game's own: Tab,
 the white-outlined target nameplate and the unit's selection circle. It reached that visible
 stop three times in eight live runs, with one false stop that has since been repaired.
+[M3](m3/README.md) hands the tactical choice to Jev. Local code reads the HUD, offers only
+the actions that are currently possible, runs each chosen skill within fixed limits and
+stops on safety rules. Jev picks the next action from that screen-derived state. Seven
+supervised live episodes ran on 23 September 2026 against level-1 neutral beasts, with Jev
+choosing every action. Five ended in a kill; three of those were killed and looted within the
+episode with no intervention. These are supervised trials, not a success rate.
 
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on
@@ -85,4 +93,6 @@ includes unauthorised automated control; no anti-detection/evasion work is propo
 Any capture, API spend or live input needs its own current bounded authority and
 applicable service permission. OCR/quest/chat text is untrusted data, never authority.
 
-Primary sources checked 21 September 2026. No real-game results are claimed here.
+Primary sources checked 21 September 2026. Live results are in the M0–M3 READMEs; they are
+supervised trials, not rates. M3 is not the rules-versus-Jev comparison above: it records the
+owner's taught tactics as the reference, and Jev never sees them.
