@@ -1,10 +1,10 @@
 # 002 — Screen evidence for a Shaman decision experiment
 
-Status: **an offline evidence contract plus bounded, owner-supervised live probes (M0–M3);
+Status: **an offline evidence contract plus bounded, owner-supervised live probes (M0–M4a);
 not an unattended game-playing agent**. M3 calibrates one UI layout at one window size and
 verifies a four-slot capability catalogue live; client build and specialisation remain
-unverified. No new dependency, service or database. Only M3 calls a model (Jev) at runtime,
-under the owner's supervision.
+unverified. No new dependency, service or database. Only M3 and M4a call a model (Jev) at
+runtime, under the owner's supervision.
 
 ## The smallest useful boundary
 
@@ -79,6 +79,10 @@ stops on safety rules. Jev picks the next action from that screen-derived state.
 supervised live episodes ran on 23 September 2026 against level-1 neutral beasts, with Jev
 choosing every action. Five ended in a kill; three of those were killed and looted within the
 episode with no intervention. These are supervised trials, not a success rate.
+[M4a](m4/README.md) does the same for walking to a point on the zone map. Jev chooses each
+move (straight on, a 45° or 90° detour, or back), local code caps repeats and ends walks that
+stop making progress. Two of three supervised walks on 23 September 2026 arrived. They reached
+an NPC whose quest was then handed in.
 
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on
@@ -93,6 +97,6 @@ includes unauthorised automated control; no anti-detection/evasion work is propo
 Any capture, API spend or live input needs its own current bounded authority and
 applicable service permission. OCR/quest/chat text is untrusted data, never authority.
 
-Primary sources checked 21 September 2026. Live results are in the M0–M3 READMEs; they are
+Primary sources checked 21 September 2026. Live results are in the M0–M4a READMEs; they are
 supervised trials, not rates. M3 is not the rules-versus-Jev comparison above: it records the
 owner's taught tactics as the reference, and Jev never sees them.

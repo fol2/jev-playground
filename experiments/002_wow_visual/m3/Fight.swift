@@ -93,6 +93,120 @@ func confirmKeyUp(_ code: UInt16, sink: KeySink, emit: Emit) -> Bool {
     return false
 }
 
+/// Key state of the live shells (M3 fight, M4 walk; SimNav drives it with a fake sink). The grant
+/// is taken before the post, as InputLease does, so a partly delivered down is still released;
+/// posts happen under one lock and stop once releaseAll has run, so a down cannot land after the
+/// SIGINT sweep; a held key with a watchdog grant is lifted by sweepExpired once the grant lapses.
+/// A key-up that failed every attempt is retried by the next sweep, and no grant can postpone that.
+/// Events are emitted after the lock is released: a blocked log write never holds up the exit sweep.
+final class LiveKeys {
+    private let sink: KeySink
+    private let releaseCodes: [UInt16]
+    private let clock: () -> Double
+    var emit: Emit  // set once, before any other thread can release
+    private let lock = NSLock()
+    private var held: Set<UInt16> = []
+    private var grants: [UInt16: HeldKey] = [:]
+    private var releasing: Set<UInt16> = []  // key-ups that failed; the sweep retries them
+    private var cancelled = false
+    private var posted: [UInt16] = []
+    private var pending: [(String, [String: Any])] = []  // events noted under the lock
+
+    init(sink: KeySink, releaseCodes: [UInt16], clock: @escaping () -> Double, emit: @escaping Emit = { _, _ in }) {
+        self.sink = sink
+        self.releaseCodes = releaseCodes
+        self.clock = clock
+        self.emit = emit
+    }
+
+    private func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        let value = body()
+        let events = pending
+        pending.removeAll()
+        lock.unlock()
+        for (event, fields) in events { emit(event, fields) }
+        return value
+    }
+
+    private func note(_ event: String, _ fields: [String: Any]) { pending.append((event, fields)) }  // under the lock
+
+    /// Key-up under the lock. A failure leaves the key held with an expired grant, so the next sweep retries it.
+    private func up(_ code: UInt16) -> Bool {
+        guard confirmKeyUp(code, sink: sink, emit: note) else {
+            releasing.insert(code)
+            grants[code] = HeldKey(code: code, until: -.infinity)
+            return false
+        }
+        held.remove(code)
+        releasing.remove(code)
+        grants[code] = nil
+        return true
+    }
+
+    var holding: Bool { locked { !held.isEmpty } }
+    var codesPosted: [UInt16] { locked { posted } }
+    func isDown(_ code: UInt16) -> Bool { locked { held.contains(code) } }
+
+    /// False once releaseAll has run: nothing was posted.
+    @discardableResult
+    func press(_ code: UInt16) -> Bool {
+        locked {
+            guard !cancelled else { return false }
+            held.insert(code)
+            releasing.remove(code)
+            do { try sink.post(code, down: true) } catch {
+                note("key_down_failed", ["code": Int(code), "error": "\(error)"])
+            }
+            posted.append(code)
+            return true
+        }
+    }
+
+    /// Keep the key and its grant until a key-up posts. `listed` posts the up even if not held.
+    func lift(_ code: UInt16, listed: Bool = false) {
+        locked {
+            guard held.contains(code) || listed else { return }
+            _ = up(code)
+        }
+    }
+
+    /// Start or refresh the watchdog for a held key; not for one whose key-up is being retried.
+    func grant(_ code: UInt16, seconds: Double) {
+        locked {
+            guard !releasing.contains(code) else { return }
+            var grant = HeldKey(code: code, until: 0)
+            grant.refresh(now: clock(), hold: seconds)
+            grants[code] = grant
+        }
+    }
+
+    /// The watchdog's tick: lift every held key whose grant has lapsed. Decided and lifted under
+    /// the lock, so a refresh cannot slip in between.
+    func sweepExpired() {
+        let now = clock()
+        let released: [UInt16] = locked {
+            var out: [UInt16] = []
+            for (code, grant) in grants where grant.expired(now: now) {
+                guard held.contains(code) else { grants[code] = nil; continue }
+                if up(code) { out.append(code) }
+            }
+            return out
+        }
+        for code in released { emit("watchdog", ["released": Int(code)]) }
+    }
+
+    /// The exit sweep: no key goes down afterwards, and every listed code gets a key-up. All the key-ups
+    /// post under one hold of the lock before any event is logged: a log write blocked on stdout must
+    /// not keep W down behind Q's event.
+    func releaseAll() {
+        locked {
+            cancelled = true
+            for code in releaseCodes { _ = up(code) }
+        }
+    }
+}
+
 struct Obs {
     var player = 0.0, mana = 0.0, target = 0.0
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
@@ -139,7 +253,12 @@ func observe(_ image: RGBA, plates: Bool) -> Obs {
     return o
 }
 
-enum FightAction: String, CaseIterable {
+/// A move Jev can be offered: its name is the choice key and `facts` the criterion text.
+protocol JevAction: RawRepresentable, CaseIterable, Equatable where RawValue == String {
+    var facts: String { get }
+}
+
+enum FightAction: String, JevAction {
     case buffWeapon = "BUFF_WEAPON"
     case selectTarget = "SELECT_TARGET"
     case faceTarget = "FACE_TARGET"
@@ -264,19 +383,21 @@ func statePacket(obs o: Obs, episode e: Episode, lastAction: String, lastResult:
     return state
 }
 
-func actionQuestion(_ admissible: [FightAction]) -> [String: Any] {
+let fightInstructions = "Choose the character's next action in this fight, using `character`, `target`, `last_action` and `events_since_last_decision`."
+
+func actionQuestion<A: JevAction>(_ admissible: [A], instructions: String = fightInstructions) -> [String: Any] {
     var criteria: [String: String] = [:]
     for action in admissible { criteria[action.rawValue] = action.facts }
     let question: [String: Any] = [
         "type": "choice",
-        "instructions": "Choose the character's next action in this fight, using `character`, `target`, `last_action` and `events_since_last_decision`.",
+        "instructions": instructions,
         "criteria": criteria,
     ]
     return question
 }
 
-struct JevChoice: Equatable {
-    let action: FightAction
+struct JevChoice<A: JevAction>: Equatable {
+    let action: A
     let confidence: Double
     let probabilities: [String: Double]
 }
@@ -303,12 +424,12 @@ func jsonMap(_ value: Any?) -> [String: Any]? {
     return nil
 }
 
-func parseChoice(_ body: [String: Any], admissible: [FightAction], model: String) -> JevChoice? {
+func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: String) -> JevChoice<A>? {
     guard let got = body["model"] as? String, got == model else { return nil }
     guard let answers = body["answers"] as? [String: Any],
           let a = answers["action"] as? [String: Any],
           let name = a["choice"] as? String else { return nil }
-    guard let action = FightAction(rawValue: name), admissible.contains(action) else { return nil }
+    guard let action = A(rawValue: name), admissible.contains(action) else { return nil }
     guard let rawConfidence = a["confidence"], let confidence = jsonDouble(rawConfidence),
           (0...1).contains(confidence) else { return nil }
     guard let raw = jsonMap(a["probabilities"]) else { return nil }
@@ -736,13 +857,15 @@ final class SimFight: FightHost {
     }
 }
 
-struct ScriptedJev: JevClient {
-    var preference: [FightAction] = FightAction.preference
+struct ScriptedJev<A: JevAction>: JevClient {
+    var preference: [A]
 
     func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
         let criteria = question["criteria"] as? [String: Any] ?? [:]
-        let allowed = FightAction.allCases.filter { criteria[$0.rawValue] != nil }
-        let choice = preference.first { allowed.contains($0) } ?? .stop
+        let allowed = A.allCases.filter { criteria[$0.rawValue] != nil }
+        guard let choice = preference.first(where: allowed.contains) ?? allowed.first else {
+            throw ProbeError("no admissible action offered")
+        }
         var probabilities: [String: Any] = [:]
         let n = Double(max(1, allowed.count))
         for action in allowed { probabilities[action.rawValue] = 1 / n }
@@ -751,4 +874,8 @@ struct ScriptedJev: JevClient {
         let body: [String: Any] = ["model": FightLimits.model, "answers": answers]
         return body
     }
+}
+
+extension ScriptedJev where A == FightAction {
+    init() { preference = FightAction.preference }
 }
