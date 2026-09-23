@@ -131,20 +131,22 @@ struct SeekTests {
         check(command.profile == .wqe && command.look == "f.png" && command.box == Box(x: 10, y: 20, width: 40, height: 30)
               && command.growth == 1.6, "execute carries keys, frame, box and the default visible stop")
         check(try! parseSeek(good + ["--stop-growth", "2"]).growth == 2, "stop growth is settable within bounds")
-        for bad in [["--bogus"], ["--dry-run", "x"], ["--look", "--keys", "wqe"], ["--execute"],
+        let box = ["--execute", "--keys", "wqe", "--look", "f.png", "--box"]
+        let refused: [[String]] = [["--bogus"], ["--dry-run", "x"], ["--look", "--keys", "wqe"], ["--execute"],
                     ["--execute", "--look", "f.png", "--box", "1,1,20,20"],
                     ["--execute", "--keys", "wqe", "--box", "1,1,20,20"],
                     ["--execute", "--keys", "wqe", "--look", "f.png"],
                     ["--execute", "--keys", "qwe", "--look", "f.png", "--box", "1,1,20,20"],
                     good + ["--keys", "wqe"], good + ["--stop-growth", "3"], good + ["--stop-growth", "nan"],
                     good + ["--stop-growth"], good + ["--extra", "1"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,8,20"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "-1,1,20,20"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20.5,20"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "10,20,foo,40,30"],
-                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "10,20,40,30,"],
-                    ["--execute", "--keys", "--look", "f.png", "--box", "1,1,20,20"]] {
+                    box + ["1,1,8,20"],
+                    box + ["-1,1,20,20"],
+                    box + ["1,1,20"],
+                    box + ["1,1,20.5,20"],
+                    box + ["10,20,foo,40,30"],
+                    box + ["10,20,40,30,"],
+                    ["--execute", "--keys", "--look", "f.png", "--box", "1,1,20,20"]]
+        for bad in refused {
             check(fails { _ = try parseSeek(bad) }, "refused before any effect: \(bad)")
         }
     }
@@ -237,17 +239,17 @@ struct SeekTests {
 
     static func sound(_ run: (result: SeekResult, driver: FakeSeekDriver, world: SimWorld, lease: InputLease)) -> Bool {
         let presses = run.world.held
-        let ups = run.driver.named("key_up")
         let spent = run.lease.spentMs
-        return !run.lease.isHolding && presses.allSatisfy { $0.up != nil } && presses.count == run.lease.pulsesUsed
-            && presses.count <= 20 && spent[.forward, default: 0] <= 2500
+        let released: Bool = !run.lease.isHolding && presses.allSatisfy { $0.up != nil } && presses.count == run.lease.pulsesUsed
+        let bounded: Bool = presses.count <= 20 && spent[.forward, default: 0] <= 2500
             && spent[.turnLeft, default: 0] <= 1200 && spent[.turnRight, default: 0] <= 1200
-            && ups.allSatisfy { ($0["lateness_ms"] as? Int ?? 99) <= 0 }
-            && run.result.pulses.allSatisfy { record in
-                guard let after = record["after"] as? [String: Any], let pts = after["pts"] as? Double,
-                      let up = record["up_at"] as? Double else { return true }
-                return pts >= up + 0.3 - 1e-9  // decisions only on settled frames
-            }
+        let onTime: Bool = run.driver.named("key_up").allSatisfy { ($0["lateness_ms"] as? Int ?? 99) <= 0 }
+        let settled: Bool = run.result.pulses.allSatisfy { record in
+            guard let after = record["after"] as? [String: Any], let pts = after["pts"] as? Double,
+                  let up = record["up_at"] as? Double else { return true }
+            return pts >= up + 0.3 - 1e-9  // decisions only on settled frames
+        }
+        return released && bounded && onTime && settled
     }
 
     static func phases(_ result: SeekResult) -> [String] { result.pulses.compactMap { $0["phase"] as? String } }

@@ -105,7 +105,8 @@ func cropped(_ image: Grey, _ box: Box) -> Grey? {
     var pixels: [Float] = []
     pixels.reserveCapacity(box.width * box.height)
     for y in box.y..<(box.y + box.height) {
-        pixels += image.pixels[(y * image.width + box.x)..<(y * image.width + box.x + box.width)]
+        let start: Int = y * image.width + box.x
+        pixels.append(contentsOf: image.pixels[start..<(start + box.width)])
     }
     return Grey(width: box.width, height: box.height, pixels: pixels)
 }
