@@ -93,6 +93,7 @@ final class FrameFeed: NSObject, SCStreamOutput {
     private var pending: [Frame] = []
     private var previous: [UInt8]?
     private var image: CGImage?
+    private var imagePTS = -Double.infinity
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sample.isValid, let buffer = sample.imageBuffer,
@@ -109,6 +110,7 @@ final class FrameFeed: NSObject, SCStreamOutput {
         }
         previous = grey
         image = decoded
+        imagePTS = sample.presentationTimeStamp.seconds
     }
 
     func drain() -> [Frame] {
@@ -121,6 +123,13 @@ final class FrameFeed: NSObject, SCStreamOutput {
         lock.lock()
         defer { lock.unlock() }
         return image
+    }
+
+    /// The newest complete frame with its capture PTS, for M1's tracker.
+    var latestFrame: (pts: Double, image: CGImage)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return image.map { (imagePTS, $0) }
     }
 }
 
@@ -143,11 +152,12 @@ func escapeHeld() -> Bool { CGEventSource.keyState(.combinedSessionState, key: e
 
 /// Without a live target this is the dry-run: synthetic flat 30 Hz frames and a simulated
 /// 400 ms observer stall after each key-down, so the release queue must work on its own.
-final class ShellDriver: ProbeDriver {
+/// M1's shell subclasses it for tracking and annotated snapshots.
+class ShellDriver: ProbeDriver {
     let log: Log
     let live: LiveTarget?
     private let releases = DispatchQueue(label: "m0.release", qos: .userInteractive)
-    private let origin = hostNow()
+    let origin = hostNow()
     private var tick = 0
 
     init(log: Log, live: LiveTarget?) {
@@ -415,6 +425,7 @@ func release(_ profile: KeyProfile) throws {
                                              "codes": Primitive.allCases.map { Int(profile.code($0)) }, "key_down_sent": 0])
 }
 
+#if !SEEK  // M1 builds this shell with -D SEEK and its own entry point
 @main
 struct M0Probe {
     static func main() async {
@@ -438,3 +449,4 @@ struct M0Probe {
         }
     }
 }
+#endif

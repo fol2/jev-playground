@@ -20,6 +20,10 @@ movement, and a visual change is not avatar facing.
 | `MotorTests.swift` | 117 fake-time checks | **Dispatch intent only**: argument, lease, gate and batch logic |
 | `Probe.swift` | Native shell: preflight, dry-run, execute, release | Real timers and signals; live paths are compiled but not run |
 
+M1 ([`../m1/`](../m1/README.md)) reuses this core and shell. The lease takes a `Budget` (M0 keeps its fixed
+six-pulse default), the frame feed also exposes the newest frame's PTS, and `Probe.swift` built with
+`-D SEEK` drops only M0's entry point.
+
 Reused, not reinvented: fishing's background key route (`live.swift` `key()`: a
 private event source posted to one pid, previously shown to cast in the background
 with TextEdit frontmost) and its ScreenCaptureKit latest-frame pattern. The
