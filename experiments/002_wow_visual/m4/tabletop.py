@@ -67,6 +67,11 @@ S = [
         "enemies_near": 0, "bags": ["Refreshing Spring Water x5", "Tough Hunk of Bread x4"],
         "note": "Healing Wave costs about 25% mana and heals about 60%; sitting to drink and eat restores both in about 20 s; natural regeneration takes minutes"},
        {"HEAL_THEN_DRINK": "Cast Healing Wave, then sit and drink/eat to full", "PULL_NEXT": "Pull the next quest mob now", "STAND_REGEN": "Stand still until health and mana come back naturally"}),
+    sc("distance_band", "BOLT_NOW", {"target": {"name": "Scrawny Ursera", "alone": True, "counts_for": "Scrawny Ursera Claw 2/6"},
+        "weapon_buff_active": True, "hotkey_range": {"1 Attack (melee, 5 yd)": "red: out of range", "3 Earth Shock (20 yd)": "red: out of range",
+                                                      "2 Lightning Bolt (30 yd)": "white: in range"},
+        "note": "a hotkey's digit turns red while the target is beyond that spell's range"},
+       {"BOLT_NOW": "Cast Lightning Bolt now", "APPROACH": "Walk closer first", "EARTH_SHOCK": "Cast Earth Shock now"}),
 ]
 
 def ask(s, key):
