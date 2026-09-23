@@ -65,6 +65,10 @@ latency and tokens per useful decision before connecting any executor.
 [M0](m0/README.md) comes before HUD extraction. It is a bounded native turn/move/stop
 probe with a no-effect default and fake-time proof. On 22 September 2026, two six-pulse
 background checks found no transport blocker. That is not a reliability claim.
+[M1](m1/README.md) closes the loop on a manually designated target. On 23 September
+2026 one live run centred, faced and approached a lamp post with background Q/W alone.
+A second run found a tracker defect, since repaired offline. The visible stop and the
+repaired tracker still need one live run.
 
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on
