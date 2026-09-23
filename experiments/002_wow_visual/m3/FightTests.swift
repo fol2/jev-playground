@@ -26,6 +26,7 @@ struct FightTests {
         names()
         packets()
         arguments()
+        await watchdog()
         await sim()
         print("fight checks passed: \(checks)")
     }
@@ -97,9 +98,12 @@ struct FightTests {
 
         let plated = observe(blank(), plates: true)
         check(plated.plate == nil && plated.ground == nil, "plates on a blank frame find nothing")
-        var hidden = blank()
-        paint(&hidden, x0: HUD.playerX0, x1: HUD.playerX1, y0: HUD.playerY, y1: HUD.playerY + 1, r: 20, g: 200, b: 20)
-        check(observe(hidden, plates: false).plate == nil, "plates: false never searches for a nameplate")
+        var named = blank()
+        paint(&named, x0: 1200, x1: 1333, y0: 400, y1: 403, r: 235, g: 235, b: 235)
+        paint(&named, x0: 1200, x1: 1333, y0: 403, y1: 413, r: 200, g: 200, b: 40)
+        paint(&named, x0: 1200, x1: 1333, y0: 413, y1: 416, r: 235, g: 235, b: 235)
+        check(observe(named, plates: true).plate != nil, "plates: true finds a white-outlined nameplate")
+        check(observe(named, plates: false).plate == nil, "plates: false never searches for a nameplate")
     }
 
     static func casts() {
@@ -203,9 +207,12 @@ struct FightTests {
         check(parseChoice(body(probabilities: ["WAIT": 0.5, "STOP": 0.4, "HEAL": 0.1]), admissible: allowed,
                           model: FightLimits.model) == nil,
               "parseChoice rejects probabilities with an extra key")
-        check(parseChoice(body(probabilities: ["WAIT": 1.2, "STOP": -0.2]), admissible: allowed,
+        check(parseChoice(body(probabilities: ["WAIT": 1.2, "STOP": 0]), admissible: allowed,
                           model: FightLimits.model) == nil,
-              "parseChoice rejects a probability outside 0...1")
+              "parseChoice rejects a probability above 1")
+        check(parseChoice(body(probabilities: ["WAIT": 0, "STOP": -0.2]), admissible: allowed,
+                          model: FightLimits.model) == nil,
+              "parseChoice rejects a probability below 0")
         check(parseChoice(body(probabilities: ["WAIT": 0.4, "STOP": 0.4]), admissible: allowed,
                           model: FightLimits.model) == nil,
               "parseChoice rejects a probability sum off by more than 0.02")
@@ -270,6 +277,9 @@ struct FightTests {
         let criteria = q["criteria"] as? [String: String] ?? [:]
         check(Set(criteria.keys) == ["WAIT", "STOP", "HEAL"] && criteria["BUFF_WEAPON"] == nil,
               "question criteria cover only the admissible actions")
+        let facts = FightAction.allCases.map(\.facts).joined(separator: " ").lowercased()
+        check(!facts.contains("for example") && !facts.contains("heal only") && !facts.contains("enchant first"),
+              "criteria state facts, not coaching")
         let ev = events(previous: Obs(player: 1, target: 1), current: Obs(player: 0.8, target: 0.6, errorRed: true),
                         errorText: "Out of range")
         check(ev.contains(where: { $0.contains("character lost") }) && ev.contains(where: { $0.contains("target lost") })
@@ -327,5 +337,78 @@ struct FightTests {
         let held = await runFight(host: notice, jev: ScriptedJev())
         check(held.outcome == "HOLD_REFRESH_NOTICE" && held.decisions == 0,
               "an open world-refresh notice sends nothing")
+
+        let boom = SimFight(clock: FightClock())
+        boom.holdBolt()
+        let err = await runFight(host: boom, jev: ThrowingJev())
+        check(err.outcome == "JEV_ERROR" && err.decisions == 0 && boom.performed.isEmpty
+              && !err.holdingKeys && boom.down.isEmpty,
+              "a throwing Jev client is JEV_ERROR: no perform, keys released")
+
+        let reject = SimFight(clock: FightClock())
+        let stopped = await runFight(host: reject, jev: ReplyJev(choice: "CAST_LIGHTNING_BOLT"))
+        check(stopped.outcome == "JEV_STOP" && reject.performed.isEmpty && stopped.decisions == 1
+              && !stopped.holdingKeys,
+              "a well-typed non-admissible choice is JEV_STOP and never performed")
+    }
+
+    static func watchdog() async {
+        var grant = HeldKey(code: FightLimits.bolt, until: 0)
+        grant.refresh(now: 0)
+        check(!grant.expired(now: FightLimits.watchdogSeconds)
+              && grant.expired(now: FightLimits.watchdogSeconds + 0.001),
+              "HeldKey expires only after 4 s without a refresh")
+        grant.refresh(now: 3)
+        check(!grant.expired(now: 7) && grant.expired(now: 7.001),
+              "refresh extends the watchdog from the new now")
+
+        let sink = FailUpSink()
+        var rows: [(String, [String: Any])] = []
+        let emit: Emit = { name, fields in rows.append((name, fields)) }
+        sink.failUps = 1
+        check(confirmKeyUp(FightLimits.bolt, sink: sink, emit: emit) && sink.ups == [FightLimits.bolt]
+              && rows.contains(where: { $0.0 == "key_up_failed" }),
+              "a failed key-up is retried and then confirmed")
+        sink.failUps = Limits.releaseAttempts
+        sink.ups = []
+        check(!confirmKeyUp(FightLimits.forward, sink: sink, emit: emit) && sink.ups.isEmpty
+              && rows.contains(where: { $0.0 == "release_unconfirmed" }),
+              "persistent key-up failure keeps the grant")
+
+        let world = SimFight(clock: FightClock())
+        world.holdBolt()
+        await world.sleep(FightLimits.watchdogSeconds)
+        check(world.holdingKeys && world.down.contains(FightLimits.bolt),
+              "watchdog does not fire at exactly 4 s")
+        await world.sleep(0.001)
+        check(!world.holdingKeys && world.down.isEmpty,
+              "a fake-time host holding bolt past 4 s gets a key-up")
+    }
+}
+
+final class FailUpSink: KeySink {
+    var failUps = 0
+    var ups: [UInt16] = []
+    func post(_ code: UInt16, down: Bool) throws {
+        if !down && failUps > 0 { failUps -= 1; throw ProbeError("fake key-up failure") }
+        if !down { ups.append(code) }
+    }
+}
+
+struct ThrowingJev: JevClient {
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        throw ProbeError("jev down")
+    }
+}
+
+struct ReplyJev: JevClient {
+    let choice: String
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        let criteria = question["criteria"] as? [String: Any] ?? [:]
+        var probabilities: [String: Any] = [:]
+        let n = Double(max(1, criteria.count))
+        for key in criteria.keys { probabilities[key] = 1 / n }
+        let action: [String: Any] = ["choice": choice, "confidence": 1.0, "probabilities": probabilities]
+        return ["model": FightLimits.model, "answers": ["action": action]]
     }
 }

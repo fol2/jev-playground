@@ -65,6 +65,34 @@ enum FightLimits {
     static let releaseCodes: [UInt16] = [48, 18, 19, 20, 21, 12, 13, 14]
 }
 
+/// Watchdog grant for one held key. Refresh while the skill still needs it; expired(now:)
+/// is the timer's only decision. The grant stays until a confirmed key-up.
+struct HeldKey: Equatable {
+    var code: UInt16
+    var until: Double
+
+    mutating func refresh(now: Double, hold: Double = FightLimits.watchdogSeconds) {
+        until = now + hold
+    }
+
+    func expired(now: Double) -> Bool { now > until }
+}
+
+/// Key-up with M0's retry-and-keep-held rule. False means the caller keeps the grant.
+func confirmKeyUp(_ code: UInt16, sink: KeySink, emit: Emit) -> Bool {
+    for attempt in 1...Limits.releaseAttempts {
+        do {
+            try sink.post(code, down: false)
+            emit("key_up", ["code": Int(code), "attempt": attempt])
+            return true
+        } catch {
+            emit("key_up_failed", ["code": Int(code), "attempt": attempt, "error": "\(error)"])
+        }
+    }
+    emit("release_unconfirmed", ["code": Int(code)])
+    return false
+}
+
 struct Obs {
     var player = 0.0, mana = 0.0, target = 0.0
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
@@ -143,7 +171,8 @@ enum FightAction: String, CaseIterable {
         case .lootCorpse:
             return "Right-click the dead target's corpse to collect its loot."
         case .wait:
-            return "Do nothing for one second, for example while automatic swings or a cast in flight do their work."
+            // For example while automatic swings or a cast in flight do their work.
+            return "Do nothing for one second."
         case .stop:
             return "End the episode and return control to the owner: the goal is complete, or the situation is unsafe or unclear."
         }
@@ -526,7 +555,9 @@ final class SimFight: FightHost {
     var groundRow: Int?
     var corpseLootable = false
     var boltHeld = false
+    var boltGrant: HeldKey?
     var down: Set<UInt16> = []
+    var performed: [FightAction] = []
     var walkedMs = 0
     var turnedMs = 0
     var codesPosted: [UInt16] = []
@@ -538,7 +569,25 @@ final class SimFight: FightHost {
     init(clock: FightClock) { self.clock = clock }
 
     func now() -> Double { clock.now() }
-    func sleep(_ seconds: Double) async { await clock.sleep(seconds) }
+    func sleep(_ seconds: Double) async {
+        await clock.sleep(seconds)
+        expireWatchdog()
+    }
+
+    func expireWatchdog() {
+        guard let grant = boltGrant, grant.expired(now: now()) else { return }
+        releaseBolt()
+        emit("watchdog", ["released": Int(grant.code)])
+    }
+
+    func holdBolt() {
+        boltHeld = true
+        down.insert(FightLimits.bolt)
+        codesPosted.append(FightLimits.bolt)
+        var grant = HeldKey(code: FightLimits.bolt, until: 0)
+        grant.refresh(now: now())
+        boltGrant = grant
+    }
     func emit(_ event: String, _ fields: [String: Any]) { emitHandler(event, fields) }
     var holdingKeys: Bool { boltHeld || !down.isEmpty }
     func wowFrontmost() -> Bool { wowIsFront }
@@ -568,11 +617,13 @@ final class SimFight: FightHost {
     func releaseBolt() {
         boltHeld = false
         down.remove(FightLimits.bolt)
+        boltGrant = nil
     }
 
     func releaseAll() {
         boltHeld = false
         down.removeAll()
+        boltGrant = nil
     }
 
     private func tap(_ code: UInt16) async {
@@ -602,6 +653,7 @@ final class SimFight: FightHost {
     }
 
     func perform(_ action: FightAction, observation: Obs, episode: inout Episode) async -> String {
+        performed.append(action)
         switch action {
         case .buffWeapon:
             await tap(FightLimits.buff)
@@ -628,9 +680,7 @@ final class SimFight: FightHost {
             rangeRed = false
             return "within Lightning Bolt range"
         case .castLightningBolt:
-            boltHeld = true
-            down.insert(FightLimits.bolt)
-            codesPosted.append(FightLimits.bolt)
+            holdBolt()
             strike(1.0 / 3)
             return "Lightning Bolt cast at 75 %; the key stays held, so the next cast follows unless another action is chosen"
         case .startMelee:

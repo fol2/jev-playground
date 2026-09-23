@@ -13,7 +13,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
-MIN_FIGHT_CHECKS = 86  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 97  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -74,6 +74,39 @@ def interrupted(command: list) -> None:
     released(rows, 1)
 
 
+def fight_trap() -> None:
+    """Execute must trap SIGINT onto a retrying host.releaseAll; this is not OS-key proof."""
+    probe = Path(ROOT, FIGHT + "FightProbe.swift").read_text()
+    core = Path(ROOT, FIGHT + "Fight.swift").read_text()
+    if "struct HeldKey" not in core or "func expired(now:" not in core:
+        raise GateError("watchdog decision is not HeldKey")
+    execute = probe.split("func fightExecute", 1)[-1]
+    if "trapSignals(" not in execute or "host.releaseAll()" not in execute:
+        raise GateError("fightExecute does not trap signals onto host.releaseAll")
+    if "defer { host.releaseAll() }" not in execute:
+        raise GateError("fightExecute does not defer host.releaseAll")
+    if "FightLimits.releaseCodes" not in probe:
+        raise GateError("M3 release does not sweep FightLimits.releaseCodes")
+
+
+def interrupted_dry(command: list) -> None:
+    """SIGINT of m3-fight --dry-run must exit 0 or 130. No OS keys are posted."""
+    process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, text=True)
+    rows = []
+    for line in process.stdout:
+        if line.strip():
+            rows.append(json.loads(line))
+        if rows and rows[-1].get("event") == "start":
+            process.send_signal(signal.SIGINT)
+            break
+    rows += [json.loads(line) for line in process.stdout if line.strip()]
+    code = process.wait(timeout=10)
+    if code not in (0, 130):
+        raise GateError(f"SIGINT of M3 dry-run exited {code}")
+    if code == 130 and any(r.get("event") == "exit" and r.get("holding") is True for r in rows):
+        raise GateError("SIGINT of M3 dry-run reported holding true")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
@@ -115,10 +148,12 @@ def main():
         fight_summary = fight_rows[-1] if fight_rows else {}
         if fight_summary.get("event") != "summary" or fight_summary.get("outcome") != "KILLED_AND_LOOTED":
             raise GateError("M3 dry-run did not reach KILLED_AND_LOOTED")
+        fight_trap()
+        interrupted_dry([fight, "--dry-run"])
     print(f"M0/M1/M3 motor proof passed: {checks} + {seek_checks} + {fight_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses) and the simulated M3 fight ({fight_summary.get('decisions')} "
-          f"decisions); zero capture, OS input or live model calls.")
+          f"decisions); M3 dry-run SIGINT exits 0 or 130 with no OS keys; zero capture, OS input or live model calls.")
 
 
 if __name__ == "__main__":

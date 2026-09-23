@@ -82,10 +82,11 @@ final class LiveHost: FightHost {
     let sink: PidKeySink
     let directory: URL
     let log: Log
+    private let lock = NSLock()
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
-    private var holding = false
-    private var heldUntil = 0.0
+    private var held: Set<UInt16> = []
+    private var bolt: HeldKey?
     var walkedMs = 0
     var turnedMs = 0
     var codesPosted: [UInt16] = []
@@ -101,15 +102,25 @@ final class LiveHost: FightHost {
         self.watchdog = timer
         timer.schedule(deadline: .now() + 0.2, repeating: 0.2)
         timer.setEventHandler { [weak self] in
-            guard let self, self.holding, self.now() > self.heldUntil else { return }
-            try? self.sink.post(FightLimits.bolt, down: false)
-            self.holding = false
-            self.emit("watchdog", ["released": Int(FightLimits.bolt)])
+            guard let self else { return }
+            let due = self.withHeld { self.bolt.map { $0.expired(now: self.now()) } ?? false }
+            guard due else { return }
+            let had = self.withHeld { self.held.contains(FightLimits.bolt) }
+            self.lift(FightLimits.bolt)
+            if had && self.withHeld({ !self.held.contains(FightLimits.bolt) }) {
+                self.emit("watchdog", ["released": Int(FightLimits.bolt)])
+            }
         }
         timer.resume()
     }
 
     deinit { watchdog.cancel() }
+
+    private func withHeld<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 
     func now() -> Double { hostNow() - origin }
     func sleep(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000)) }
@@ -118,7 +129,7 @@ final class LiveHost: FightHost {
         row["t"] = hostNow()
         log.emit(event, row)
     }
-    var holdingKeys: Bool { holding }
+    var holdingKeys: Bool { withHeld { !held.isEmpty } }
     func wowFrontmost() -> Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
     }
@@ -160,33 +171,44 @@ final class LiveHost: FightHost {
         return main.observe(rgba(image), plates: plates)
     }
 
-    func releaseBolt() {
-        guard holding else { return }
-        try? sink.post(FightLimits.bolt, down: false)
-        holding = false
-    }
+    func releaseBolt() { lift(FightLimits.bolt) }
 
     func releaseAll() {
-        releaseBolt()
         watchdog.cancel()
-        for code in FightLimits.releaseCodes { try? sink.post(code, down: false) }
+        for code in FightLimits.releaseCodes { lift(code, listed: true) }
+    }
+
+    /// Grant before the post, as InputLease does: a partly delivered down must still be released.
+    private func press(_ code: UInt16) {
+        withHeld { _ = held.insert(code) }
+        codesPosted.append(code)
+        do { try sink.post(code, down: true) } catch {
+            emit("key_down_failed", ["code": Int(code), "error": "\(error)"])
+        }
+    }
+
+    /// Keep the grant until a key-up posts. `listed` sweeps FightLimits.releaseCodes on exit.
+    private func lift(_ code: UInt16, listed: Bool = false) {
+        let tracked = withHeld { held.contains(code) }
+        guard tracked || listed else { return }
+        if confirmKeyUp(code, sink: sink, emit: emit) {
+            withHeld {
+                held.remove(code)
+                if code == FightLimits.bolt { bolt = nil }
+            }
+        }
     }
 
     private func tap(_ code: UInt16) async {
-        try? sink.post(code, down: true)
-        codesPosted.append(code)
+        press(code)
         await sleep(0.06)
-        for _ in 1...Limits.releaseAttempts {
-            do { try sink.post(code, down: false); return } catch {}
-        }
-        emit("key_up_unconfirmed", ["code": Int(code)])
+        lift(code)
     }
 
     private func hold(_ code: UInt16, _ ms: Int) async {
-        try? sink.post(code, down: true)
-        codesPosted.append(code)
+        press(code)
         await sleep(Double(ms) / 1000)
-        try? sink.post(code, down: false)
+        lift(code)
         if code == FightLimits.forward { walkedMs += ms } else { turnedMs += ms }
     }
 
@@ -220,19 +242,23 @@ final class LiveHost: FightHost {
         return "still out of range after 14 steps"
     }
 
+    private func armBolt(now: Double) {
+        withHeld {
+            var grant = HeldKey(code: FightLimits.bolt, until: 0)
+            grant.refresh(now: now)
+            bolt = grant
+        }
+    }
+
     private func castHeld() async -> String {
         let pre = look("cast", plates: false)
-        heldUntil = now() + FightLimits.watchdogSeconds
-        if !holding {
-            try? sink.post(FightLimits.bolt, down: true)
-            holding = true
-            codesPosted.append(FightLimits.bolt)
-        }
+        armBolt(now: now())
+        if withHeld({ !held.contains(FightLimits.bolt) }) { press(FightLimits.bolt) }
         var watch = CastWatch(pre: pre)
         let until = now() + 3.0
         while now() < until {
             await sleep(0.1)
-            heldUntil = now() + FightLimits.watchdogSeconds
+            armBolt(now: now())
             let o = look("cast", plates: false)
             if o.errorRed && !pre.errorRed && !o.casting && !watch.seen {
                 releaseBolt()
@@ -340,7 +366,10 @@ func fightDryRun() async throws -> Int32 {
     }
     log.emit("start", ["mode": "dry-run",
                        "effects": "none: SimFight + ScriptedJev; no capture, OS input or network"])
+    let dummy = InputLease(profile: .wqe, sink: NoEffectSink(), clock: { clock.now() }, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { world.releaseAll() }, holding: { world.holdingKeys })
     let result = await runFight(host: world, jev: ScriptedJev())
+    withExtendedLifetime(signals) {}
     let summary: [String: Any] = [
         "outcome": result.outcome, "decisions": result.decisions, "jev_calls": result.jevCalls,
         "walked_ms": result.walkedMs, "turned_ms": result.turnedMs, "holding": result.holdingKeys,
@@ -375,12 +404,11 @@ func fightExecute() async throws -> Int32 {
     }
     let warm = Task.detached { _ = ocr(first.image.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 100)) ?? first.image) }
     let sink = PidKeySink(pid: session.app.processIdentifier)
-    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
-    let signals = trapSignals(dummy, log, also: {
-        for code in FightLimits.releaseCodes { try? sink.post(code, down: false) }
-    })
     _ = await warm.value
     let host = LiveHost(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { host.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holdingKeys })
     var manifest: [String: Any] = [
         "schema": "m3-run/v1", "run_id": run.id, "mode": "execute",
         "started_utc": ISO8601DateFormatter().string(from: Date()),
