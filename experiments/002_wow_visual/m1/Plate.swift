@@ -105,7 +105,8 @@ func findTargetPlate(_ image: RGBA) -> Plate? {
 }
 
 enum RingLimits {
-    static let below = 0.005...0.3   // rows under the plate searched, fraction of height
+    static let gap = 0.005           // first row searched under the plate, fraction of height; the
+                                     // search runs to the game view's bottom so any stop row is observable
     static let minPixels = 0.00001   // fraction of the frame; smaller (far) circles read as not yet visible
     static let maxAspect = 8.0       // wider than this is another unit's health bar, not a circle
     static let offCentre = 0.75      // blob centre within this many plate widths of the plate's centre:
@@ -117,15 +118,17 @@ func ringColour(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
     r > 120 && g > 120 && Double(b) < 0.55 * Double(min(r, g)) && abs(Int(r) - Int(g)) < 70
 }
 
-/// The bottom row of the target's selection circle: the largest circle-coloured blob under
-/// its nameplate. Unlike the nameplate, which floats near camera height, this ground point
-/// falls down the screen as the unit gets closer (live M2 run 3: 0.29 to 0.37 of the height
-/// over ~15 yd). Neutral circles only; nil when absent, too small (far) or bar-shaped.
+/// The bottom row of the target's selection circle under its nameplate. Unlike the nameplate,
+/// which floats near camera height, this ground point falls down the screen as the unit gets
+/// closer (live M2 run 3: 0.29 to 0.37 of the height over ~15 yd). Of the circle-coloured
+/// blobs that are large enough, not bar-shaped and centred under the plate, the lowest bottom
+/// wins: the body and grass split the circle, and reading low stops early, never late.
+/// Neutral circles only; nil when none qualifies (absent, far or elsewhere).
 func findGround(_ image: RGBA, below plate: Plate) -> Int? {
     let width = image.width, height = image.height, span = plate.x1 - plate.x0
     let x0 = max(0, plate.x0 - span), x1 = min(width, plate.x1 + span)
-    let y0 = min(height, plate.bottom + Int(RingLimits.below.lowerBound * Double(height)))
-    let y1 = min(height, plate.bottom + Int(RingLimits.below.upperBound * Double(height)))
+    let y0 = min(height, plate.bottom + Int(RingLimits.gap * Double(height)))
+    let y1 = Int(PlateLimits.rows.upperBound * Double(height))  // above the unit frames' yellow bars
     guard image.pixels.count == width * height * 4, x1 > x0, y1 > y0 else { return nil }
     let w = x1 - x0, h = y1 - y0
     var mask = [Bool](repeating: false, count: w * h)
@@ -135,10 +138,10 @@ func findGround(_ image: RGBA, below plate: Plate) -> Int? {
             mask[(y - y0) * w + (x - x0)] = ringColour(image.pixels[i], image.pixels[i + 1], image.pixels[i + 2])
         }
     }
-    // Largest 8-connected blob centred under the plate; grass and the unit's body break the
-    // circle into arcs, and neighbouring units bring their own yellow.
+    // 8-connected blobs; neighbouring units bring their own yellow, so only centred ones count.
     let reach = RingLimits.offCentre * Double(span)
-    var best: (count: Int, left: Int, right: Int, top: Int, bottom: Int)?
+    let minPixels = RingLimits.minPixels * Double(width * height)
+    var lowest: Int?
     var seen = [Bool](repeating: false, count: w * h)
     for start in mask.indices where mask[start] && !seen[start] {
         var stack = [start], count = 0
@@ -158,9 +161,8 @@ func findGround(_ image: RGBA, below plate: Plate) -> Int? {
             }
         }
         let centred = abs(Double(x0) + Double(left + right) / 2 - plate.centre) <= reach
-        if centred && count > best?.count ?? 0 { best = (count, left, right, top, bottom) }
+        let circular = Double(right - left + 1) <= RingLimits.maxAspect * Double(bottom - top + 1)
+        if centred && circular && Double(count) >= minPixels { lowest = max(lowest ?? 0, y0 + bottom) }
     }
-    guard let blob = best, Double(blob.count) >= RingLimits.minPixels * Double(width * height),
-          Double(blob.right - blob.left + 1) <= RingLimits.maxAspect * Double(blob.bottom - blob.top + 1) else { return nil }
-    return y0 + blob.bottom
+    return lowest
 }

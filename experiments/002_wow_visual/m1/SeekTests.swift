@@ -335,6 +335,15 @@ struct SeekTests {
         check(findGround(aside.image, below: aimed) == nil, "a circle not under the plate is another unit's (live M2 run 5)")
         ring(&aside, cx: 512, cy: 220, rx: 25, ry: 6)
         check(findGround(aside.image, below: aimed) == 226, "the circle under the plate is chosen over a larger one aside")
+        var high = scene  // a plate high on screen, its circle down at the stop row
+        high.plate(x: 480, y: 40, target: true)
+        let highPlate = findTargetPlate(high.image)!
+        ring(&high, cx: 510, cy: 290, rx: 40, ry: 10)
+        check(findGround(high.image, below: highPlate) == 300, "the circle is searched down to any stop row (review of 0799dca)")
+        var split = targeted  // the body splits the circle: a large upper arc, a small lower one
+        ring(&split, cx: 510, cy: 220, rx: 40, ry: 6)
+        split.fill(503, 231, 517, 234, (160, 168, 64))
+        check(findGround(split.image, below: aimed) == 233, "the lowest qualifying arc sets the row, so a split circle stops early")
         var far = targeted
         ring(&far, cx: 510, cy: 200, rx: 2, ry: 1)  // 7 px, under the 8.4 px floor at 1280x660
         check(findGround(far.image, below: aimed) == nil, "a circle too small to measure reads as not yet visible")
@@ -366,6 +375,28 @@ struct SeekTests {
             let run = await seek(bearing: 0, distance: 15, config: config) { _, world, _, _ in world.forwardSkew = 180 }
             check(run.result.outcome == "STOPPED_facing_inconsistent" && sound(run) && run.lease.pulsesUsed == 1,
                   "M2: forward that raises the ground row fails the facing check")
+        }
+        do {
+            var shown = false
+            let run = await seek(bearing: 0, distance: 24, config: config) { _, world, _, _ in
+                world.groundHidden = { t in
+                    if !shown { shown = world.held.filter { $0.primitive == .forward }.count >= 2 }
+                    return shown && t > (world.held.last?.up ?? .infinity)
+                }
+            }
+            check(run.result.outcome == "STOPPED_ground_lost" && sound(run),
+                  "M2: a circle lost after it was seen stops the run instead of walking on (review of 0799dca)")
+        }
+        do {
+            var blink = 0
+            let run = await seek(bearing: 0, distance: 24, config: config) { _, world, _, _ in
+                world.groundHidden = { t in  // hidden on every other sighting, like grass in run 3
+                    blink = world.held.filter { $0.primitive == .forward && ($0.up ?? .infinity) < t }.count
+                    return blink % 2 == 0 && blink > 0
+                }
+            }
+            check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && sound(run),
+                  "M2: a circle hidden for one sighting at a time does not stop the approach")
         }
         do {
             let run = await seek(bearing: 0, distance: 80, config: config)

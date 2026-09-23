@@ -295,6 +295,14 @@ func seekExecute(_ command: SeekCommand, profile: KeyProfile) async throws -> In
     let stream = try capture(session, into: feed)
     try await stream.startCapture()
     let sink = PidKeySink(pid: session.app.processIdentifier)
+    // Lease and signal trap before any key, including Tab, which the trap also releases.
+    let emit: Emit = { event, fields in
+        var row = fields
+        row["t"] = hostNow()
+        log.emit(event, row)
+    }
+    let lease = InputLease(profile: profile, sink: sink, clock: hostNow, emit: emit, budget: SeekLimits.budget)
+    let signals = trapSignals(lease, log, also: plates ? { try? sink.post(48, down: false) } : nil)
 
     let confirmed: Bool
     let acquisition: [String: Any]
@@ -334,8 +342,6 @@ func seekExecute(_ command: SeekCommand, profile: KeyProfile) async throws -> In
     let target = LiveTarget(pid: session.app.processIdentifier, windowID: session.window.windowID, bounds: session.bounds,
                             frontPID: session.front.processIdentifier, feed: feed, directory: run.url)
     let driver = SeekShell(log: log, live: target, tracker: tracker, world: nil, plates: plates)
-    let lease = InputLease(profile: profile, sink: sink, clock: hostNow, emit: driver.emit, budget: SeekLimits.budget)
-    let signals = trapSignals(lease, log)
     var manifest: [String: Any] = [
         "schema": plates ? "m2-run/v1" : "m1-run/v1", "run_id": run.id, "mode": command.mode.rawValue,
         "started_utc": ISO8601DateFormatter().string(from: Date()),

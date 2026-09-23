@@ -35,7 +35,7 @@ claim.
 | File | Role | What its proof covers |
 | --- | --- | --- |
 | `Seek.swift` | Pure core: arguments, tracker, controller loop and a simulated world | Time, frames, sightings and key sink are injected |
-| `SeekTests.swift` | 98 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
+| `SeekTests.swift` | 102 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
 | `Plate.swift` | M2 perception: the white-outlined target nameplate and the selection circle under it | Synthetic frames in the checks; validated on captured frames locally |
 | `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute (M1), target (M2); the WoW window need not be on screen | Real timers and signals; live paths are compiled but not run offline |
 
@@ -253,7 +253,8 @@ candidate is the game's own UI. There is no ML and no model call.
 - **Designation.** One Tab (target nearest enemy) is sent as a 60 ms tap, outside the
   lease because it moves nothing. Within 1 s a full-resolution frame must show exactly
   one white-outlined nameplate. Otherwise the run ends `HOLD_NO_TARGET_PLATE` with no
-  movement key and a `p00-refused` frame.
+  movement key and a `p00-refused` frame. The signal trap also releases Tab, and so does
+  `m0-probe --release`.
 - **Bearing.** WoW outlines only the target's nameplate in white.
   - The detector anchors on the bar's uninterrupted bottom edge, 3 rows thick and
     about 133 px at 2560×1320.
@@ -263,10 +264,16 @@ candidate is the game's own UI. There is no ML and no model call.
     frame, so there is no drift.
 - **Visible stop.** The loop stops when the bottom row of the unit's selection circle
   reaches the stop row (default 0.45 of the height).
-  - The circle is the largest neutral-yellow blob that is not bar-shaped, sits under
-    the plate, and is centred within 0.75 plate widths of it.
+  - The circle is searched from just under the plate down to the game view's bottom,
+    so any allowed stop row can be observed.
+  - Its row is the lowest bottom among the neutral-yellow blobs that are large enough,
+    not bar-shaped, and centred within 0.75 plate widths of the plate. The unit's body
+    splits the circle into arcs, and reading low stops early.
   - Far circles read as unseen, which counts as "not yet". While the circle is unseen,
     facing is judged on bearing only (`bearing_only`).
+  - Once the circle has been seen, two unseen sightings in a row stop the run with
+    `ground_lost`, so the loop never walks on blind. A single unseen sighting, such as
+    grass in run 3, does not stop it.
   - This is a visible condition, not a distance.
 - **Envelope.** As for M1, plus one Tab per run. Only neutral mobs that the owner
   confirmed are non-aggressive, and no attack. Captured frames stay local; there are no
@@ -301,6 +308,18 @@ zero model calls. Labels are the author's.
 | 4 | `bd3a106` | `VISIBLE_STOP_REACHED` | Pesky Cirrusfly. One 99 ms E (0.154 → 0.004). Circle rows 0.26 → 0.46, monotonic. Stopped with the unit just ahead, on the last allowed W. |
 | 5 | `bd3a106` | `VISIBLE_STOP_REACHED`, **false** | The target was still far. A neighbour's yellow glow 238 px aside was read as the circle. Early stops are safe. Repaired in `0c24f4f` (the circle must sit under the plate); run 5's frame then reads unseen. |
 | 6 | `0c24f4f` | `VISIBLE_STOP_REACHED` | A near Cirrusfly. One 96 ms E, facing `consistent` (circle 0.41 → 0.46), stopped just ahead of it. |
+
+A fresh-context cross-vendor review (Grok) of `0799dca` found one high-severity defect,
+fixed in the reviewed head:
+
+- **Defect:** the circle search stopped 0.3 of the height under the plate, and an unseen
+  circle meant "keep going". With a high plate or a low stop row, the loop could walk on
+  past the unit.
+- **Fixes, each with a check:**
+  - The search now reaches the game view's bottom.
+  - `ground_lost` stops the run.
+  - The lowest arc is used.
+  - Tab is released on signals.
 
 The detectors were re-checked on the captured frames after each repair:
 

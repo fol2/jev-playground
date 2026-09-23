@@ -403,7 +403,14 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
             driver.emit("facing_check", record)
             guard consistent else { lease.cancel("facing_inconsistent"); break run }
             current = moved
+            var seen = config.stopRow != nil && current.y > -0.5, unseen = 0
             while !config.reached(current) {
+                // M2: once the circle has been seen, never walk on without it. Grass hides it
+                // for a frame now and then (run 3), so two unseen sightings in a row stop the run.
+                if config.stopRow != nil {
+                    if current.y > -0.5 { seen = true; unseen = 0 } else if seen { unseen += 1 }
+                    if unseen >= 2 { lease.cancel("ground_lost"); break run }
+                }
                 let next: Sighting?
                 if abs(current.x) > config.approachTolerance { next = await centre(current, phase: "recentre") }
                 else { next = await step(.forward, SeekLimits.forwardMs, phase: "approach", from: current, expect: 0) }
@@ -432,6 +439,7 @@ final class SimWorld: KeySink {
     var forwardSkew = 0.0       // degrees between facing and the direction forward moves
     var turnsApplied = true
     var groundVisibleWithin = Double.infinity  // M2: beyond this range the ground row is unseen (-0.5)
+    var groundHidden: (Double) -> Bool = { _ in false }
     var hidden: (Double) -> Bool = { _ in false }
     private let lock = NSLock()
     private let profile: KeyProfile
@@ -483,7 +491,7 @@ final class SimWorld: KeySink {
         let visible = ahead > 0 && abs(bearing) < .pi / 4 && !hidden(t)
         let range = (dx * dx + dy * dy).squareRoot()
         // y: a ground row that falls towards the middle as the unit gets closer (M2).
-        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: range > groundVisibleWithin ? -0.5 : -0.3 + 3 / range,
+        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: range > groundVisibleWithin || groundHidden(t) ? -0.5 : -0.3 + 3 / range,
                         scale: distance / range, score: visible ? 0.95 : 0.2)
     }
 }
