@@ -376,6 +376,7 @@ func fightDryRun() async throws -> Int32 {
     // After the trap: a SIGINT sent on "start" must never fall between SIG_IGN and the handler.
     log.emit("start", ["mode": "dry-run",
                        "effects": "none: SimFight + ScriptedJev; no capture, OS input or network"])
+    usleep(400_000)  // as M0's observer stall: a SIGINT sent on "start" lands before the loop ends, even on a slow runner
     let result = await runFight(host: world, jev: ScriptedJev())
     withExtendedLifetime(signals) {}
     let summary: [String: Any] = [

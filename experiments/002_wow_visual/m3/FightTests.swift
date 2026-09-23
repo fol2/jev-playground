@@ -387,11 +387,12 @@ struct FightTests {
         let swept = SimFight(clock: FightClock())
         swept.holdBolt()
         swept.releaseAll()
+        let postedBeforeSweep = swept.codesPosted.count
         swept.holdBolt()
         var sweptEpisode = Episode()
         _ = await swept.perform(.selectTarget, observation: swept.observe(plates: false), episode: &sweptEpisode)
-        check(!swept.holdingKeys && swept.down.isEmpty,
-              "after releaseAll (the SIGINT sweep) no key goes down again")
+        check(!swept.holdingKeys && swept.down.isEmpty && swept.codesPosted.count == postedBeforeSweep,
+              "after releaseAll (the SIGINT sweep) no key goes down again, by hold or by tap")
     }
 }
 
