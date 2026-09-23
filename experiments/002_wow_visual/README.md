@@ -70,7 +70,7 @@ background checks found no transport blocker. That is not a reliability claim.
 same with WoW on another Space and stopped on the visible condition. Another run found a
 tracker defect, since repaired. M2 replaced the manual designation with the game's own: Tab,
 the white-outlined target nameplate and the unit's selection circle. It reached that visible
-stop twice live, with one false stop that has since been repaired.
+stop three times in eight live runs, with one false stop that has since been repaired.
 
 [#5](https://github.com/fol2/jev-playground/issues/5) owns HUD extraction and Shaman
 shadow evaluation. [#6](https://github.com/fol2/jev-playground/issues/6) is blocked on

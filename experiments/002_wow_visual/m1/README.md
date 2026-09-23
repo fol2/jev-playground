@@ -15,7 +15,7 @@ condition is an existence proof, not a rate. See
 
 **M2** (below) replaces the manual oracle with the game's own designation: one Tab, then
 WoW's white-outlined target nameplate for bearing and the unit's selection circle for the
-visible stop. It reached that stop twice live. See [M2](#m2--game-designated-target-23-september-2026).
+visible stop. It reached that stop three times live. See [M2](#m2--game-designated-target-23-september-2026).
 
 Question ([#5](https://github.com/fol2/jev-playground/issues/5)): M0 showed that
 background Q/E/W pulses turn, move and stop the avatar. Can a deterministic loop use
@@ -308,7 +308,8 @@ zero model calls. Labels are the author's.
 | 4 | `bd3a106` | `VISIBLE_STOP_REACHED` | Pesky Cirrusfly. One 99 ms E (0.154 → 0.004). Circle rows 0.26 → 0.46, monotonic. Stopped with the unit just ahead, on the last allowed W. |
 | 5 | `bd3a106` | `VISIBLE_STOP_REACHED`, **false** | The target was still far. A neighbour's yellow glow 238 px aside was read as the circle. Early stops are safe. Repaired in `0c24f4f` (the circle must sit under the plate); run 5's frame then reads unseen. |
 | 6 | `0c24f4f` | `VISIBLE_STOP_REACHED` | A near Cirrusfly. One 96 ms E, facing `consistent` (circle 0.41 → 0.46), stopped just ahead of it. |
-| 7 | `bb4c064` | `VISIBLE_STOP_REACHED` | The reviewed head. The target was already centred and past the stop row (circle 0.53), yet one facing W was still taken. Fixed so that a centred target already at the stop row gets no step. |
+| 7 | `bb4c064` | `VISIBLE_STOP_REACHED` | The reviewed head. The target was already centred and past the stop row (circle 0.53), yet one facing W was still taken. Fixed in `c996a7c`: a centred target already at the stop row gets no step. |
+| 8 | `c996a7c` | `STOPPED_budget_spent_before_visible_stop` | Vuldren at −0.182, one 109 ms Q. The unit wandered to 0.07 and **one 67 ms E re-centred it**, the first live re-centre. The circle was first seen (0.36) on the last W, about 15 yd short. |
 
 A fresh-context cross-vendor review (Grok) of `0799dca` found one high-severity defect,
 fixed in the reviewed head:
@@ -330,10 +331,12 @@ The detectors were re-checked on the captured frames after each repair:
 What this shows, and what it does not:
 
 - **Shown:** the manual oracle can be replaced by the game's own designation and UI.
-  Tab, nameplate bearing and the circle row drove centring, facing and approach to a
-  visible stop, twice after the fixes (runs 4 and 6).
+  Tab, nameplate bearing and the circle row drove centring, facing, re-centring on a
+  wandering unit (run 8) and approach to a visible stop (runs 4, 6 and 7).
 - **Limits:**
-  - Two good stops and one false stop are existence evidence, not a rate.
+  - Three good stops, one false stop and three budget stops out of eight runs are
+    existence evidence, not a rate. Tab often picks a unit beyond the 2.5 s forward
+    budget.
   - The circle stop depends on the circle colour (neutral yellow only) and on its being
     visible. Grass and the unit's body hide it at range, and a moving unit can outrun
     the 2.5 s forward budget.
