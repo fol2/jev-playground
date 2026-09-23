@@ -26,9 +26,13 @@ Two pieces now shared with M3 live in `m3/Fight.swift`:
   - a key's watchdog grant is taken before its key-down is posted;
   - key events are posted under one lock;
   - a watchdog releases held keys;
+  - a key-up that fails every attempt is retried by the next sweep, and no later grant can
+    postpone that retry;
+  - events are logged after the key lock is released, so a blocked log write cannot hold up the
+    exit sweep;
   - no key goes down after the exit sweep.
 
-  Before M4a this logic lived inside M3's live shell and ran only live. Its rules now have ten
+  Before M4a this logic lived inside M3's live shell and ran only live. Its rules now have 13
   offline checks against a fake key sink. The walk skill is also in the core, so `SimNav` runs
   the same walk code and key rules that the live shell runs.
 
@@ -73,7 +77,8 @@ Local code keeps what must not wait on a model or be left to it:
   - Steering uses Q/E pulses at a measured turn rate, with a 20° deadband. Errors over 100° stop
     running before the turn.
   - W stays held under a 1.5 s watchdog grant.
-  - A move is **blocked** when W was held for 1.5 s with under 0.1 units of movement. A move that
+  - A move is **blocked** when W was held for 1.5 s with under 0.1 units of movement. An
+    unreadable frame does not reset that window. A move that
     ends by time with W held for at least 1 s and no movement is also blocked: it spent its time
     turning.
   - A move that runs its full time leaves W held, so the next move continues without a stop.

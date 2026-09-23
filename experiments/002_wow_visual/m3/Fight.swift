@@ -97,6 +97,8 @@ func confirmKeyUp(_ code: UInt16, sink: KeySink, emit: Emit) -> Bool {
 /// is taken before the post, as InputLease does, so a partly delivered down is still released;
 /// posts happen under one lock and stop once releaseAll has run, so a down cannot land after the
 /// SIGINT sweep; a held key with a watchdog grant is lifted by sweepExpired once the grant lapses.
+/// A key-up that failed every attempt is retried by the next sweep, and no grant can postpone that.
+/// Events are emitted after the lock is released: a blocked log write never holds up the exit sweep.
 final class LiveKeys {
     private let sink: KeySink
     private let releaseCodes: [UInt16]
@@ -105,8 +107,10 @@ final class LiveKeys {
     private let lock = NSLock()
     private var held: Set<UInt16> = []
     private var grants: [UInt16: HeldKey] = [:]
+    private var releasing: Set<UInt16> = []  // key-ups that failed; the sweep retries them
     private var cancelled = false
     private var posted: [UInt16] = []
+    private var pending: [(String, [String: Any])] = []  // events noted under the lock
 
     init(sink: KeySink, releaseCodes: [UInt16], clock: @escaping () -> Double, emit: @escaping Emit = { _, _ in }) {
         self.sink = sink
@@ -117,8 +121,27 @@ final class LiveKeys {
 
     private func locked<T>(_ body: () -> T) -> T {
         lock.lock()
-        defer { lock.unlock() }
-        return body()
+        let value = body()
+        let events = pending
+        pending.removeAll()
+        lock.unlock()
+        for (event, fields) in events { emit(event, fields) }
+        return value
+    }
+
+    private func note(_ event: String, _ fields: [String: Any]) { pending.append((event, fields)) }  // under the lock
+
+    /// Key-up under the lock. A failure leaves the key held with an expired grant, so the next sweep retries it.
+    private func up(_ code: UInt16) -> Bool {
+        guard confirmKeyUp(code, sink: sink, emit: note) else {
+            releasing.insert(code)
+            grants[code] = HeldKey(code: code, until: -.infinity)
+            return false
+        }
+        held.remove(code)
+        releasing.remove(code)
+        grants[code] = nil
+        return true
     }
 
     var holding: Bool { locked { !held.isEmpty } }
@@ -131,8 +154,9 @@ final class LiveKeys {
         locked {
             guard !cancelled else { return false }
             held.insert(code)
+            releasing.remove(code)
             do { try sink.post(code, down: true) } catch {
-                emit("key_down_failed", ["code": Int(code), "error": "\(error)"])
+                note("key_down_failed", ["code": Int(code), "error": "\(error)"])
             }
             posted.append(code)
             return true
@@ -143,16 +167,14 @@ final class LiveKeys {
     func lift(_ code: UInt16, listed: Bool = false) {
         locked {
             guard held.contains(code) || listed else { return }
-            if confirmKeyUp(code, sink: sink, emit: emit) {
-                held.remove(code)
-                grants[code] = nil
-            }
+            _ = up(code)
         }
     }
 
-    /// Start or refresh the watchdog for a held key.
+    /// Start or refresh the watchdog for a held key; not for one whose key-up is being retried.
     func grant(_ code: UInt16, seconds: Double) {
         locked {
+            guard !releasing.contains(code) else { return }
             var grant = HeldKey(code: code, until: 0)
             grant.refresh(now: clock(), hold: seconds)
             grants[code] = grant
@@ -167,11 +189,7 @@ final class LiveKeys {
             var out: [UInt16] = []
             for (code, grant) in grants where grant.expired(now: now) {
                 guard held.contains(code) else { grants[code] = nil; continue }
-                if confirmKeyUp(code, sink: sink, emit: emit) {
-                    held.remove(code)
-                    grants[code] = nil
-                    out.append(code)
-                }
+                if up(code) { out.append(code) }
             }
             return out
         }

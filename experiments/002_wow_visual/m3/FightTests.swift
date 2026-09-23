@@ -443,6 +443,42 @@ extension FightTests {
         let downsBefore = sink.downs.count
         check(!keys.press(13) && sink.downs.count == downsBefore && !keys.holding,
               "after releaseAll no key goes down again")
+
+        let stuck = FailUpSink()
+        let pulse = LiveKeys(sink: stuck, releaseCodes: [12, 13], clock: { 10 })
+        pulse.press(12)
+        stuck.failUps = Limits.releaseAttempts
+        pulse.lift(12)
+        check(pulse.isDown(12), "a turn pulse whose key-up failed every attempt stays held")
+        pulse.sweepExpired()
+        check(!pulse.isDown(12) && stuck.ups.last == 12, "the next sweep retries it, though the pulse took no grant")
+        pulse.press(13)
+        pulse.grant(13, seconds: 5)
+        stuck.failUps = Limits.releaseAttempts
+        pulse.lift(13)
+        pulse.grant(13, seconds: 5)
+        pulse.sweepExpired()
+        check(!pulse.isDown(13), "a grant after a failed key-up does not postpone the retry")
+
+        // The watchdog's key-up event blocks in the log (a full stdout pipe); the exit sweep must still run.
+        let entered = DispatchSemaphore(value: 0), gate = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+        let first = NSLock()
+        var blocked = false
+        let jammed = LiveKeys(sink: FailUpSink(), releaseCodes: [13], clock: { 10 }) { _, _ in
+            first.lock()
+            let block = !blocked
+            blocked = true
+            first.unlock()
+            if block { entered.signal(); gate.wait() }
+        }
+        jammed.press(13)
+        jammed.grant(13, seconds: -1)
+        DispatchQueue.global().async { jammed.sweepExpired() }
+        _ = entered.wait(timeout: .now() + 2)
+        DispatchQueue.global().async { jammed.releaseAll(); done.signal() }
+        let swept = done.wait(timeout: .now() + 1) == .success
+        gate.signal()
+        check(swept && !jammed.holding, "the exit sweep does not wait on a blocked log write")
     }
 }
 

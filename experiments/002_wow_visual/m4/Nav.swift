@@ -327,9 +327,8 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
             }
         }
         await body.sleep(NavLimits.tick)
-        guard let o = body.look() else {
+        guard let o = body.look() else {  // the trail survives a miss: W's state is checked at the next reading
             misses += 1
-            trail.removeAll()
             if misses >= NavLimits.unreadableLimit { ranOut = false; break }
             continue
         }
@@ -445,9 +444,14 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
 final class SimPad: KeySink {
     private let lock = NSLock()
     private var down: Set<UInt16> = []
+    var failUps = 0  // the next key-ups that throw
     func post(_ code: UInt16, down isDown: Bool) throws {
         lock.lock()
         defer { lock.unlock() }
+        if !isDown && failUps > 0 {
+            failUps -= 1
+            throw ProbeError("fake key-up failure")
+        }
         if isDown { down.insert(code) } else { down.remove(code) }
     }
     var pressed: Set<UInt16> {
@@ -476,6 +480,8 @@ final class SimNav: NavBody {
     var combat = false
     var player = 1.0
     var unreadable = false
+    var missEvery = 0  // every n-th look is unreadable
+    private var looks = 0
     var ownerFront = false
     var emitHandler: Emit = { _, _ in }
 
@@ -494,7 +500,8 @@ final class SimNav: NavBody {
     func ownerTookFocus() -> Bool { ownerFront }
 
     func look() -> NavObs? {
-        guard !unreadable else { return nil }
+        looks += 1
+        guard !unreadable, missEvery == 0 || looks % missEvery != 0 else { return nil }
         return NavObs(x: roundTo(x, 10), y: roundTo(y, 10), facing: facing.rounded(), combat: combat, player: player)
     }
 

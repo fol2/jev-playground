@@ -230,6 +230,11 @@ struct NavTests {
               "running into a wall ends the move as blocked with W lifted")
         check(hit.seconds >= NavLimits.blockedWindow && hit.seconds < NavLimits.moveSeconds, "a block is called after the 1.5 s window")
 
+        let patchy = SimNav(clock: FightClock(), x: 40, y: 27.9, facing: 0, boxes: [SimNav.Box(x0: 39, y0: 27.5, x1: 41, y1: 27.8)])
+        patchy.missEvery = 2
+        let patchyHit = await walk(patchy, .goToward, from: patchy.look()!, to: d)
+        check(patchyHit.blocked && !patchy.keys.holding, "every other frame unreadable: the wall is still reported as a block")
+
         let behind = SimNav(clock: FightClock(), x: 40, y: 27.9, facing: 180, boxes: [SimNav.Box(x0: 39, y0: 27.5, x1: 41, y1: 27.8)])
         let late = await walk(behind, .goToward, from: behind.look()!, to: d)
         check(late.blocked && !behind.keys.holding, "a move that spent most of its time turning still reports its block")
@@ -238,6 +243,12 @@ struct NavTests {
         let turned = await walk(turn, .goToward, from: turn.look()!, to: d)
         check(abs(angleError(0, turn.facing)) <= NavLimits.deadband && turned.moved > 0,
               "a 180° error stops, turns and then runs toward the destination")
+
+        let sticky = SimNav(clock: FightClock(), x: 40, y: 30, facing: 180)
+        sticky.pad.failUps = 2 * Limits.releaseAttempts  // the first turn key-up and the W stop fail every attempt
+        _ = await walk(sticky, .goToward, from: sticky.look()!, to: d)
+        await sticky.sleep(NavLimits.forwardWatchdog + 0.1)
+        check(!sticky.keys.holding && sticky.pad.pressed.isEmpty, "a failed turn key-up is retried and lifted, not left held")
 
         let blind = SimNav(clock: FightClock(), x: 40, y: 30, facing: 180)
         let seen = blind.look()!
