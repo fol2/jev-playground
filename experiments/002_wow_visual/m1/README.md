@@ -1,18 +1,17 @@
 # M1 — closed loop to a manually designated target
 
-Status: **partly live-checked on 23 September 2026.**
+Status: **live-checked on 23 September 2026. The loop worked end to end once, with
+WoW off screen.**
 
-- **Run 1 (worked).** Background Q/W pulses centred a designated lamp post, walked
-  straight at it with the target held on the centre line, and grew it to 1.4×. The
-  forward budget ran out before the 1.6× visible stop.
-- **Run 2 (stopped, tool defect).** Its first turn moved the target as predicted, but a
-  tracker defect stopped the run with no further input. The defect is repaired offline
-  in `236d048`, but the repair has not been checked live.
-- **Run 3 (not run).** The WoW window left the screen when the owner switched to
-  another app.
+| Run | What happened |
+| --- | --- |
+| 1 | Centred and approached a designated lamp post. Forward budget spent at 1.4×. |
+| 2 | Stopped on a tracker defect, since repaired. |
+| 3 | WoW was on another Space behind Citrix. The loop centred the lamp post, faced it, approached it and stopped on its own at the 1.3× visible condition. |
 
-Not yet observed live: the visible stop firing, a multi-pulse re-centre, and the
-repaired tracker. See [Live checks](#live-checks-23-september-2026).
+Not yet observed live: a multi-pulse re-centre and occlusion handling. One success per
+condition is an existence proof, not a rate. See
+[Live checks](#live-checks-23-september-2026).
 
 Question ([#5](https://github.com/fol2/jev-playground/issues/5)): M0 showed that
 background Q/E/W pulses turn, move and stop the avatar. Can a deterministic loop use
@@ -33,7 +32,7 @@ claim.
 | --- | --- | --- |
 | `Seek.swift` | Pure core: arguments, tracker, controller loop and a simulated world | Time, frames, sightings and key sink are injected |
 | `SeekTests.swift` | 66 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
-| `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute | Real timers and signals; live paths are compiled but not run offline |
+| `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute; the WoW window need not be on screen | Real timers and signals; live paths are compiled but not run offline |
 
 Reused, not reinvented: M0's input lease, frame gate, pid key route, window capture,
 signal trap, preflight and release. M1 builds `m0/Probe.swift` with `-D SEEK`, which only
@@ -124,7 +123,8 @@ key-up on time.
 ## Live commands
 
 These run from a terminal that already has Screen Recording and Accessibility. WoW must
-be running and in the background; nothing is requested, launched or brought forward.
+be running and not frontmost. Its window may be covered or on another Space, but not
+minimised. Nothing is requested, launched or brought forward.
 
 ```sh
 /tmp/m1-seek --look                                   # prints runs/.../look.png
@@ -158,8 +158,8 @@ yourself under AI-SDLC") and asked to continue after M0.
 ## Live checks (23 September 2026)
 
 All runs were on the envelope above: WoW 1.60.1 (build 69913), window 2560×1320, capture
-640×330, profile `wqe`. The terminal was frontmost at every start and end, and WoW
-never came forward. The runtime made zero model or provider calls. Frames and logs
+640×330, profile `wqe`. The same app was frontmost at start and end of each run: the terminal
+for runs 1–2, Citrix for run 3. WoW never came forward. The runtime made zero model or provider calls. Frames and logs
 stay local under `runs/002_wow_visual/`. Labels are the author's, from the saved frames
 and trace.
 
@@ -167,7 +167,7 @@ and trace.
 | --- | --- | --- | --- |
 | 1 | `458b82a` | Lamp post, x −0.078 | `STOPPED_budget_spent_before_visible_stop` |
 | 2 | `458b82a` | Lantern on a log, x +0.189 | `STOPPED_target_lost` (tool defect) |
-| 3 | `236d048` | — | Not run: the WoW window was off-screen (the owner was using another app) |
+| 3 | `f351525` | Lamp post, x −0.114, WoW off screen | `VISIBLE_STOP_REACHED_PENDING_LABELS` |
 
 **Run 1:** 11 pulses. Every key-up was 0–2 ms late, and tracking took ≤ 11 ms per frame.
 
@@ -195,16 +195,43 @@ and trace.
 - **Not assessed:** no after-frame was kept, and the window left the screen before a
   post-check. Facing, chat and combat after run 2 are therefore unlabelled.
 
+**Before run 3: capture-only checks.** No input was sent.
+
+- The owner had switched to other apps. `m1-seek` at `a863925` refused because its window
+  filter required `isOnScreen`, which was a probe choice, not a macOS limit.
+- WoW was on another Space with Mail frontmost. Window-only capture delivered 303
+  complete frames in 5 s: about 57 fps with a 60 fps request. The median interval was
+  17 ms and the maximum 41 ms, and frames were 1–3 ms old on delivery.
+- An earlier check, with the character logged out to the character screen, got 8 frames
+  in 3 s. The cause was not isolated.
+- `f351525` therefore selects the game window from all windows, by size, and records
+  whether it was on screen. The frame gate still stops a run whose frames go stale.
+
+**Run 3:** WoW was on another Space the whole time and Citrix was frontmost at start and
+end. That makes it both the pending visible-stop run and the first input test with WoW
+off screen.
+
+- **Centring:** one 83 ms Q moved the target from −0.114 to −0.023 (predicted shift
+  +0.090, observed +0.091).
+- **Facing:** `consistent`.
+- **Approach:** five W pulses. x stayed within −0.034 and the scale rose 1.0 → 1.334.
+- **Stop:** the loop stopped on the 1.3× visible condition, with 83 ms of turn and
+  1.25 s of forward spent.
+- **Timing:** key-ups were 1–3 ms late. The frame gate took 113 fresh frames and 1
+  stale.
+- **Labels:** the tracker stayed on the lamp head, and the avatar walked towards it with
+  its back to the camera. There was no collision, combat or misrouted input, and the
+  chat edit box was closed.
+
 What this shows, and what it does not:
 
 - **Shown:** the M0 transport also works inside a closed loop driven by the image. The
   fitted turn model predicted both live turns to within 0.03 of the screen width, and
   forward motion kept a centred target centred. On this client, then, centring by Q/E
   also set the walking direction.
-- **Limits:** one successful trial is an existence proof, not a rate. The visible stop
-  condition, a multi-pulse re-centre, occlusion handling and the repaired tracker have
-  not been seen live. The designation is an oracle chosen by the author, and the 5 %
+- **Off screen:** the same pid-targeted keys also move the avatar with WoW on another
+  Space. The owner can use the Mac while a bounded run proceeds.
+- **Limits:** one success per condition is an existence proof, not a rate. A
+  multi-pulse re-centre and occlusion handling have not been seen live. The designation is an oracle chosen by the author, and the 5 %
   scale grid is coarse. Night lighting kept the template contrast low (s.d. about 12 grey
   levels), yet it tracked.
-- **Next live step, same envelope:** one run with a larger offset and `--stop-growth
-  1.3`, when the WoW window is on screen with another app in front.
