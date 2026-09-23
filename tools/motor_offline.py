@@ -1,4 +1,4 @@
-"""Registered M0/M1 motor proof: counted fake-time checks plus each real binary's no-effect modes.
+"""Registered M0/M1/M3 motor proof: counted fake-time checks plus each real binary's no-effect modes.
 
 Never captures, posts OS input, runs --look/--execute/--release or contacts a provider.
 """
@@ -9,11 +9,13 @@ import re
 import signal
 import subprocess
 import tempfile
-from tools.sdlc import MOTOR, SEEK, ROOT, GateError
+from tools.sdlc import MOTOR, SEEK, FIGHT, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 86  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
+CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
 
 def counted(output: str, name: str = "motor", minimum: int = MIN_CHECKS) -> int:
@@ -97,9 +99,26 @@ def main():
         if summary.get("event") != "summary" or summary.get("outcome") != "VISIBLE_STOP_REACHED_PENDING_LABELS":
             raise GateError("M1 dry-run did not reach the simulated visible stop")
         interrupted([seek, "--dry-run"])
-    print(f"M0/M1 motor proof passed: {checks} + {seek_checks} fake-time checks, argument refusal, release under a "
-          f"400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release and the simulated M1 loop "
-          f"({summary['pulses_used']} pulses); zero capture, OS input or model calls.")
+
+        fight_tests, fight = str(Path(tmp, "fight-tests")), str(Path(tmp, "m3-fight"))
+        build(fight_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", FIGHT + "FightTests.swift")
+        fight_checks = suite(fight_tests, "fight", MIN_FIGHT_CHECKS)
+        build(fight, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift",
+              SEEK + "SeekProbe.swift", FIGHT + "Fight.swift", FIGHT + "FightProbe.swift",
+              CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift",
+              CLICK + "NativeBackgroundClickTransport.swift",
+              flags=("-O", "-D", "SEEK", "-D", "FIGHT"))
+        refuses(fight, (["--bogus"], ["--dry-run", "x"], ["--execute"], ["--execute", "--keys", "arrows"],
+                        ["--execute", "--keys", "wqe", "extra"], ["--preflight", "extra"]))
+        fight_dry = subprocess.run([fight, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
+        fight_rows = [json.loads(line) for line in fight_dry.stdout.splitlines() if line.strip()]
+        fight_summary = fight_rows[-1] if fight_rows else {}
+        if fight_summary.get("event") != "summary" or fight_summary.get("outcome") != "KILLED_AND_LOOTED":
+            raise GateError("M3 dry-run did not reach KILLED_AND_LOOTED")
+    print(f"M0/M1/M3 motor proof passed: {checks} + {seek_checks} + {fight_checks} fake-time checks, argument refusal, "
+          f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
+          f"M1 loop ({summary['pulses_used']} pulses) and the simulated M3 fight ({fight_summary.get('decisions')} "
+          f"decisions); zero capture, OS input or live model calls.")
 
 
 if __name__ == "__main__":
