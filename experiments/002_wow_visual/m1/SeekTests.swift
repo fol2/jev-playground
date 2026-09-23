@@ -101,6 +101,42 @@ func paste(_ patch: Grey, into image: Grey, x: Int, y: Int) -> Grey {
     return Grey(width: image.width, height: image.height, pixels: pixels)
 }
 
+/// Synthetic 1280x660 RGBA frames: dark noise plus nameplates drawn like WoW's (a coloured
+/// bar between two edges, white-outlined only for the current target).
+struct Scene {
+    static let width = 1280, height = 660
+    var pixels: [UInt8]
+
+    init(seed: UInt64) {
+        var state = seed
+        pixels = (0..<(Scene.width * Scene.height * 4)).map { index in
+            if index % 4 == 3 { return 255 }
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return UInt8(20 + (state >> 58))  // 20...83: a dark night scene
+        }
+    }
+
+    mutating func fill(_ x0: Int, _ y0: Int, _ x1: Int, _ y1: Int, _ rgb: (UInt8, UInt8, UInt8)) {
+        for y in y0..<y1 { for x in x0..<x1 {
+            let i = (y * Scene.width + x) * 4
+            (pixels[i], pixels[i + 1], pixels[i + 2]) = rgb
+        } }
+    }
+
+    /// A 60 px bar outlined 2 rows thick with edges 7 rows apart, a separately outlined level
+    /// badge 2 px to its right, and the name above.
+    mutating func plate(x: Int, y: Int, target: Bool) {
+        let edge: (UInt8, UInt8, UInt8) = target ? (235, 235, 235) : (15, 15, 15)
+        fill(x, y, x + 60, y + 11, edge)
+        fill(x + 2, y + 2, x + 58, y + 9, (200, 200, 40))
+        fill(x + 62, y, x + 74, y + 11, edge)
+        fill(x + 64, y + 2, x + 72, y + 9, (30, 30, 30))
+        for dash in stride(from: x, to: x + 60, by: 12) { fill(dash, y - 8, dash + 8, y - 4, (230, 230, 230)) }  // name text
+    }
+
+    var image: RGBA { RGBA(width: Scene.width, height: Scene.height, pixels: pixels) }
+}
+
 @main
 struct SeekTests {
     static var checks = 0
@@ -118,7 +154,9 @@ struct SeekTests {
         arguments()
         budgets()
         tracking()
+        plates()
         await loops()
+        await rows()
         print("seek checks passed: \(checks)")
     }
 
@@ -131,6 +169,20 @@ struct SeekTests {
         check(command.profile == .wqe && command.look == "f.png" && command.box == Box(x: 10, y: 20, width: 40, height: 30)
               && command.growth == 1.6, "execute carries keys, frame, box and the default visible stop")
         check(try! parseSeek(good + ["--stop-growth", "2"]).growth == 2, "stop growth is settable within bounds")
+        let target = try! parseSeek(["--target", "--keys", "wqe"])
+        check(target.mode == .target && target.profile == .wqe && target.stopRow == 0.45 && target.look == nil,
+              "M2 target mode needs only the key profile; the stop row defaults to 0.45 of the height")
+        check(try! parseSeek(["--target", "--keys", "wqe", "--stop-row", "0.5"]).stopRow == 0.5, "stop row is settable within bounds")
+        let targetRefused: [[String]] = [["--target"], ["--target", "--keys", "wqe", "--look", "f.png"],
+                                         ["--target", "--keys", "wqe", "--box", "1,1,20,20"],
+                                         ["--target", "--keys", "wqe", "--stop-growth", "1.5"],
+                                         ["--target", "--keys", "wqe", "--stop-row", "0.8"],
+                                         ["--target", "--keys", "wqe", "--stop-row", "0.1"],
+                                         ["--target", "--keys", "wqe", "--stop-row", "nan"],
+                                         good + ["--stop-row", "0.4"]]
+        for bad in targetRefused {
+            check(fails { _ = try parseSeek(bad) }, "M2 arguments refused before any effect: \(bad)")
+        }
         let box = ["--execute", "--keys", "wqe", "--look", "f.png", "--box"]
         let refused: [[String]] = [["--bogus"], ["--dry-run", "x"], ["--look", "--keys", "wqe"], ["--execute"],
                     ["--execute", "--look", "f.png", "--box", "1,1,20,20"],
@@ -222,6 +274,140 @@ struct SeekTests {
         check(repeated.score - repeated.runnerUp < 0.05, "a repeated pattern shows no margin, so it is not designated")
         let flat = Grey(width: 16, height: 16, pixels: [Float](repeating: 90, count: 256))
         check(locate(flat, in: scene, scales: [1], near: (80, 45), reach: (160, 90)) == nil, "a flat designation is refused")
+    }
+
+    static func plates() {
+        var scene = Scene(seed: 5)
+        scene.fill(900, 60, 1100, 100, (240, 240, 245))  // moonlit snow: white but thick
+        scene.plate(x: 200, y: 150, target: false)
+        scene.plate(x: 700, y: 170, target: false)
+        check(findTargetPlate(scene.image) == nil, "no white-outlined nameplate, no target: snow, text and other plates are ignored")
+        var targeted = scene
+        targeted.plate(x: 480, y: 160, target: true)
+        let plate = findTargetPlate(targeted.image)
+        check(plate == Plate(x0: 480, x1: 540, top: 160, bottom: 170) && plate?.centre == 510,
+              "the one white-outlined plate is found; its centre is the bar's, not the badge's")
+        var cut = targeted  // a name's descender crosses the top edge
+        cut.fill(503, 160, 506, 162, (15, 15, 15))
+        check(findTargetPlate(cut.image) == Plate(x0: 480, x1: 540, top: 160, bottom: 170),
+              "a top edge cut by a descender is still one edge (live M2 run 2: Pesky Cirrusfly)")
+        var twice = targeted
+        twice.plate(x: 800, y: 250, target: true)
+        check(findTargetPlate(twice.image) == nil, "two white-outlined plates are ambiguous, so none is reported")
+        var interface = scene
+        interface.plate(x: 480, y: 500, target: true)
+        check(findTargetPlate(interface.image) == nil, "the unit-frame and action-bar region is not searched")
+        var solid = scene
+        solid.fill(480, 160, 540, 171, (235, 235, 235))
+        check(findTargetPlate(solid.image) == nil, "a solid white block is not an outline around a bar")
+        var hatched = scene  // white text between two white lines: no coloured bar inside
+        hatched.fill(480, 160, 540, 162, (235, 235, 235))
+        hatched.fill(480, 169, 552, 171, (235, 235, 235))
+        for x in stride(from: 480, to: 540, by: 30) { hatched.fill(x, 163, x + 15, 168, (235, 235, 235)) }
+        check(findTargetPlate(hatched.image) == nil, "two white lines with white between them are not a nameplate")
+        var thick = scene  // a thick white shape above a thin line
+        thick.fill(480, 150, 540, 156, (235, 235, 235))
+        thick.fill(480, 163, 552, 165, (235, 235, 235))
+        check(findTargetPlate(thick.image) == nil, "an edge thicker than an outline is not a nameplate edge")
+        var offset = scene  // lines at the right spacing but not stacked
+        offset.fill(100, 160, 160, 162, (235, 235, 235))
+        offset.fill(150, 169, 222, 171, (235, 235, 235))
+        check(findTargetPlate(offset.image) == nil, "edges that do not overlap are not one nameplate")
+        // The selection circle under the target: a flat yellow ellipse, broken by the unit's body.
+        func ring(_ scene: inout Scene, cx: Int, cy: Int, rx: Int, ry: Int) {
+            for y in (cy - ry)...(cy + ry) { for x in (cx - rx)...(cx + rx) {
+                let (dx, dy) = (Double(x - cx) / Double(rx), Double(y - cy) / Double(ry))
+                if dx * dx + dy * dy <= 1 && !(abs(x - cx) < rx / 3 && y < cy) { scene.fill(x, y, x + 1, y + 1, (160, 168, 64)) }
+            } }
+        }
+        let aimed = findTargetPlate(targeted.image)!
+        var circled = targeted
+        ring(&circled, cx: 510, cy: 230, rx: 40, ry: 10)
+        check(findGround(circled.image, below: aimed) == 240, "the selection circle's bottom row is the ground row")
+        var barred = targeted  // another unit's yellow health bar under the target, no circle
+        barred.fill(470, 200, 545, 207, (200, 200, 40))
+        check(findGround(barred.image, below: aimed) == nil, "a health bar is too flat to be a selection circle")
+        barred.fill(470, 200, 545, 207, (200, 200, 40))
+        ring(&barred, cx: 510, cy: 250, rx: 40, ry: 10)
+        check(findGround(barred.image, below: aimed) == 260, "the circle wins over a nearby bar")
+        var aside = targeted  // a neighbour's yellow glow near the edge of the search window
+        ring(&aside, cx: 600, cy: 240, rx: 30, ry: 8)
+        check(findGround(aside.image, below: aimed) == nil, "a circle not under the plate is another unit's (live M2 run 5)")
+        ring(&aside, cx: 512, cy: 220, rx: 25, ry: 6)
+        check(findGround(aside.image, below: aimed) == 226, "the circle under the plate is chosen over a larger one aside")
+        var high = scene  // a plate high on screen, its circle down at the stop row
+        high.plate(x: 480, y: 40, target: true)
+        let highPlate = findTargetPlate(high.image)!
+        ring(&high, cx: 510, cy: 290, rx: 40, ry: 10)
+        check(findGround(high.image, below: highPlate) == 300, "the circle is searched down to any stop row (review of 0799dca)")
+        var split = targeted  // the body splits the circle: a large upper arc, a small lower one
+        ring(&split, cx: 510, cy: 220, rx: 40, ry: 6)
+        split.fill(503, 231, 517, 234, (160, 168, 64))
+        check(findGround(split.image, below: aimed) == 233, "the lowest qualifying arc sets the row, so a split circle stops early")
+        var far = targeted
+        ring(&far, cx: 510, cy: 200, rx: 2, ry: 1)  // 7 px, under the 8.4 px floor at 1280x660
+        check(findGround(far.image, below: aimed) == nil, "a circle too small to measure reads as not yet visible")
+        var orange = targeted  // the unit's own orange body is not circle-coloured
+        orange.fill(490, 200, 530, 240, (240, 150, 40))
+        check(findGround(orange.image, below: aimed) == nil, "the unit's orange body is not the circle")
+        var truncated = scene
+        truncated.pixels.removeLast(4)
+        check(findTargetPlate(RGBA(width: Scene.width, height: Scene.height, pixels: truncated.pixels)) == nil,
+              "a buffer of the wrong size is refused")
+    }
+
+    static func rows() async {
+        var config = SeekConfig()
+        config.stopRow = -0.12
+        do {
+            let run = await seek(bearing: -20, config: config) { _, world, _, _ in world.groundVisibleWithin = 20 }
+            check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && sound(run)
+                  && (run.result.final?.y ?? -1) >= -0.12 && (run.result.final?.scale ?? 9) < 1.6,
+                  "M2: the loop stops on the ground row, not on apparent growth")
+            check(run.result.facing?["verdict"] as? String == "bearing_only",
+                  "M2: with the circle not yet visible, facing is judged on bearing only and the approach continues")
+        }
+        do {
+            let run = await seek(bearing: -10, distance: 18, config: config)
+            check(run.result.facing?["verdict"] as? String == "consistent", "M2: forward that lowers the ground row is consistent")
+        }
+        do {
+            let run = await seek(bearing: 0, distance: 20, config: config) { _, world, _, _ in world.forwardSkew = 180 }
+            check(run.result.outcome == "STOPPED_facing_inconsistent" && sound(run) && run.lease.pulsesUsed == 1,
+                  "M2: forward that raises the ground row fails the facing check")
+        }
+        do {
+            var shown = false
+            let run = await seek(bearing: 0, distance: 24, config: config) { _, world, _, _ in
+                world.groundHidden = { t in
+                    if !shown { shown = world.held.filter { $0.primitive == .forward }.count >= 2 }
+                    return shown && t > (world.held.last?.up ?? .infinity)
+                }
+            }
+            check(run.result.outcome == "STOPPED_ground_lost" && sound(run),
+                  "M2: a circle lost after it was seen stops the run instead of walking on (review of 0799dca)")
+        }
+        do {
+            var blink = 0
+            let run = await seek(bearing: 0, distance: 24, config: config) { _, world, _, _ in
+                world.groundHidden = { t in  // hidden on every other sighting, like grass in run 3
+                    blink = world.held.filter { $0.primitive == .forward && ($0.up ?? .infinity) < t }.count
+                    return blink % 2 == 0 && blink > 0
+                }
+            }
+            check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && sound(run),
+                  "M2: a circle hidden for one sighting at a time does not stop the approach")
+        }
+        do {
+            let run = await seek(bearing: 0.5, distance: 14, config: config)
+            check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && run.world.held.isEmpty && run.result.facing == nil,
+                  "M2: a target already past the stop row gets no step at all (live M2 run 7)")
+        }
+        do {
+            let run = await seek(bearing: 0, distance: 80, config: config)
+            check(run.result.outcome == "STOPPED_budget_spent_before_visible_stop" && sound(run),
+                  "M2: a target beyond the forward budget stops short of the row")
+        }
     }
 
     static func seek(bearing: Double, distance: Double = 25, config: SeekConfig = SeekConfig(),

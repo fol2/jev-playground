@@ -223,12 +223,13 @@ class ShellDriver: ProbeDriver {
 
 /// Human emergency stop by Ctrl-C/kill: release on a queue the batch cannot block.
 /// SIGKILL, crashes and power loss cannot run this; use --release or the key in WoW.
-func trapSignals(_ lease: InputLease, _ log: Log) -> [DispatchSourceSignal] {
+func trapSignals(_ lease: InputLease, _ log: Log, also: (() -> Void)? = nil) -> [DispatchSourceSignal] {
     let queue = DispatchQueue(label: "m0.signals", qos: .userInteractive)
     return [("SIGINT", SIGINT), ("SIGTERM", SIGTERM), ("SIGHUP", SIGHUP)].map { name, number in
         signal(number, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: number, queue: queue)
         source.setEventHandler {
+            also?()  // M2: Tab's key-up, which is not under the lease
             lease.cancel(name)
             log.emit("exit", ["reason": name, "holding": lease.isHolding])
             exit(lease.isHolding ? 3 : 130)
@@ -420,9 +421,10 @@ func release(_ profile: KeyProfile) throws {
         throw ProbeError("release needs exactly one running WoW process and existing Accessibility permission")
     }
     let sink = PidKeySink(pid: app.processIdentifier)
-    for primitive in Primitive.allCases { try sink.post(profile.code(primitive), down: false) }
+    let codes = Primitive.allCases.map { profile.code($0) } + [48]  // 48: Tab, from M2's --target
+    for code in codes { try sink.post(code, down: false) }
     try Log(file: nil).emit("release_sent", ["pid": Int(app.processIdentifier), "keys": profile.rawValue,
-                                             "codes": Primitive.allCases.map { Int(profile.code($0)) }, "key_down_sent": 0])
+                                             "codes": codes.map { Int($0) }, "key_down_sent": 0])
 }
 
 #if !SEEK  // M1 builds this shell with -D SEEK and its own entry point

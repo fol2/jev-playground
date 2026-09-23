@@ -16,16 +16,25 @@ struct SeekConfig {
     var tolerance = 0.03        // centred: |x| within this (x runs -0.5 left edge ... 0.5 right)
     var approachTolerance = 0.06
     var growth = 1.6            // visible stop: apparent size vs the designation, not a distance
+    var stopRow: Double?        // M2 visible stop instead: the target's ground row (y, from the middle) reaching this;
+                                // an unseen ground row is -0.5, the top: not yet
     var minScore = 0.6          // tracker correlation below this is an unseen target
     var settle = 0.3            // decide only on frames this long after key-up (M0: motion ended <= 68 ms)
     var lossWait = 1.0          // short occlusion allowance, with no input, before stopping
     var maxCentring = 6         // turn pulses per centring phase
+
+    /// What approach should increase: apparent scale (M1) or the selection circle's row (M2),
+    /// which falls down the screen as the unit gets closer.
+    func progress(_ sighting: Sighting) -> Double { stopRow == nil ? sighting.scale : sighting.y }
+    func reached(_ sighting: Sighting) -> Bool { progress(sighting) >= (stopRow ?? growth) }
+    var slack: Double { stopRow == nil ? 0.03 : 0.005 }  // how far a forward pulse may set progress back
 }
 
 enum SeekLimits {
     static let turnMs = 60...250
     static let forwardMs = 250
     static let growth = 1.2...2.5
+    static let stopRow = 0.25...0.65  // M2 stop row, fraction of the height from the top
     static let boxSide = 16...240  // designation box side in look-frame pixels
     // ponytail: ~15 yards of forward at WoW's 7 yd/s; widen only with new owner authority.
     static let budget = Budget(maxPulses: 20, allows: { pulse in
@@ -41,12 +50,15 @@ struct Box: Equatable {
 }
 
 struct SeekCommand: Equatable {
-    enum Mode: String { case preflight = "--preflight", dryRun = "--dry-run", look = "--look", execute = "--execute" }
+    enum Mode: String {
+        case preflight = "--preflight", dryRun = "--dry-run", look = "--look", execute = "--execute", target = "--target"
+    }
     let mode: Mode
     var profile: KeyProfile?
     var look: String?
     var box: Box?
     var growth = SeekConfig().growth
+    var stopRow = 0.45  // --target only: the selection circle's bottom row, fraction of the height from the top
 }
 
 /// Parses everything before any effect. Missing or unknown arguments never default to input.
@@ -57,7 +69,7 @@ func parseSeek(_ arguments: [String]) throws -> SeekCommand {
     var seen: Set<String> = []
     var rest = arguments.dropFirst()
     while let option = rest.popFirst() {
-        guard mode == .execute else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        guard mode == .execute || mode == .target else { throw ProbeError("\(mode.rawValue) takes no arguments") }
         guard seen.insert(option).inserted, let value = rest.popFirst(), !value.hasPrefix("-") else {
             throw ProbeError("'\(option.prefix(40))' is repeated or has no value")
         }
@@ -65,16 +77,21 @@ func parseSeek(_ arguments: [String]) throws -> SeekCommand {
         case "--keys":
             guard let profile = KeyProfile(rawValue: value) else { throw ProbeError("--keys needs exactly one of: arrows, wasd, wqe") }
             command.profile = profile
-        case "--look":
+        case "--look" where mode == .execute:
             command.look = value
-        case "--box":
+        case "--stop-row" where mode == .target:
+            guard let row = Double(value), SeekLimits.stopRow.contains(row) else {
+                throw ProbeError("--stop-row must lie within \(SeekLimits.stopRow) of the height from the top")
+            }
+            command.stopRow = row
+        case "--box" where mode == .execute:
             let parts = value.split(separator: ",", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
             guard parts.count == 4, parts[0] >= 0, parts[1] >= 0,
                   SeekLimits.boxSide.contains(parts[2]), SeekLimits.boxSide.contains(parts[3]) else {
                 throw ProbeError("--box needs X,Y,W,H in look-frame pixels with sides \(SeekLimits.boxSide)")
             }
             command.box = Box(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
-        case "--stop-growth":
+        case "--stop-growth" where mode == .execute:
             guard let growth = Double(value), SeekLimits.growth.contains(growth) else {
                 throw ProbeError("--stop-growth must lie within \(SeekLimits.growth)")
             }
@@ -83,8 +100,10 @@ func parseSeek(_ arguments: [String]) throws -> SeekCommand {
             throw ProbeError("unexpected option '\(option.prefix(40))'")
         }
     }
+    if mode == .execute || mode == .target {
+        guard command.profile != nil else { throw ProbeError("\(mode.rawValue) requires --keys arrows|wasd|wqe, confirmed in-game") }
+    }
     if mode == .execute {
-        guard command.profile != nil else { throw ProbeError("--execute requires --keys arrows|wasd|wqe, confirmed in-game") }
         guard command.look != nil, command.box != nil else {
             throw ProbeError("--execute requires --look FRAME and --box X,Y,W,H designating the target")
         }
@@ -369,18 +388,31 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
         driver.snapshot("p00-start")
         run: do {
             guard let centred = await centre(current, phase: "centre") else { break run }
+            // Already at the visible stop: no step, not even the facing check (live M2 run 7).
+            if config.reached(centred) { reached = true; break run }
             // Facing: camera centring alone does not show which way the avatar walks.
             guard let moved = await step(.forward, SeekLimits.forwardMs, phase: "facing", from: centred, expect: 0) else {
                 break run
             }
-            let consistent = abs(moved.x) <= config.approachTolerance && moved.scale >= centred.scale - 0.03
-            let record: [String: Any] = ["x_before": r3(centred.x), "x_after": r3(moved.x), "scale_before": r3(centred.scale),
-                                         "scale_after": r3(moved.scale), "verdict": consistent ? "consistent" : "inconsistent"]
+            // M2's ground row is often unseen at range; then only the bearing can be judged.
+            let known = config.stopRow == nil || (centred.y > -0.5 && moved.y > -0.5)
+            let consistent = abs(moved.x) <= config.approachTolerance
+                && (!known || config.progress(moved) >= config.progress(centred) - config.slack)
+            let record: [String: Any] = ["x_before": r3(centred.x), "x_after": r3(moved.x), "progress_before": r3(config.progress(centred)),
+                                         "progress_after": r3(config.progress(moved)),
+                                         "verdict": !consistent ? "inconsistent" : known ? "consistent" : "bearing_only"]
             facing = record
             driver.emit("facing_check", record)
             guard consistent else { lease.cancel("facing_inconsistent"); break run }
             current = moved
-            while current.scale < config.growth {
+            var seen = config.stopRow != nil && current.y > -0.5, unseen = 0
+            while !config.reached(current) {
+                // M2: once the circle has been seen, never walk on without it. Grass hides it
+                // for a frame now and then (run 3), so two unseen sightings in a row stop the run.
+                if config.stopRow != nil {
+                    if current.y > -0.5 { seen = true; unseen = 0 } else if seen { unseen += 1 }
+                    if unseen >= 2 { lease.cancel("ground_lost"); break run }
+                }
                 let next: Sighting?
                 if abs(current.x) > config.approachTolerance { next = await centre(current, phase: "recentre") }
                 else { next = await step(.forward, SeekLimits.forwardMs, phase: "approach", from: current, expect: 0) }
@@ -408,6 +440,8 @@ final class SimWorld: KeySink {
     var dead = 0.04
     var forwardSkew = 0.0       // degrees between facing and the direction forward moves
     var turnsApplied = true
+    var groundVisibleWithin = Double.infinity  // M2: beyond this range the ground row is unseen (-0.5)
+    var groundHidden: (Double) -> Bool = { _ in false }
     var hidden: (Double) -> Bool = { _ in false }
     private let lock = NSLock()
     private let profile: KeyProfile
@@ -457,7 +491,9 @@ final class SimWorld: KeySink {
         let ahead = -dx * sin(facing) + dy * cos(facing), right = dx * cos(facing) + dy * sin(facing)
         let bearing = atan2(right, ahead)
         let visible = ahead > 0 && abs(bearing) < .pi / 4 && !hidden(t)
-        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: 0, scale: distance / (dx * dx + dy * dy).squareRoot(),
-                        score: visible ? 0.95 : 0.2)
+        let range = (dx * dx + dy * dy).squareRoot()
+        // y: a ground row that falls towards the middle as the unit gets closer (M2).
+        return Sighting(pts: t, x: visible ? tan(bearing) / 2 : 0, y: range > groundVisibleWithin || groundHidden(t) ? -0.5 : -0.3 + 3 / range,
+                        scale: distance / range, score: visible ? 0.95 : 0.2)
     }
 }

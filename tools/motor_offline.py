@@ -12,7 +12,7 @@ import tempfile
 from tools.sdlc import MOTOR, SEEK, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
-MIN_SEEK_CHECKS = 66  # the current count: removing a check must lower this on purpose
+MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 
 
@@ -84,13 +84,14 @@ def main():
         _, late = on_time(probe, 6)
         interrupted([probe, "--dry-run", "forward:200"])
 
-        build(seek_tests, MOTOR + "Motor.swift", SEEK + "Seek.swift", SEEK + "SeekTests.swift")
+        build(seek_tests, MOTOR + "Motor.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekTests.swift")
         seek_checks = suite(seek_tests, "seek", MIN_SEEK_CHECKS)
-        build(seek, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "SeekProbe.swift",
+        build(seek, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekProbe.swift",
               flags=("-O", "-D", "SEEK"))
         refuses(seek, (["--bogus"], ["--dry-run", "x"], ["--look", "x"], ["--execute"],
                        ["--execute", "--keys", "wqe", "--look", "f.png"], ["--execute", "--keys", "wqe", "--box", "1,1,20,20"],
-                       ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20,20", "--stop-growth", "9"]))
+                       ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20,20", "--stop-growth", "9"],
+                       ["--target"], ["--target", "--keys", "wqe", "--stop-row", "0.9"], ["--target", "--keys", "wqe", "--look", "f.png"]))
         rows, seek_late = on_time(seek, None)
         summary = rows[-1]
         if summary.get("event") != "summary" or summary.get("outcome") != "VISIBLE_STOP_REACHED_PENDING_LABELS":
