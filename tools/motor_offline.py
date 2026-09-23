@@ -81,8 +81,8 @@ def fight_trap() -> None:
     if "struct HeldKey" not in core or "func expired(now:" not in core:
         raise GateError("watchdog decision is not HeldKey")
     execute = probe.split("func fightExecute", 1)[-1]
-    if "trapSignals(" not in execute or "host.releaseAll()" not in execute:
-        raise GateError("fightExecute does not trap signals onto host.releaseAll")
+    if "also: { host.releaseAll() }, holding: { host.holdingKeys }" not in execute:
+        raise GateError("fightExecute does not trap signals onto host.releaseAll and host.holdingKeys")
     if "defer { host.releaseAll() }" not in execute:
         raise GateError("fightExecute does not defer host.releaseAll")
     if "FightLimits.releaseCodes" not in probe:

@@ -207,10 +207,10 @@ struct FightTests {
         check(parseChoice(body(probabilities: ["WAIT": 0.5, "STOP": 0.4, "HEAL": 0.1]), admissible: allowed,
                           model: FightLimits.model) == nil,
               "parseChoice rejects probabilities with an extra key")
-        check(parseChoice(body(probabilities: ["WAIT": 1.2, "STOP": 0]), admissible: allowed,
+        check(parseChoice(body(probabilities: ["WAIT": 1.01, "STOP": 0]), admissible: allowed,
                           model: FightLimits.model) == nil,
-              "parseChoice rejects a probability above 1")
-        check(parseChoice(body(probabilities: ["WAIT": 0, "STOP": -0.2]), admissible: allowed,
+              "parseChoice rejects a probability above 1 (sum within slack)")
+        check(parseChoice(body(probabilities: ["WAIT": 1.0, "STOP": -0.01]), admissible: allowed,
                           model: FightLimits.model) == nil,
               "parseChoice rejects a probability below 0")
         check(parseChoice(body(probabilities: ["WAIT": 0.4, "STOP": 0.4]), admissible: allowed,
