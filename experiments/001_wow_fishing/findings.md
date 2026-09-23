@@ -713,3 +713,20 @@ with the unresolved initial-object-identity problem, but two cases cannot separa
 misacquisition from an unusual genuine landing, and no positional gate should be
 added on one run's band. Details and the full failure table are in the
 [run evidence](evidence/2026-09-21-test-a-600s/README.md).
+
+## 23 September 2026: English client pre-go overlay guards (issue #10) — offline proven only
+
+The owner's client switched to English on 22 September. The pre-go overlay guards listed
+only Traditional Chinese titles, so an English Game Menu, Lua error or loot window matched
+nothing and pre-go would have continued past it. They now also list `Lua Error`,
+`Game Menu`, `Return to Game`, `Log Out`, `Exit Game` and `Items`, and matching ignores case
+and spacing.
+
+One frame of the real English Game Menu (one Esc to open, one to close, no other input)
+showed that the strings alone were not enough. Its title sat on the lower edge of the
+former band (0.28-0.38 of the height), and Vision read it as `Came Menu`: the guard would
+still have been skipped. The band now spans 0.28-0.73, the whole menu, and there it read
+every title and button correctly. [`game-menu-en.jpg`](game-menu-en.jpg) keeps that band as
+a regression image. `Items` (the loot window) and `Lua Error` come from the game's English
+strings and are exercised only on rendered text, not a real capture. No fishing run was
+made.

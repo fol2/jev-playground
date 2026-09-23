@@ -42,8 +42,20 @@ func readText(_ image: CGImage) throws -> [VNRecognizedTextObservation] {
 func containsText(_ image: CGImage, _ terms: [String]) throws -> Bool {
     let text = try readText(image).compactMap { $0.topCandidates(1).first?.string }.joined()
     let normalised = text.applyingTransform(StringTransform(rawValue: "Simplified-Traditional"), reverse: false) ?? text
-    return terms.contains { normalised.contains($0) }
+    // OCR case and spacing vary ("Lua 錯誤", "LUA ERROR"); fold both sides.
+    func fold(_ text: String) -> String { text.lowercased().filter { !$0.isWhitespace } }
+    return terms.contains { fold(normalised).contains(fold($0)) }
 }
+
+// Pre-go overlay text in the zh-Hant and English clients; the owner's client is English
+// from 22 September 2026 (issue #10). Matching nothing would skip the guard, not fail it.
+let luaErrorText = ["Lua錯誤", "Lua Error"]
+let blockingOverlayText = luaErrorText + ["遊戲選單", "返回遊戲", "物品",
+    "Game Menu", "Return to Game", "Log Out", "Exit Game", "Items"]
+// The whole default Game Menu at the owner's window size. The former band (height 0.10) ended
+// just under its title, which OCR then read as "Came Menu" (game-menu-en.jpg, 23 September
+// 2026); the buttons add independent words. It stops above the player frame at 0.74.
+func overlayBand(_ screen: CGImage) -> CGImage { section(screen, 0.2, 0.28, 0.6, 0.45) }
 
 func section(_ image: CGImage, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> CGImage {
     image.cropping(to: CGRect(x: x*Double(image.width), y: y*Double(image.height),
@@ -450,13 +462,13 @@ struct Fishing {
                 try await Task.sleep(for: .milliseconds(450))
             }
             func dismissCharacterError(_ screen: CGImage) async throws -> CGImage {
-                guard try containsText(section(screen, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else { return screen }
+                guard try containsText(section(screen, 0.2, 0.32, 0.6, 0.07), luaErrorText) else { return screen }
                 guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
                 try await clickAt(CGPoint(x: bounds.minX+0.776*bounds.width,
                                          y: bounds.minY+0.349*bounds.height), .left)
                 try await Task.sleep(for: .milliseconds(300))
                 let after = try await capture()
-                guard try !containsText(section(after, 0.2, 0.32, 0.6, 0.07), ["Lua錯誤", "Lua 錯誤"]) else {
+                guard try !containsText(section(after, 0.2, 0.32, 0.6, 0.07), luaErrorText) else {
                     throw NSError(domain: "Pre-go character error still open", code: 3)
                 }
                 emit("dismissed_character_beta_error")
@@ -467,8 +479,7 @@ struct Fishing {
             if try containsText(section(screen, 0.4, 0.1, 0.2, 0.11), ["refresh", "Refresh"]) {
                 emit("pre_go_world_refresh_pending"); return
             }
-            let centre = section(screen, 0.2, 0.28, 0.6, 0.10)
-            if try containsText(centre, ["Lua錯誤", "Lua 錯誤", "遊戲選單", "返回遊戲", "物品"]) {
+            if try containsText(overlayBand(screen), blockingOverlayText) {
                 emit("pre_go_blocked_overlay"); return
             }
             // Character sheet, then read the equipped main-hand item tooltip.
