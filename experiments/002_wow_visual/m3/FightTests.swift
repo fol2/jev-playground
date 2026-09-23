@@ -479,6 +479,29 @@ extension FightTests {
         let swept = done.wait(timeout: .now() + 1) == .success
         gate.signal()
         check(swept && !jammed.holding, "the exit sweep does not wait on a blocked log write")
+
+        // As live: every event goes through one log lock, and the watchdog's write holds it, blocked on stdout.
+        let logLock = NSLock(), entered3 = DispatchSemaphore(value: 0), gate3 = DispatchSemaphore(value: 0)
+        let once = NSLock()
+        var stalled = false
+        let three = LiveKeys(sink: FailUpSink(), releaseCodes: [12, 13, 14], clock: { 10 }) { _, _ in
+            logLock.lock()
+            once.lock()
+            let stall = !stalled
+            stalled = true
+            once.unlock()
+            if stall { entered3.signal(); gate3.wait() }
+            logLock.unlock()
+        }
+        for code: UInt16 in [12, 13, 14] { three.press(code) }
+        three.grant(12, seconds: -1)
+        DispatchQueue.global().async { three.sweepExpired() }
+        _ = entered3.wait(timeout: .now() + 2)
+        DispatchQueue.global().async { three.releaseAll() }
+        usleep(300_000)
+        let allUp = !three.holding
+        gate3.signal()
+        check(allUp, "with the log lock held by a blocked write, releaseAll still posts every key-up (W and E too)")
     }
 }
 

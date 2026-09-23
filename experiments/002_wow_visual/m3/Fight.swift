@@ -196,10 +196,14 @@ final class LiveKeys {
         for code in released { emit("watchdog", ["released": Int(code)]) }
     }
 
-    /// The exit sweep: no key goes down afterwards, and every listed code gets a key-up.
+    /// The exit sweep: no key goes down afterwards, and every listed code gets a key-up. All the key-ups
+    /// post under one hold of the lock before any event is logged: a log write blocked on stdout must
+    /// not keep W down behind Q's event.
     func releaseAll() {
-        locked { cancelled = true }
-        for code in releaseCodes { lift(code, listed: true) }
+        locked {
+            cancelled = true
+            for code in releaseCodes { _ = up(code) }
+        }
     }
 }
 
