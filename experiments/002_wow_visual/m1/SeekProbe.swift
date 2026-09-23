@@ -112,7 +112,10 @@ struct Session {
     let config: SCStreamConfiguration
 }
 
-/// M0's target checks: existing grants only, one WoW process and window, WoW in the background.
+/// M0's target checks: existing grants only, one WoW process and game window, WoW in the
+/// background. Unlike M0, the window need not be on screen: window-only capture delivered
+/// ~57 fps with WoW on another Space (23 September 2026), and the frame gate still stops a
+/// run whose frames go stale.
 @MainActor
 func wowSession(input: Bool) async throws -> Session {
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -125,12 +128,12 @@ func wowSession(input: Bool) async throws -> Session {
     guard let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != app.processIdentifier else {
         throw ProbeError("WoW is frontmost or the foreground app is unknown; M1 uses background input and never switches apps")
     }
-    let content = try await SCShareableContent.current
-    let windows = content.windows.filter {
-        $0.owningApplication?.processID == app.processIdentifier && $0.windowLayer == 0 && $0.isOnScreen && $0.frame.width > 300
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+    let windows = content.windows.filter {  // off screen, WoW also lists 30-pixel menu-bar strips
+        $0.owningApplication?.processID == app.processIdentifier && $0.windowLayer == 0 && $0.frame.width > 300 && $0.frame.height > 300
     }
     guard windows.count == 1, let window = windows.first, let bounds = windowBounds(window.windowID) else {
-        throw ProbeError("expected exactly one on-screen WoW game window, found \(windows.count)")
+        throw ProbeError("expected exactly one WoW game window, found \(windows.count)")
     }
     let scale = min(1, 640 / window.frame.width)
     let config = SCStreamConfiguration()
@@ -179,6 +182,7 @@ func look() async throws -> Int32 {
     let url = directory.url.appendingPathComponent("look.png")
     write(frame.image, to: url, type: .png)
     try Log(file: nil).emit("look", ["path": url.path, "size": [frame.image.width, frame.image.height],
+                                     "window_on_screen": session.window.isOnScreen,
                                      "effects": "one window-only frame, audio off; no input"])
     return 0
 }
@@ -250,7 +254,8 @@ func seekExecute(_ command: SeekCommand, profile: KeyProfile, box: Box, lookPath
         "target": bundleFacts(session.app.bundleURL).merging(["pid": Int(session.app.processIdentifier), "window_id": Int(session.window.windowID),
                                                                "window_bounds": NSStringFromRect(session.bounds), "capture_stream": feed.streamID,
                                                                "capture_size": [width, height]]) { current, _ in current },
-        "focus_at_start": ["frontmost_bundle": orNull(session.front.bundleIdentifier), "frontmost_pid": Int(session.front.processIdentifier)],
+        "focus_at_start": ["frontmost_bundle": orNull(session.front.bundleIdentifier), "frontmost_pid": Int(session.front.processIdentifier),
+                           "wow_window_on_screen": session.window.isOnScreen],
         "keys": ["profile": profile.rawValue, "codes": Dictionary(uniqueKeysWithValues: Primitive.allCases.map { ($0.rawValue, Int(profile.code($0))) })],
         "designation": ["look_frame": lookPath, "box": [box.x, box.y, box.width, box.height], "track_box": [trackBox.x, trackBox.y, trackBox.width, trackBox.height],
                         "found": orNull(found.map { ["x": r3($0.x), "y": r3($0.y), "scale": r3($0.scale), "score": r3($0.score), "runner_up": r3($0.runnerUp)] }),
