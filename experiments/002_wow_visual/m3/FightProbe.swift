@@ -86,6 +86,7 @@ final class LiveHost: FightHost {
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
     private var held: Set<UInt16> = []
+    private var cancelled = false  // set by releaseAll: no key goes down after the exit sweep
     private var bolt: HeldKey?
     var walkedMs = 0
     var turnedMs = 0
@@ -174,25 +175,31 @@ final class LiveHost: FightHost {
     func releaseBolt() { lift(FightLimits.bolt) }
 
     func releaseAll() {
+        withHeld { cancelled = true }
         watchdog.cancel()
         for code in FightLimits.releaseCodes { lift(code, listed: true) }
     }
 
     /// Grant before the post, as InputLease does: a partly delivered down must still be released.
+    /// Posts happen under the lock and stop once releaseAll has run, so a down cannot land after
+    /// the SIGINT sweep has lifted its key.
     private func press(_ code: UInt16) {
-        withHeld { _ = held.insert(code) }
-        codesPosted.append(code)
-        do { try sink.post(code, down: true) } catch {
-            emit("key_down_failed", ["code": Int(code), "error": "\(error)"])
+        let posted: Bool = withHeld {
+            guard !cancelled else { return false }
+            held.insert(code)
+            do { try sink.post(code, down: true) } catch {
+                emit("key_down_failed", ["code": Int(code), "error": "\(error)"])
+            }
+            return true
         }
+        if posted { codesPosted.append(code) }
     }
 
     /// Keep the grant until a key-up posts. `listed` sweeps FightLimits.releaseCodes on exit.
     private func lift(_ code: UInt16, listed: Bool = false) {
-        let tracked = withHeld { held.contains(code) }
-        guard tracked || listed else { return }
-        if confirmKeyUp(code, sink: sink, emit: emit) {
-            withHeld {
+        withHeld {
+            guard held.contains(code) || listed else { return }
+            if confirmKeyUp(code, sink: sink, emit: emit) {
                 held.remove(code)
                 if code == FightLimits.bolt { bolt = nil }
             }
@@ -357,17 +364,18 @@ final class LiveHost: FightHost {
 
 func fightDryRun() async throws -> Int32 {
     let log = try Log(file: nil)
-    let clock = FightClock()
+    let clock = FightClock(pace: 0.02)
     let world = SimFight(clock: clock)
     world.emitHandler = { event, fields in
         var row = fields
         row["t"] = clock.now()
         log.emit(event, row)
     }
-    log.emit("start", ["mode": "dry-run",
-                       "effects": "none: SimFight + ScriptedJev; no capture, OS input or network"])
     let dummy = InputLease(profile: .wqe, sink: NoEffectSink(), clock: { clock.now() }, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { world.releaseAll() }, holding: { world.holdingKeys })
+    // After the trap: a SIGINT sent on "start" must never fall between SIG_IGN and the handler.
+    log.emit("start", ["mode": "dry-run",
+                       "effects": "none: SimFight + ScriptedJev; no capture, OS input or network"])
     let result = await runFight(host: world, jev: ScriptedJev())
     withExtendedLifetime(signals) {}
     let summary: [String: Any] = [

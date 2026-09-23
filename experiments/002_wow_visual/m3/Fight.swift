@@ -524,14 +524,18 @@ func runFight(host: FightHost, jev: JevClient) async -> FightResult {
 /// Injected clock: tests and the dry-run advance instantly; the live shell supplies wall time.
 final class FightClock {
     private let live: (() -> Double)?
+    private let pace: Double
     var t = 0.0
-    init(live: (() -> Double)? = nil) { self.live = live }
+    /// `pace` adds a short real sleep to each fake sleep, as M0/M1's dry-runs stall their observer:
+    /// a SIGINT then lands inside the loop instead of racing the process's normal exit.
+    init(live: (() -> Double)? = nil, pace: Double = 0) { self.live = live; self.pace = pace }
     func now() -> Double { live?() ?? t }
     func sleep(_ seconds: Double) async {
         if live != nil {
             try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
         } else {
             t += seconds
+            if pace > 0 { try? await Task.sleep(nanoseconds: UInt64(pace * 1_000_000_000)) }
         }
     }
 }
@@ -557,6 +561,11 @@ final class SimFight: FightHost {
     var boltHeld = false
     var boltGrant: HeldKey?
     var down: Set<UInt16> = []
+    /// SIGINT calls releaseAll on the signal queue while the loop presses keys: key state is locked,
+    /// as in LiveHost (an unlocked Set mutated from two threads crashed the dry-run on CI, exit -11).
+    private let keyLock = NSLock()
+    private var cancelled = false  // set by releaseAll: no key goes down after the exit sweep
+    private func withKeys<T>(_ body: () -> T) -> T { keyLock.lock(); defer { keyLock.unlock() }; return body() }
     var performed: [FightAction] = []
     var walkedMs = 0
     var turnedMs = 0
@@ -575,21 +584,26 @@ final class SimFight: FightHost {
     }
 
     func expireWatchdog() {
-        guard let grant = boltGrant, grant.expired(now: now()) else { return }
+        let t = now()
+        guard let grant = withKeys({ boltGrant }), grant.expired(now: t) else { return }
         releaseBolt()
         emit("watchdog", ["released": Int(grant.code)])
     }
 
     func holdBolt() {
-        boltHeld = true
-        down.insert(FightLimits.bolt)
-        codesPosted.append(FightLimits.bolt)
         var grant = HeldKey(code: FightLimits.bolt, until: 0)
         grant.refresh(now: now())
-        boltGrant = grant
+        let pressed: Bool = withKeys {
+            guard !cancelled else { return false }
+            boltHeld = true
+            down.insert(FightLimits.bolt)
+            boltGrant = grant
+            return true
+        }
+        if pressed { codesPosted.append(FightLimits.bolt) }
     }
     func emit(_ event: String, _ fields: [String: Any]) { emitHandler(event, fields) }
-    var holdingKeys: Bool { boltHeld || !down.isEmpty }
+    var holdingKeys: Bool { withKeys { boltHeld || !down.isEmpty } }
     func wowFrontmost() -> Bool { wowIsFront }
     func refreshNotice() -> Bool { refreshOpen }
     func startCorpseVisible() -> Bool { startCorpse }
@@ -615,30 +629,43 @@ final class SimFight: FightHost {
     }
 
     func releaseBolt() {
-        boltHeld = false
-        down.remove(FightLimits.bolt)
-        boltGrant = nil
+        withKeys {
+            boltHeld = false
+            down.remove(FightLimits.bolt)
+            boltGrant = nil
+        }
     }
 
     func releaseAll() {
-        boltHeld = false
-        down.removeAll()
-        boltGrant = nil
+        withKeys {
+            cancelled = true
+            boltHeld = false
+            down.removeAll()
+            boltGrant = nil
+        }
+    }
+
+    private func press(_ code: UInt16) -> Bool {
+        withKeys {
+            guard !cancelled else { return false }
+            down.insert(code)
+            return true
+        }
     }
 
     private func tap(_ code: UInt16) async {
-        down.insert(code)
+        guard press(code) else { return }
         codesPosted.append(code)
         await sleep(0.06)
-        down.remove(code)
+        withKeys { _ = down.remove(code) }
     }
 
     private func hold(_ code: UInt16, _ ms: Int) async {
-        down.insert(code)
+        guard press(code) else { return }
         codesPosted.append(code)
         if code == FightLimits.forward { walkedMs += ms } else { turnedMs += ms }
         await sleep(Double(ms) / 1000)
-        down.remove(code)
+        withKeys { _ = down.remove(code) }
     }
 
     private func strike(_ amount: Double) {

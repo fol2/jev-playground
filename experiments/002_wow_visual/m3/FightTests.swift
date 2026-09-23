@@ -383,6 +383,15 @@ struct FightTests {
         await world.sleep(0.001)
         check(!world.holdingKeys && world.down.isEmpty,
               "a fake-time host holding bolt past 4 s gets a key-up")
+
+        let swept = SimFight(clock: FightClock())
+        swept.holdBolt()
+        swept.releaseAll()
+        swept.holdBolt()
+        var sweptEpisode = Episode()
+        _ = await swept.perform(.selectTarget, observation: swept.observe(plates: false), episode: &sweptEpisode)
+        check(!swept.holdingKeys && swept.down.isEmpty,
+              "after releaseAll (the SIGINT sweep) no key goes down again")
     }
 }
 

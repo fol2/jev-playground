@@ -13,7 +13,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
-MIN_FIGHT_CHECKS = 97  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 98  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -90,7 +90,8 @@ def fight_trap() -> None:
 
 
 def interrupted_dry(command: list) -> None:
-    """SIGINT of m3-fight --dry-run must exit 0 or 130. No OS keys are posted."""
+    """SIGINT of m3-fight --dry-run, sent on "start" (emitted after the trap), must stop the paced loop
+    with exit 130 and holding false. No OS keys are posted."""
     process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, text=True)
     rows = []
     for line in process.stdout:
@@ -101,10 +102,10 @@ def interrupted_dry(command: list) -> None:
             break
     rows += [json.loads(line) for line in process.stdout if line.strip()]
     code = process.wait(timeout=10)
-    if code not in (0, 130):
+    if code != 130:
         raise GateError(f"SIGINT of M3 dry-run exited {code}")
-    if code == 130 and any(r.get("event") == "exit" and r.get("holding") is True for r in rows):
-        raise GateError("SIGINT of M3 dry-run reported holding true")
+    if not any(r.get("event") == "exit" and r.get("holding") is False for r in rows):
+        raise GateError("SIGINT of M3 dry-run did not report holding false")
 
 
 def main():
@@ -153,7 +154,7 @@ def main():
     print(f"M0/M1/M3 motor proof passed: {checks} + {seek_checks} + {fight_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses) and the simulated M3 fight ({fight_summary.get('decisions')} "
-          f"decisions); M3 dry-run SIGINT exits 0 or 130 with no OS keys; zero capture, OS input or live model calls.")
+          f"decisions); M3 dry-run SIGINT stops the loop (130, holding false) with no OS keys; zero capture, OS input or live model calls.")
 
 
 if __name__ == "__main__":
