@@ -39,7 +39,7 @@ enum NavLimits {
     static let headingTolerance = 25.0
     static let unreadableLimit = 6
     static let recentMoves = 6
-    static let runSpeed = 0.15  // y units per second, from two scratch walks; SimNav and the state's units note
+    static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
     static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight]
 }
 
@@ -275,7 +275,7 @@ func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEp
         "position": position, "destination": destination, "progress": progress,
         "recent_moves": e.attempts.suffix(NavLimits.recentMoves).map(\.json),
         "blocked_headings_near_here": e.blockedHeadings(near: o).map { Int($0.rounded()) },
-        "units": "zone-map units: x and y are map percent, distances are in y units (one x unit is 1.5 y units); running covers about 0.15 per second; headings are compass degrees, 0 north, 90 east",
+        "units": "zone-map units: x and y are map percent, distances are in y units (one x unit is 1.5 y units); running covers about 0.2 per second; headings are compass degrees, 0 north, 90 east",
     ]
     return state
 }
