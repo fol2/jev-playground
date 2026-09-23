@@ -15,7 +15,7 @@ enum HuntHUD {
     static let gameMenu = CGRect(x: 1150, y: 440, width: 260, height: 70)  // the Game Menu's title
 }
 
-let hunterPreference: [HuntAction] = [.fight, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
+let hunterPreference: [HuntAction] = [.fight, .eatDrink, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
                                       .detourLeft90, .detourLeft45, .backTrack] + HuntAction.compass
 
 /// The name above an untargeted plate bar (about 20 px text over a 15 px bar), OCR'd after a x3 upscale.
@@ -205,7 +205,7 @@ func huntLimits() -> [String: Any] {
     ["max_decisions": HuntLimits.maxDecisions, "max_seconds": HuntLimits.maxSeconds, "max_fights": HuntLimits.maxFights,
      "search_limit": HuntLimits.searchLimit, "rest_s": HuntLimits.restSeconds, "max_walks": HuntLimits.maxMoves, "walk_s": NavLimits.moveSeconds,
      "player_safety": FightLimits.playerSafety, "heal_mana": FightLimits.healMana, "fight_start_health": FightLimits.startHealth,
-     "fight_mana": HuntLimits.fightMana, "walk_health": HuntLimits.walkHealth,
+     "eat_below_health": HuntLimits.eatBelowHealth, "eat_below_mana": HuntLimits.eatBelowMana, "walk_health": HuntLimits.walkHealth,
      "fight_max_decisions": FightLimits.maxDecisions, "fight_max_seconds": FightLimits.maxSeconds,
      "hunt_jev_timeout_s": HuntLimits.jevTimeout, "fight_jev_timeout_s": FightLimits.jevTimeout]
 }

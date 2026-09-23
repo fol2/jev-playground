@@ -21,7 +21,11 @@ enum HuntLimits {
     static let recent = 6
     static let restHealth = 0.99
     static let restMana = 0.95
-    static let fightMana = 0.6  // owner, 23 Sept: a fight starts only with 60% mana (a Convert took half of it)
+    // No mana gate for starting a fight: in the owner's recorded demo (23 Sept) 29 fights often began at
+    // 10-30% mana, melee doing most of the damage. Jev weighs the costs, which the state carries.
+    static let eatBelowHealth = 0.8, eatBelowMana = 0.5
+    static let drink: UInt16 = 29, eat: UInt16 = 27  // the owner's bar: 0 water, - bread (demo, 23 Sept)
+    static let eatSeconds = 20.0
     static let walkHealth = 0.6  // below this, rest before walking on
     // ponytail: an assumed horizontal field of view; calibrate from a plate's shift over a known turn.
     static let viewDegrees = 90.0
@@ -29,7 +33,7 @@ enum HuntLimits {
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53
-    static let releaseCodes: [UInt16] = [53, 48, 12, 13, 14]
+    static let releaseCodes: [UInt16] = [53, 48, 12, 13, 14, 29, 27]
     static let continueAfter: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE", "JEV_STOP"]
 }
 
@@ -247,6 +251,7 @@ enum HuntAction: String, JevAction {
     case north = "GO_N", northEast = "GO_NE", east = "GO_E", southEast = "GO_SE"
     case south = "GO_S", southWest = "GO_SW", west = "GO_W", northWest = "GO_NW"
     case rest = "REST"
+    case eatDrink = "EAT_DRINK"
 
     static let compass: [HuntAction] = [.north, .northEast, .east, .southEast, .south, .southWest, .west, .northWest]
     static let detours: [HuntAction] = [.detourLeft45, .detourRight45, .detourLeft90, .detourRight90, .backTrack]
@@ -286,6 +291,8 @@ enum HuntAction: String, JevAction {
             return "Walks about 3 s directly away from the selected quest's area, \(walk)"
         case .rest:
             return "Stands still for 20 s to regain health and mana, about 40% of each. A fight can start only at 90% health or more. Ends early if something attacks."
+        case .eatDrink:
+            return "Sits to drink water and eat bread for 20 s: restores health and mana to full, far faster than standing. Only out of combat; ends early if something attacks, and standing up stops it."
         default:
             return ""
         }
@@ -299,7 +306,7 @@ func questCreature(_ o: HuntObs) -> Seen? {
 }
 
 /// Local rules only: what is possible, safe to start, or pointless to repeat. In combat the only choice
-/// is to fight back. A fight starts on a creature that counts, at M3's start health and 60% mana, and
+/// is to fight back. A fight starts on a creature that counts, at M3's start health (mana is Jev's call), and
 /// not while another hostile creature is near (live hunt 5 died to a Roiling Wind that joined a
 /// Convert fight). Below 60% health the character rests before walking on. Walks need a
 /// readable position, stay within maxMoves, and never head within 25° of a heading blocked near here.
@@ -319,7 +326,7 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
     var out: [HuntAction] = []
     var others = o.seen.filter { $0.hostile && $0.near }
     if let target = o.target, let i = others.firstIndex(where: { nameKey($0.name) == nameKey(target) }) { others.remove(at: i) }
-    if o.targetAlive && o.player >= FightLimits.startHealth && o.mana >= HuntLimits.fightMana && others.isEmpty
+    if o.targetAlive && o.player >= FightLimits.startHealth && others.isEmpty
         && objective(for: o.target, in: o.objectives) != nil {
         out.append(.fight)
     }
@@ -334,6 +341,7 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
         }
     }
     if o.player < HuntLimits.restHealth || o.mana < HuntLimits.restMana { out.append(.rest) }
+    if o.player < HuntLimits.eatBelowHealth || o.mana < HuntLimits.eatBelowMana { out.append(.eatDrink) }
     return out
 }
 
@@ -359,11 +367,11 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         area["bearing_deg"] = Int(a.bearing.rounded())
     }
     var character: [String: Any] = ["health_percent": Int(o.player * 100), "mana_percent": Int(o.mana * 100), "in_combat": o.combat,
-                                    "can_start_a_fight": o.player >= FightLimits.startHealth && o.mana >= HuntLimits.fightMana]
+                                    "can_start_a_fight": o.player >= FightLimits.startHealth]
     if let facing = o.facing { character["facing_deg"] = Int(facing.rounded()) }
     if let here = o.here { character["position"] = ["x": here.x, "y": here.y] }
     return [
-        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health and 60% mana or more, with no other hostile creature near; below 60% health the character rests before walking on. The character must stay alive. The owner is supervising.",
+        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
         "objectives": o.objectives.filter(\.unfinished).map {
             ["quest": $0.quest, "objective": $0.text, "progress": "\($0.done)/\($0.need)"]
         },
@@ -419,6 +427,14 @@ func rest(_ host: HuntHost, seconds: Double) async -> String {
         if host.ownerTookFocus() { return "stopped after \(Int(host.now() - began)) s" }
     }
     return "rested \(Int(seconds)) s"
+}
+
+/// Water, then bread: each sits the character down; both restore over the same 20 s, which `rest`
+/// waits out (an attack or the owner ends it, and the character stands up).
+func eatDrink(_ host: HuntHost) async -> String {
+    await tap(host, HuntLimits.drink)
+    await tap(host, HuntLimits.eat)
+    return (await rest(host, seconds: HuntLimits.eatSeconds)).replacingOccurrences(of: "rested", with: "ate and drank for")
 }
 
 /// One M4a walk (steering, block detection, safety stops) on a fixed heading, then a Tab. W is lifted:
@@ -550,6 +566,8 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
             if let here = host.look() { panorama = (here, look.seen) }
         case .rest:
             result = await rest(host, seconds: HuntLimits.restSeconds)
+        case .eatDrink:
+            result = await eatDrink(host)
         case .toCreature:
             let heading = questCreature(o)?.bearing
             result = heading == nil ? "nothing to walk to" : await walkOn(host, heading: heading!, episode: &r.walks)
@@ -591,6 +609,7 @@ final class SimHunt: HuntHost {
     var fightOutcome = "KILLED_AND_LOOTED"
     var fightsRun = 0
     var surveyBlind = false
+    var eating = false  // sitting with food or water: regain 5% a second until standing up or attacked
 
     init(world: SimNav, mobs: [Mob], objectives: [Objective]) {
         self.world = world
@@ -598,6 +617,8 @@ final class SimHunt: HuntHost {
         self.objectives = objectives
         world.pad.onDown = { [unowned self] code in
             if code == FightLimits.tab { self.selected = self.nearest() }
+            if code == HuntLimits.drink || code == HuntLimits.eat { self.eating = true }
+            if code == FightLimits.forward { self.eating = false }
             if code == HuntLimits.escape {
                 if self.gameMenu { self.gameMenu = false } else if self.selected != nil { self.selected = nil } else { self.gameMenu = true }
             }
@@ -621,16 +642,19 @@ final class SimHunt: HuntHost {
         return mobs.indices.filter { inView(mobs[$0], within: 1.2) }.min { distance(here, mobs[$0].point) < distance(here, mobs[$1].point) }
     }
 
-    /// Integrates the walk, then lets a hostile creature within 0.25 units attack; rest regains 2 % a second.
+    /// Integrates the walk, then lets a hostile creature within 0.25 units attack; rest regains 2 % a second,
+    /// eating and drinking 5 %.
     func sleep(_ seconds: Double) async {
         await world.sleep(seconds)
         let here: MapPoint = (world.x, world.y)
         if !world.combat, mobs.contains(where: { $0.alive && $0.hostile && distance(here, $0.point) <= 0.25 }) {
             world.combat = true  // as in WoW, an attacker is not selected for you
         }
+        if world.combat { eating = false }
         if !world.combat {
-            world.player = min(1, world.player + 0.02 * seconds)
-            mana = min(1, mana + 0.02 * seconds)
+            let rate = eating ? 0.05 : 0.02
+            world.player = min(1, world.player + rate * seconds)
+            mana = min(1, mana + rate * seconds)
         }
     }
 

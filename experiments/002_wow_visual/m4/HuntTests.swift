@@ -136,7 +136,10 @@ extension NavTests {
               "at most 24 walks per hunt")
         var drained = wind
         drained.mana = 0.5
-        check(!huntAdmissible(drained).contains(.fight) && huntAdmissible(drained).contains(.rest), "below 60% mana no fight starts")
+        drained.mana = 0.2
+        check(huntAdmissible(drained).contains(.fight) && huntAdmissible(drained).contains(.eatDrink),
+              "low mana does not stop a fight (the owner's demo pulled at 10-30%); eating is offered")
+        check(!huntAdmissible(wind).contains(.eatDrink), "no eating at full health and mana")
         var crowded = wind
         crowded.seen = [Seen(name: "Roiling Wind", hostile: true, bearing: 0, near: true), Seen(name: "Roiling Winds", hostile: true, bearing: 90, near: true)]
         check(!huntAdmissible(crowded).contains(.fight), "another hostile creature near: no fight starts")
@@ -144,7 +147,8 @@ extension NavTests {
         check(huntAdmissible(crowded).contains(.fight), "the target's own plate is not another creature")
         var weak = wind
         weak.player = 0.5
-        check(!huntAdmissible(weak).contains { $0.isWalk } && huntAdmissible(weak).contains(.rest), "below 60% health: rest, no walks")
+        check(!huntAdmissible(weak).contains { $0.isWalk } && huntAdmissible(weak).contains(.rest) && huntAdmissible(weak).contains(.eatDrink),
+              "below 60% health: rest or eat, no walks")
         var lost = wind
         lost.here = nil
         check(!huntAdmissible(lost).contains { $0.isWalk }, "no walk without a readable position")
@@ -217,6 +221,13 @@ extension NavTests {
         let look = await lookAround(looker)
         check(look.seen.map(\.name) == ["Juvenile Vuldren"] && abs(angleError(200, looker.world.facing)) <= 20 && !looker.keys.holding,
               "LOOK_AROUND turns a full circle, lists the creature in view and ends facing where it began")
+
+        let hungry = SimHunt.field(clock: FightClock())
+        hungry.world.player = 0.3
+        hungry.mana = 0.1
+        let ate = await eatDrink(hungry)
+        check(ate == "ate and drank for 20 s" && hungry.world.player == 1 && hungry.mana == 1 && hungry.keys.codesPosted == [29, 27],
+              "EAT_DRINK: water (0), bread (-), 20 s seated restores both to full")
 
         let resting = SimHunt.field(clock: FightClock())
         resting.world.player = 0.5

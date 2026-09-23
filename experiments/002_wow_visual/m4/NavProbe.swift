@@ -189,12 +189,13 @@ func navReplay(_ directory: String) throws -> Int32 {
         let text = coordsText(image)
         let at = parseCoords(text)
         let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
-        let hud = observe(rgba(image), plates: false)
+        let hud = observe(rgba(image), plates: true)
         log.emit("frame", ["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
                            "coords_text": text, "x": orNull(at?.x), "y": orNull(at?.y),
                            "objectives": parseTracker(upscaledText(image, HuntHUD.tracker)).map { "\($0.quest): \($0.done)/\($0.need) \($0.text)" },
                            "target": target, "target_health": Int(hud.target * 100),
                            "player": Int(hud.player * 100), "mana": Int(hud.mana * 100), "combat": hud.combat,
+                           "target_plate": orNull(hud.plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] }),
                            "plates": nameplates(rgba(image)).map { ["hostile": $0.hostile, "x": Int($0.centre), "y": $0.y0, "name": plateName(image, $0)] },
                            "area": orNull(questArea(rgba(image)).map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
                            "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")])

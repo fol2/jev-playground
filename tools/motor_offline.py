@@ -4,17 +4,19 @@ Never captures, posts OS input, runs --look/--execute/--release/--sim-jev or con
 """
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 MIN_FIGHT_CHECKS = 120  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 165  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 167  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -200,6 +202,10 @@ def main():
                 or hunt_summary.get("holding") is not False or hunt_summary.get("provider_calls") != 0):
             raise GateError("M4 hunt dry-run did not fight with keys released and no provider call")
         nav_trap()
+        tabletop = subprocess.run([sys.executable, NAV + "tabletop.py", "--check"], cwd=ROOT, check=True,
+                                  capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
+        if not re.search(r"^tabletop scenarios checked: (1[2-9]|[2-9]\d)$", tabletop.stdout, re.M):
+            raise GateError(f"tabletop --check reported {tabletop.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
     print(f"M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "

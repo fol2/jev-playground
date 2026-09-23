@@ -37,7 +37,7 @@ MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Pr
                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
-                                        "HuntProbe.swift", "README.md")})
+                                        "HuntProbe.swift", "tabletop.py", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting
 # that one line would exit 0 having run nothing; a missing module raises instead.
 VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "

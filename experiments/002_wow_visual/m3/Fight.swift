@@ -9,8 +9,8 @@ enum HUD {
     static let height = 1320
     /// Player health: green fill of the character health bar, one row above the owner's "81 / 81" text.
     static let playerX0 = 801, playerX1 = 931, playerY = 990, playerSpan = 130
-    /// Target health: green fill of the target health bar, one row.
-    static let targetX0 = 1630, targetX1 = 1760, targetY = 997, targetSpan = 130
+    /// Target health: green fill of the target health bar, one row above the "55 / 55" text.
+    static let targetX0 = 1630, targetX1 = 1760, targetY = 990, targetSpan = 130
     /// Player mana: the right end of the blue fill across the mana bar's rows. The "148 / 148" text covers
     /// the bar's full height, so a count would read a full bar as half; the fill's end is off by at most a glyph.
     static let manaX0 = 801, manaX1 = 931, manaY = 1010, manaY1 = 1018, manaSpan = 130
@@ -284,9 +284,9 @@ enum FightAction: String, JevAction {
         case .approachToRange:
             return "Walk towards the target in short steps and stop as soon as it is within Lightning Bolt range, at the farthest distance the spell can be cast from."
         case .castLightningBolt:
-            return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs mana. Being hit in melee delays or breaks a cast in progress. Choosing it while a cast is finishing queues the next cast without a gap."
+            return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
         case .startMelee:
-            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health."
+            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits."
         case .heal:
             return "Cast Healing Wave on the character: about a 2-second cast that restores most of its health, costs mana, and is delayed by melee hits like any cast."
         case .lootCorpse:
