@@ -372,7 +372,7 @@ struct SeekTests {
             check(run.result.facing?["verdict"] as? String == "consistent", "M2: forward that lowers the ground row is consistent")
         }
         do {
-            let run = await seek(bearing: 0, distance: 15, config: config) { _, world, _, _ in world.forwardSkew = 180 }
+            let run = await seek(bearing: 0, distance: 20, config: config) { _, world, _, _ in world.forwardSkew = 180 }
             check(run.result.outcome == "STOPPED_facing_inconsistent" && sound(run) && run.lease.pulsesUsed == 1,
                   "M2: forward that raises the ground row fails the facing check")
         }
@@ -397,6 +397,11 @@ struct SeekTests {
             }
             check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && sound(run),
                   "M2: a circle hidden for one sighting at a time does not stop the approach")
+        }
+        do {
+            let run = await seek(bearing: 0.5, distance: 14, config: config)
+            check(run.result.outcome == "VISIBLE_STOP_REACHED_PENDING_LABELS" && run.world.held.isEmpty && run.result.facing == nil,
+                  "M2: a target already past the stop row gets no step at all (live M2 run 7)")
         }
         do {
             let run = await seek(bearing: 0, distance: 80, config: config)

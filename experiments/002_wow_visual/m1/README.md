@@ -35,7 +35,7 @@ claim.
 | File | Role | What its proof covers |
 | --- | --- | --- |
 | `Seek.swift` | Pure core: arguments, tracker, controller loop and a simulated world | Time, frames, sightings and key sink are injected |
-| `SeekTests.swift` | 102 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
+| `SeekTests.swift` | 103 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
 | `Plate.swift` | M2 perception: the white-outlined target nameplate and the selection circle under it | Synthetic frames in the checks; validated on captured frames locally |
 | `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute (M1), target (M2); the WoW window need not be on screen | Real timers and signals; live paths are compiled but not run offline |
 
@@ -308,6 +308,7 @@ zero model calls. Labels are the author's.
 | 4 | `bd3a106` | `VISIBLE_STOP_REACHED` | Pesky Cirrusfly. One 99 ms E (0.154 → 0.004). Circle rows 0.26 → 0.46, monotonic. Stopped with the unit just ahead, on the last allowed W. |
 | 5 | `bd3a106` | `VISIBLE_STOP_REACHED`, **false** | The target was still far. A neighbour's yellow glow 238 px aside was read as the circle. Early stops are safe. Repaired in `0c24f4f` (the circle must sit under the plate); run 5's frame then reads unseen. |
 | 6 | `0c24f4f` | `VISIBLE_STOP_REACHED` | A near Cirrusfly. One 96 ms E, facing `consistent` (circle 0.41 → 0.46), stopped just ahead of it. |
+| 7 | `bb4c064` | `VISIBLE_STOP_REACHED` | The reviewed head. The target was already centred and past the stop row (circle 0.53), yet one facing W was still taken. Fixed so that a centred target already at the stop row gets no step. |
 
 A fresh-context cross-vendor review (Grok) of `0799dca` found one high-severity defect,
 fixed in the reviewed head:

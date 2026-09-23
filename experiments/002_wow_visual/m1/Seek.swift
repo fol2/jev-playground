@@ -388,6 +388,8 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
         driver.snapshot("p00-start")
         run: do {
             guard let centred = await centre(current, phase: "centre") else { break run }
+            // Already at the visible stop: no step, not even the facing check (live M2 run 7).
+            if config.reached(centred) { reached = true; break run }
             // Facing: camera centring alone does not show which way the avatar walks.
             guard let moved = await step(.forward, SeekLimits.forwardMs, phase: "facing", from: centred, expect: 0) else {
                 break run
