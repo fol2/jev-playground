@@ -40,7 +40,7 @@ struct NavTests {
     }
 
     /// A minimap arrow as the client draws it: a navy tail dot and a silver head pointing `heading`.
-    static func arrow(_ heading: Double, lavender: Bool = false, head: Bool = true) -> RGBA {
+    static func arrow(_ heading: Double, lavender: Bool = false, head: Bool = true, icon: (dx: Int, dy: Int)? = nil) -> RGBA {
         var pixels = blank().pixels
         let cx = 2423.0, cy = 197.0, h = heading * .pi / 180
         for dy in -1...1 { for dx in -1...1 { set(&pixels, Int(cx) + dx, Int(cy) + dy, 30, 40, 110) } }
@@ -53,6 +53,9 @@ struct NavTests {
             }
         }
         if lavender { for x in NavHUD.arrowX0..<NavHUD.arrowX1 { set(&pixels, x, 184, 150, 130, 220) } }
+        if let icon {  // a quest icon's near-white highlight, as the live frames show beside the arrow
+            for dy in 0...2 { for dx in 0...2 { set(&pixels, Int(cx) + icon.dx + dx, Int(cy) + icon.dy + dy, 235, 225, 200) } }
+        }
         return RGBA(width: HUD.width, height: HUD.height, pixels: pixels)
     }
 
@@ -63,6 +66,10 @@ struct NavTests {
         }
         check(arrowFacing(arrow(90, lavender: true)).map { abs(angleError(90, $0)) <= 15 } ?? false,
               "a lavender quest outline crossing the box is not taken for the navy tail")
+        check(arrowFacing(arrow(0, icon: (8, 6))).map { abs(angleError(0, $0)) <= 15 } ?? false,
+              "a quest icon's highlight beside the arrow is not taken for its tip")
+        check(arrowFacing(arrow(0, icon: (1, 2))).map { abs(angleError(0, $0)) <= 15 } ?? false,
+              "an icon highlight touching the arrow does not move its axis")
         check(arrowFacing(arrow(90, head: false)) == nil, "a navy dot without a silver head reads nothing")
         check(arrowFacing(blank()) == nil, "a black minimap reads nothing")
         check(arrowFacing(RGBA(width: 100, height: 100, pixels: [UInt8](repeating: 0, count: 40_000))) == nil,
@@ -222,6 +229,10 @@ struct NavTests {
         check(hit.blocked && hit.moved < NavLimits.blockedMoved && !wall.keys.holding,
               "running into a wall ends the move as blocked with W lifted")
         check(hit.seconds >= NavLimits.blockedWindow && hit.seconds < NavLimits.moveSeconds, "a block is called after the 1.5 s window")
+
+        let behind = SimNav(clock: FightClock(), x: 40, y: 27.9, facing: 180, boxes: [SimNav.Box(x0: 39, y0: 27.5, x1: 41, y1: 27.8)])
+        let late = await walk(behind, .goToward, from: behind.look()!, to: d)
+        check(late.blocked && !behind.keys.holding, "a move that spent most of its time turning still reports its block")
 
         let turn = SimNav(clock: FightClock(), x: 40, y: 30, facing: 180)
         let turned = await walk(turn, .goToward, from: turn.look()!, to: d)

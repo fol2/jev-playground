@@ -27,6 +27,7 @@ enum NavLimits {
     static let tick = 0.25
     static let blockedWindow = 1.5
     static let blockedMoved = 0.1
+    static let blockedAtEnd = 1.0  // a move that ends by time with W down this long and no movement was blocked too
     static let stopToTurn = 100.0  // larger errors stop running before the turn
     static let deadband = 20.0
     static let turnRate = 150.0  // degrees per second with Q or E down, measured live
@@ -48,21 +49,22 @@ func compass(dx: Double, dy: Double) -> Double {  // dy grows southwards, as on 
     (atan2(dx, -dy) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
 }
 
-/// Facing from the minimap arrow as a compass bearing (0 north, 90 east): from the navy tail dot's
-/// centroid to the silver pixel farthest from it. Navy counts only within 3 px of silver, so the
-/// lavender quest-area outline that can cross the box is ignored. ±15° on 5 labelled frames.
+/// Facing from the minimap arrow as a compass bearing (0 north, 90 east). The arrow is a silver cone
+/// with a navy dot at its tail; quest icons often sit beside it and their highlights are silver too.
+/// So only silver connected to the navy dot counts, and the facing is the ray from the dot along which
+/// that silver runs longest (the cone's axis): an icon adds a short blob, never an 8-10 px run.
+/// Within 18° of the author's labels on 16 frames, 11 of them with icons beside the arrow.
 func arrowFacing(_ image: RGBA) -> Double? {
     guard image.pixels.count == image.width * image.height * 4,
           image.width >= NavHUD.arrowX1, image.height >= NavHUD.arrowY1 else { return nil }
-    var silver: [(Int, Int)] = [], navy: [(Int, Int)] = []
-    var isSilver = Set<Int>()
+    let w = image.width
+    var silver = Set<Int>(), navy: [(Int, Int)] = []
     for y in NavHUD.arrowY0..<NavHUD.arrowY1 {
         for x in NavHUD.arrowX0..<NavHUD.arrowX1 {
-            let i = (y * image.width + x) * 4
+            let i = (y * w + x) * 4
             let r = Int(image.pixels[i]), g = Int(image.pixels[i + 1]), b = Int(image.pixels[i + 2])
             if NavHUD.silver(r, g, b) {
-                silver.append((x, y))
-                isSilver.insert(y * image.width + x)
+                silver.insert(y * w + x)
             } else if NavHUD.navy(r, g, b) {
                 navy.append((x, y))
             }
@@ -70,17 +72,43 @@ func arrowFacing(_ image: RGBA) -> Double? {
     }
     func nearSilver(_ x: Int, _ y: Int) -> Bool {
         for dy in -3...3 {
-            for dx in -3...3 where isSilver.contains((y + dy) * image.width + x + dx) { return true }
+            for dx in -3...3 where silver.contains((y + dy) * w + x + dx) { return true }
         }
         return false
     }
-    navy = navy.filter { nearSilver($0.0, $0.1) }
-    guard silver.count >= 6, navy.count >= 3 else { return nil }
+    navy = navy.filter { nearSilver($0.0, $0.1) }  // the lavender quest-area outline is not beside silver
+    guard navy.count >= 3 else { return nil }
     let nx = Double(navy.map(\.0).reduce(0, +)) / Double(navy.count)
     let ny = Double(navy.map(\.1).reduce(0, +)) / Double(navy.count)
-    func far(_ p: (Int, Int)) -> Double { (Double(p.0) - nx) * (Double(p.0) - nx) + (Double(p.1) - ny) * (Double(p.1) - ny) }
-    guard let tip = silver.max(by: { far($0) < far($1) }) else { return nil }
-    return compass(dx: Double(tip.0) - nx, dy: Double(tip.1) - ny)
+    var arrow = Set<Int>(), stack: [Int] = []  // silver 8-connected to the ring around the dot
+    for (x, y) in navy {
+        for dy in -2...2 {
+            for dx in -2...2 where silver.contains((y + dy) * w + x + dx) && arrow.insert((y + dy) * w + x + dx).inserted {
+                stack.append((y + dy) * w + x + dx)
+            }
+        }
+    }
+    while let k = stack.popLast() {
+        for dy in -1...1 {
+            for dx in -1...1 where silver.contains(k + dy * w + dx) && arrow.insert(k + dy * w + dx).inserted {
+                stack.append(k + dy * w + dx)
+            }
+        }
+    }
+    guard arrow.count >= 6 else { return nil }
+    var runs: [(heading: Double, length: Int)] = []
+    for step in 0..<180 {
+        let heading = Double(step) * 2, h = heading * .pi / 180
+        var length = 0
+        for t in 3...13 {
+            let x = Int((nx + Double(t) * sin(h)).rounded()), y = Int((ny - Double(t) * cos(h)).rounded())
+            if arrow.contains(y * w + x) { length += 1 } else if t > 4 { break }
+        }
+        runs.append((heading, length))
+    }
+    guard let longest = runs.map(\.length).max(), longest >= 3 else { return nil }
+    let axis = runs.filter { $0.length == longest }.map { $0.heading * .pi / 180 }  // a flat top: its circular mean
+    return compass(dx: axis.map(sin).reduce(0, +), dy: -axis.map(cos).reduce(0, +))
 }
 
 /// "44.8,28.1", "44.8, 28.1" or "44.7.27.9" (OCR reads the comma as a dot). A digit on either side
@@ -315,6 +343,11 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
             if distance(old.point, o.point) < NavLimits.blockedMoved { attempt.blocked = true; ranOut = false; break }
             trail.removeAll { now - $0.t > NavLimits.blockedWindow + 1 }
         }
+    }
+    if ranOut, let first = trail.first, body.now() - first.t >= NavLimits.blockedAtEnd,
+       distance(first.point, here.point) < NavLimits.blockedMoved {
+        attempt.blocked = true  // most of the move went on turning, so the window never filled
+        ranOut = false
     }
     if !ranOut { body.keys.lift(forward) }
     attempt.to = here

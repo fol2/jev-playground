@@ -93,6 +93,7 @@ final class LiveNavBody: NavBody {
             return nil
         }
         let hud = observe(pixels, plates: false)
+        emit("look", ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
         return NavObs(x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
     }
 
