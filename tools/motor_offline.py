@@ -12,7 +12,7 @@ import tempfile
 from tools.sdlc import MOTOR, SEEK, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
-MIN_SEEK_CHECKS = 96  # the current count: removing a check must lower this on purpose
+MIN_SEEK_CHECKS = 98  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 
 

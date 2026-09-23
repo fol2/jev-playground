@@ -108,6 +108,8 @@ enum RingLimits {
     static let below = 0.005...0.3   // rows under the plate searched, fraction of height
     static let minPixels = 0.00001   // fraction of the frame; smaller (far) circles read as not yet visible
     static let maxAspect = 8.0       // wider than this is another unit's health bar, not a circle
+    static let offCentre = 0.75      // blob centre within this many plate widths of the plate's centre:
+                                     // live M2 run 5 stopped early on a neighbour's glow 238 px aside
 }
 
 /// Neutral (yellow) selection-circle colour, measured mean RGB 144-162, 152-168, 59-73.
@@ -133,7 +135,9 @@ func findGround(_ image: RGBA, below plate: Plate) -> Int? {
             mask[(y - y0) * w + (x - x0)] = ringColour(image.pixels[i], image.pixels[i + 1], image.pixels[i + 2])
         }
     }
-    // Largest 8-connected blob; grass and the unit's body break the circle into arcs.
+    // Largest 8-connected blob centred under the plate; grass and the unit's body break the
+    // circle into arcs, and neighbouring units bring their own yellow.
+    let reach = RingLimits.offCentre * Double(span)
     var best: (count: Int, left: Int, right: Int, top: Int, bottom: Int)?
     var seen = [Bool](repeating: false, count: w * h)
     for start in mask.indices where mask[start] && !seen[start] {
@@ -153,7 +157,8 @@ func findGround(_ image: RGBA, below plate: Plate) -> Int? {
                 }
             }
         }
-        if count > best?.count ?? 0 { best = (count, left, right, top, bottom) }
+        let centred = abs(Double(x0) + Double(left + right) / 2 - plate.centre) <= reach
+        if centred && count > best?.count ?? 0 { best = (count, left, right, top, bottom) }
     }
     guard let blob = best, Double(blob.count) >= RingLimits.minPixels * Double(width * height),
           Double(blob.right - blob.left + 1) <= RingLimits.maxAspect * Double(blob.bottom - blob.top + 1) else { return nil }

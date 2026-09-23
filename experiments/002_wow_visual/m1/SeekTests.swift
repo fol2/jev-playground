@@ -330,6 +330,11 @@ struct SeekTests {
         barred.fill(470, 200, 545, 207, (200, 200, 40))
         ring(&barred, cx: 510, cy: 250, rx: 40, ry: 10)
         check(findGround(barred.image, below: aimed) == 260, "the circle wins over a nearby bar")
+        var aside = targeted  // a neighbour's yellow glow near the edge of the search window
+        ring(&aside, cx: 600, cy: 240, rx: 30, ry: 8)
+        check(findGround(aside.image, below: aimed) == nil, "a circle not under the plate is another unit's (live M2 run 5)")
+        ring(&aside, cx: 512, cy: 220, rx: 25, ry: 6)
+        check(findGround(aside.image, below: aimed) == 226, "the circle under the plate is chosen over a larger one aside")
         var far = targeted
         ring(&far, cx: 510, cy: 200, rx: 2, ry: 1)  // 7 px, under the 8.4 px floor at 1280x660
         check(findGround(far.image, below: aimed) == nil, "a circle too small to measure reads as not yet visible")
