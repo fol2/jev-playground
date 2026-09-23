@@ -174,5 +174,11 @@ func runSelfTests() throws {
     guard try containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
         print("Regression: the real English Game Menu does not block pre-go"); exit(1)
     }
-    print("Forty-four local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // The same real band with the menu painted out keeps only nameplates: it must not block.
+    window.setFillColor(CGColor(red: 0.05, green: 0.06, blue: 0.04, alpha: 1))
+    window.fill(CGRect(x: 512+625, y: 1320-369-520, width: 285, height: 445))
+    guard try !containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
+        print("Regression: real nameplates without an overlay block pre-go"); exit(1)
+    }
+    print("Forty-five local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

@@ -719,14 +719,17 @@ added on one run's band. Details and the full failure table are in the
 The owner's client switched to English on 22 September. The pre-go overlay guards listed
 only Traditional Chinese titles, so an English Game Menu, Lua error or loot window matched
 nothing and pre-go would have continued past it. They now also list `Lua Error`,
-`Game Menu`, `Return to Game`, `Log Out`, `Exit Game` and `Items`, and matching ignores case
-and spacing.
+`Game Menu`, `Return to Game`, `Log Out`, `Exit Game` and `Items`, and matching ignores case.
+Spacing still counts: removing it would join neighbouring words such as `Fishing` and
+`Polearm` into the rod term.
 
 One frame of the real English Game Menu (one Esc to open, one to close, no other input)
 showed that the strings alone were not enough. Its title sat on the lower edge of the
 former band (0.28-0.38 of the height), and Vision read it as `Came Menu`: the guard would
 still have been skipped. The band now spans 0.28-0.73, the whole menu, and there it read
 every title and button correctly. [`game-menu-en.jpg`](game-menu-en.jpg) keeps that band as
-a regression image. `Items` (the loot window) and `Lua Error` come from the game's English
-strings and are exercised only on rendered text, not a real capture. No fishing run was
-made.
+a regression image; with the menu painted out, its nameplates alone must not block. The Lua
+dialog dismissal reads the same band. `Items` (the loot window) and `Lua Error` come from the
+game's English strings and are exercised only on rendered text, not a real capture. `Items`
+is the loosest term: English UI text containing it inside the band stops pre-go, the safe
+direction. No fishing run was made.
