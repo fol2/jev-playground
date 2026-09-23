@@ -361,6 +361,7 @@ func seekExecute(_ command: SeekCommand, profile: KeyProfile) async throws -> In
         result = await runSeek(config, lease: lease, gate: FrameGate(stream: feed.streamID, width: width, height: height), driver: driver)
     } else {
         let outcome = plates ? "HOLD_NO_TARGET_PLATE" : "HOLD_DESIGNATION_NOT_CONFIRMED"
+        driver.snapshot("p00-refused")
         driver.emit("target_refused", ["acquisition": acquisition, "movement_keys_sent": 0])
         result = SeekResult(outcome: outcome, pulses: [], facing: nil, final: nil, frameCounts: [:])
     }

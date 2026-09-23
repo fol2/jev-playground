@@ -123,12 +123,14 @@ struct Scene {
         } }
     }
 
-    /// Top edge 60 px, bottom edge 72 px including the level badge, 2 rows thick, 7 rows apart.
+    /// A 60 px bar outlined 2 rows thick with edges 7 rows apart, a separately outlined level
+    /// badge 2 px to its right, and the name above.
     mutating func plate(x: Int, y: Int, target: Bool) {
         let edge: (UInt8, UInt8, UInt8) = target ? (235, 235, 235) : (15, 15, 15)
-        fill(x, y + 2, x + 60, y + 9, (200, 200, 40))
-        fill(x, y, x + 60, y + 2, edge)
-        fill(x, y + 9, x + 72, y + 11, edge)
+        fill(x, y, x + 60, y + 11, edge)
+        fill(x + 2, y + 2, x + 58, y + 9, (200, 200, 40))
+        fill(x + 62, y, x + 74, y + 11, edge)
+        fill(x + 64, y + 2, x + 72, y + 9, (30, 30, 30))
         for dash in stride(from: x, to: x + 60, by: 12) { fill(dash, y - 8, dash + 8, y - 4, (230, 230, 230)) }  // name text
     }
 
@@ -285,6 +287,10 @@ struct SeekTests {
         let plate = findTargetPlate(targeted.image)
         check(plate == Plate(x0: 480, x1: 540, top: 160, bottom: 170) && plate?.centre == 510,
               "the one white-outlined plate is found; its centre is the bar's, not the badge's")
+        var cut = targeted  // a name's descender crosses the top edge
+        cut.fill(503, 160, 506, 162, (15, 15, 15))
+        check(findTargetPlate(cut.image) == Plate(x0: 480, x1: 540, top: 160, bottom: 170),
+              "a top edge cut by a descender is still one edge (live M2 run 2: Pesky Cirrusfly)")
         var twice = targeted
         twice.plate(x: 800, y: 250, target: true)
         check(findTargetPlate(twice.image) == nil, "two white-outlined plates are ambiguous, so none is reported")
@@ -297,7 +303,7 @@ struct SeekTests {
         var hatched = scene  // white text between two white lines: no coloured bar inside
         hatched.fill(480, 160, 540, 162, (235, 235, 235))
         hatched.fill(480, 169, 552, 171, (235, 235, 235))
-        for x in stride(from: 480, to: 540, by: 32) { hatched.fill(x, 163, x + 30, 168, (235, 235, 235)) }
+        for x in stride(from: 480, to: 540, by: 30) { hatched.fill(x, 163, x + 15, 168, (235, 235, 235)) }
         check(findTargetPlate(hatched.image) == nil, "two white lines with white between them are not a nameplate")
         var thick = scene  // a thick white shape above a thin line
         thick.fill(480, 150, 540, 156, (235, 235, 235))
