@@ -26,6 +26,7 @@ final class FakeSeekDriver: SeekDriver {
     var faultAt: (Double) -> String? = { _ in nil }
     var observerStall = 0.0
     var predictions: [Prediction] = []
+    var earlyFramesOffered = 0  // frames older than notBefore that reached sight: must stay 0
     private var tick = 0
     private var lastFrame: Double?
     private var pending: [(at: Double, lease: InputLease)] = []
@@ -58,9 +59,11 @@ final class FakeSeekDriver: SeekDriver {
         }
         return out
     }
-    func sight(_ prediction: Prediction?) -> Sighting? {
+    func sight(_ prediction: Prediction?, notBefore: Double) -> Sighting? {
         if let prediction { predictions.append(prediction) }
-        return lastFrame.map { world.sighting(at: $0) }
+        guard let lastFrame else { return nil }
+        guard lastFrame >= notBefore else { earlyFramesOffered += 1; return nil }  // the shell's rule
+        return world.sighting(at: lastFrame)
     }
     func scheduleRelease(_ lease: InputLease, at deadline: Double) {
         pending.append((deadline, lease))
@@ -139,6 +142,8 @@ struct SeekTests {
                     ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "-1,1,20,20"],
                     ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20"],
                     ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20.5,20"],
+                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "10,20,foo,40,30"],
+                    ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "10,20,40,30,"],
                     ["--execute", "--keys", "--look", "f.png", "--box", "1,1,20,20"]] {
             check(fails { _ = try parseSeek(bad) }, "refused before any effect: \(bad)")
         }
@@ -258,6 +263,8 @@ struct SeekTests {
                   "facing is checked separately after centring")
             check((run.result.final?.scale ?? 0) >= 1.6 && abs(run.result.final?.x ?? 1) <= 0.06,
                   "the visible stop is apparent growth with the target still centred")
+            check(run.driver.earlyFramesOffered > 0,
+                  "frames captured before the settle point are withheld from tracking, not just ignored after it")
             check(run.driver.predictions.first.map { $0.x < -0.2 && $0.shift > 0 } == true,
                   "a left turn predicts a rightward shift from the target's pre-pulse position")
             let turns = run.result.pulses.filter { ($0["phase"] as? String) == "centre" }

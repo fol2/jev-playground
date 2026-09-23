@@ -68,7 +68,7 @@ func parseSeek(_ arguments: [String]) throws -> SeekCommand {
         case "--look":
             command.look = value
         case "--box":
-            let parts = value.split(separator: ",", omittingEmptySubsequences: false).compactMap { Int($0) }
+            let parts = value.split(separator: ",", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
             guard parts.count == 4, parts[0] >= 0, parts[1] >= 0,
                   SeekLimits.boxSide.contains(parts[2]), SeekLimits.boxSide.contains(parts[3]) else {
                 throw ProbeError("--box needs X,Y,W,H in look-frame pixels with sides \(SeekLimits.boxSide)")
@@ -235,8 +235,9 @@ func fields(_ sighting: Sighting) -> [String: Any] {
 
 protocol SeekDriver: ProbeDriver {
     /// The target in the newest frame, searched around the prediction (else its last confident
-    /// position); nil before any frame.
-    func sight(_ prediction: Prediction?) -> Sighting?
+    /// position). nil before any frame and for a frame captured before `notBefore`, which must
+    /// not update tracking state: a mid-pulse frame would shift the next search's scale and height.
+    func sight(_ prediction: Prediction?, notBefore: Double) -> Sighting?
 }
 
 struct SeekResult {
@@ -277,7 +278,7 @@ func runSeek(_ config: SeekConfig, lease: InputLease, gate start: FrameGate, dri
             if let reason = check() { lease.cancel(reason); return nil }
             lease.expire()
             let now = driver.now()
-            if now >= from, let seen = driver.sight(prediction), seen.pts >= from, seen.pts > lastPTS,
+            if now >= from, let seen = driver.sight(prediction, notBefore: from), seen.pts >= from, seen.pts > lastPTS,
                now - seen.pts <= Limits.maxFrameAge {
                 lastPTS = seen.pts
                 if seen.score >= config.minScore {

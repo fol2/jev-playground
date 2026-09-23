@@ -32,7 +32,7 @@ claim.
 | File | Role | What its proof covers |
 | --- | --- | --- |
 | `Seek.swift` | Pure core: arguments, tracker, controller loop and a simulated world | Time, frames, sightings and key sink are injected |
-| `SeekTests.swift` | 63 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
+| `SeekTests.swift` | 66 fake-time checks | **Simulation only**: argument, budget, tracker and loop logic |
 | `SeekProbe.swift` | Native shell: preflight, dry-run, look, execute | Real timers and signals; live paths are compiled but not run offline |
 
 Reused, not reinvented: M0's input lease, frame gate, pid key route, window capture,
@@ -60,6 +60,8 @@ removes M0's entry point. M0 changed in three small ways:
     showed a relative prediction applied twice.
   - Scale is searched at 0.95–1.2× the last scale per sighting, always against the
     original designation, so errors do not compound.
+  - Frames captured before the settle point never reach the tracker, so a mid-pulse
+    frame cannot shift the next search's scale or height (independent review of `236d048`).
   - Below 0.6 the target counts as unseen. Unseen frames never move the tracker, and no
     key is pressed while it is unseen. A target unseen for over 1 s stops the run.
   - Measured on a synthetic 320×165 frame with `-O`: 81 ms for the full-frame search,
