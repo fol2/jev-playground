@@ -75,27 +75,50 @@ func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 150 && g > r + 60 && 
 /// an upright blob (a "?" is about 10 x 18 px zoomed out) with a green NPC name 8-50 px below it: a
 /// neutral creature's yellow nameplate bar is a flat strip, and a glowing Cirrusfly has no green name
 /// (live frames: 305 green pixels under the real "?", 0-23 under the insects).
-func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 20) -> [(x: Double, y: Double)] {
-    typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
-    var cells: [Int: Blob] = [:]  // 12-px cells, merged into blobs below
-    for y in box.1..<min(box.3, image.height) {
-        for x in box.0..<min(box.2, image.width) {
+typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
+
+/// Yellow pixels of a box as connected blobs: pixels within `gap` px of each other join. (A fixed grid
+/// merged three minimap "?" 14 px apart on 24 Sept.)
+func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13) -> [Blob] {
+    let x0 = max(0, box.0), y0 = max(0, box.1), x1 = min(box.2, image.width), y1 = min(box.3, image.height)
+    let w = x1 - x0, h = y1 - y0
+    guard w > 0, h > 0 else { return [] }
+    var mask = [Bool](repeating: false, count: w * h)
+    for y in y0..<y1 {
+        for x in x0..<x1 {
             let i = (y * image.width + x) * 4
-            guard markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) else { continue }
-            let key = (y / 12) * 10_000 + x / 12
-            let c = cells[key] ?? (0, 0, 0, x, x, y, y)
-            cells[key] = (c.n + 1, c.sx + x, c.sy + y, min(c.x0, x), max(c.x1, x), min(c.y0, y), max(c.y1, y))
+            if markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { mask[(y - y0) * w + x - x0] = true }
         }
     }
+    let reach = gap + 1
     var blobs: [Blob] = []
-    for c in cells.values.sorted(by: { ($0.y0, $0.x0) < ($1.y0, $1.x0) }) {
-        if let j = blobs.firstIndex(where: { c.x0 <= $0.x1 + 13 && c.x1 >= $0.x0 - 13 && c.y0 <= $0.y1 + 13 && c.y1 >= $0.y0 - 13 }) {
-            let b = blobs[j]
-            blobs[j] = (b.n + c.n, b.sx + c.sx, b.sy + c.sy, min(b.x0, c.x0), max(b.x1, c.x1), min(b.y0, c.y0), max(b.y1, c.y1))
-        } else {
-            blobs.append(c)
+    for start in mask.indices where mask[start] {
+        mask[start] = false
+        var stack = [start], b: Blob = (0, 0, 0, .max, .min, .max, .min)
+        while let p = stack.popLast() {
+            let px = p % w, py = p / w, gx = px + x0, gy = py + y0
+            b = (b.n + 1, b.sx + gx, b.sy + gy, min(b.x0, gx), max(b.x1, gx), min(b.y0, gy), max(b.y1, gy))
+            for ny in max(0, py - reach)...min(h - 1, py + reach) {
+                for nx in max(0, px - reach)...min(w - 1, px + reach) where mask[ny * w + nx] {
+                    mask[ny * w + nx] = false
+                    stack.append(ny * w + nx)
+                }
+            }
         }
+        blobs.append(b)
     }
+    return blobs
+}
+
+/// Quest pins' glyphs on the open world map ("?", "..."), as capture pixels. Pins sit 17 px apart
+/// (Call of Earth and The Gift of Skysight, 24 Sept), and the map's corner buttons are outside the box.
+func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> [(x: Double, y: Double)] {
+    yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }
+        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+}
+
+func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 20) -> [(x: Double, y: Double)] {
+    let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
     func greenBelow(_ x: Int, _ y: Int) -> Int {
         var n = 0
@@ -113,4 +136,132 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 20) -
             && greenBelow(b.sx / b.n, b.sy / b.n) >= 80
     }.map { (x: Double($0.sx) / Double($0.n), y: Double($0.sy) / Double($0.n)) }
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
+}
+
+// MARK: - The quest plan (M4d)
+
+/// What a quest's objective asks for, read from the quest log's text.
+enum QuestKind: String {
+    case handIn = "HAND_IN"  // "Ready for turn-in", or a "?" quest: talk to its NPC
+    case kill = "KILL"  // "- 0/1 Cirrusfly Queen slain"
+    case collect = "COLLECT"  // "- 12/15 Windstone Cluster": from creatures or objects
+    case useAt = "USE_AT"  // "Use Skysight near the Elemental Convergence", "drink the Earth Sapta"
+    case travel = "TRAVEL"  // "Report to Constable Aonda in Shen'dar Village."
+}
+
+struct PlannedQuest {
+    var title: String
+    var level: Int
+    var ready: Bool  // the log shows "?" rather than "..."
+    var objective: String
+    var pin: MapPoint?  // from hovering the world map's pins
+}
+
+func questKind(_ q: PlannedQuest) -> QuestKind {
+    let text = q.objective.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "- "))
+    if text.contains("ready for turn-in") { return .handIn }
+    if text.contains(" slain") { return .kill }
+    if text.range(of: #"\d+/\d+"#, options: .regularExpression) != nil { return .collect }
+    if text.hasPrefix("use ") || text.contains(" use ") || text.contains("drink ") { return .useAt }
+    if ["report to", "speak to", "talk to", "return to", "bring "].contains(where: text.hasPrefix) {
+        return .travel
+    }
+    return q.ready ? .handIn : .useAt
+}
+
+/// Zones are clusters of quest pins that are near each other (single linkage).
+func questZones(_ quests: [PlannedQuest], within: Double) -> [[PlannedQuest]] {
+    var zones: [[PlannedQuest]] = []
+    for q in quests {
+        guard let p = q.pin else { continue }
+        let near = zones.indices.filter { z in zones[z].contains { distance($0.pin!, p) <= within } }
+        var merged = near.flatMap { zones[$0] } + [q]
+        for z in near.reversed() { zones.remove(at: z) }
+        merged.sort { $0.title < $1.title }
+        zones.append(merged)
+    }
+    return zones
+}
+
+/// The owner, 24 Sept: "finish all available quests in the same zone, accumulate all quests in next zone
+/// for the next priority." The player's zone comes first, walked nearest-first; the other zones follow,
+/// nearest first. A quest without a pin counts as here: a finished quest's NPC is usually at this hub.
+/// A RULE, logged as such.
+// ponytail: nearest-neighbour order, not an optimal tour; a hub has a handful of quests.
+func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
+    let located = quests.map { q -> PlannedQuest in var q = q; if q.pin == nil { q.pin = player }; return q }
+    var zones = questZones(located, within: zoneRadius)
+    var plan: [PlannedQuest] = []
+    var here = player
+    while !zones.isEmpty {
+        let nearest = zones.indices.min { a, b in
+            zones[a].map { distance(here, $0.pin!) }.min()! < zones[b].map { distance(here, $0.pin!) }.min()!
+        }!
+        var zone = zones.remove(at: nearest)
+        while !zone.isEmpty {
+            let next = zone.indices.min { distance(here, zone[$0].pin!) < distance(here, zone[$1].pin!) }!
+            let q = zone.remove(at: next)
+            plan.append(q)
+            here = q.pin!
+        }
+    }
+    return plan
+}
+
+/// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under
+/// them, zone headers ("Camping") to their left. Pins are added from the map afterwards.
+func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
+    var out: [PlannedQuest] = []
+    var titleX = Double.infinity
+    for line in lines.sorted(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
+        let text = line.text.trimmingCharacters(in: .whitespaces)
+        if let m = text.range(of: #"^\[(\d+)\]\s*"#, options: .regularExpression),
+           let level = Int(text[m].filter(\.isNumber)) {
+            out.append(PlannedQuest(title: String(text[m.upperBound...]), level: level, ready: false, objective: "", pin: nil))
+            titleX = line.x
+        } else if (line.x >= titleX + 6 || text.hasPrefix("-")), titleX.isFinite, !out.isEmpty {  // live: "- Ready for turn-in" starts at the title's x
+            out[out.count - 1].objective += (out[out.count - 1].objective.isEmpty ? "" : " ") + text
+            out[out.count - 1].ready = out[out.count - 1].objective.lowercased().contains("ready for turn-in")
+        } else {
+            titleX = .infinity  // a zone header ends the quest above it
+        }
+    }
+    return out
+}
+
+/// World-map pixels to zone coordinates: the Map & Quest Log at 2560x1320 (24 Sept; 7.42 px per x unit
+/// and 4.99 per y unit, as measured in M4a).
+// ponytail: one zone's map, one UI scale; read the transform from two known points when zones change.
+let mapOrigin = (x: 20.0, y: 224.3), mapScale = (x: 7.42, y: 4.99)
+func zonePoint(_ px: Double, _ py: Double) -> MapPoint { ((px - mapOrigin.x) / mapScale.x, (py - mapOrigin.y) / mapScale.y) }
+func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * mapScale.x, mapOrigin.y + p.y * mapScale.y) }
+
+/// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
+func minimapPoint(_ px: Double, _ py: Double, player: MapPoint) -> MapPoint {
+    (player.x + (px - Double(MinimapHUD.cx)) / MinimapHUD.unitPx / mapAspect, player.y + (py - Double(MinimapHUD.cy)) / MinimapHUD.unitPx)
+}
+
+/// Quest icons ("?", "!") on the minimap: a hub's hand-ins sit together under the world map's arrow, and
+/// the minimap's larger scale separates them (24 Sept).
+func minimapPins(_ image: RGBA) -> [(x: Double, y: Double)] {
+    let r = MinimapHUD.radius, cx = MinimapHUD.cx, cy = MinimapHUD.cy
+    return glyphs(yellowBlobs(image, box: (cx - r, cy - r, cx + r, cy + r), gap: 0))
+        .filter { $0.n >= 8 && $0.x1 - $0.x0 <= 20 && $0.y1 - $0.y0 <= 20 }
+        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+        .filter { hypot($0.x - Double(cx), $0.y - Double(cy)) <= Double(r) - 4 }
+}
+
+/// "?" and "!" as a hook or bar with a dot under it. Three minimap "?" sat so close on 24 Sept that one's
+/// dot was as near another's hook as its own, so a dot joins the part just above it, within its width.
+func glyphs(_ parts: [Blob]) -> [Blob] {
+    var hooks = parts.filter { $0.y1 - $0.y0 > 3 }
+    for dot in parts where dot.y1 - dot.y0 <= 3 {
+        let cx = dot.sx / dot.n
+        guard let j = hooks.indices.filter({ hooks[$0].y1 < dot.y0 && dot.y0 - hooks[$0].y1 <= 4
+                                            && cx >= hooks[$0].x0 - 2 && cx <= hooks[$0].x1 + 2 })
+            .min(by: { dot.y0 - hooks[$0].y1 < dot.y0 - hooks[$1].y1 }) else { continue }
+        let h = hooks[j]
+        hooks[j] = (h.n + dot.n, h.sx + dot.sx, h.sy + dot.sy, min(h.x0, dot.x0), max(h.x1, dot.x1), h.y0, max(h.y1, dot.y1))
+    }
+    return hooks
 }

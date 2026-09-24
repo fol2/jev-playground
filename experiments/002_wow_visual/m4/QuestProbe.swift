@@ -22,6 +22,9 @@ enum QuestHUD {
         "Finger": (404, 444), "Trinket": (404, 536), "Main Hand": (166, 620), "One-Hand": (166, 620), "Two-Hand": (166, 620),
         "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
     static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
+    static let mapKey: UInt16 = 37  // L, the Map & Quest Log
+    static let questList = CGRect(x: 775, y: 225, width: 345, height: 560)
+    static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
 }
 
 final class QuestRun {
@@ -122,6 +125,48 @@ final class QuestRun {
 
     func has(_ lines: [TipLine], _ text: String) -> TipLine? { lines.first { $0.text.contains(text) } }
 
+    /// M4d: the quest log and the world map's pins, read-only. L opens the map; the pointer rests on each
+    /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
+    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?) {
+        let player = image().flatMap { parseCoords(coordsText($0)) }
+        hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
+        await sleep(0.4)
+        let nearby = player == nil ? [] : image().map { minimapPins(rgba($0)) } ?? []
+        var minimapNames: [(names: [String], at: MapPoint)] = []
+        for spot in nearby {
+            hover(spot.x, spot.y)
+            await sleep(0.7)
+            let box = CGRect(x: 1850, y: max(0, spot.y - 120), width: 710, height: 160)  // the tip runs over the minimap
+            let read = lines(box).map(\.text)
+            body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read])
+            minimapNames.append((read.map(nameKey), minimapPoint(spot.x, spot.y, player: player!)))
+        }
+        await tap(QuestHUD.mapKey)
+        await sleep(1.2)
+        var quests = parseQuestLog(lines(QuestHUD.questList))
+        for i in quests.indices {
+            quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
+        }
+        hover(1280, 60)
+        await sleep(0.4)
+        var spots = image().map { mapPins(rgba($0)) } ?? []
+        if let player { spots.append(mapPixel(player)) }
+        for spot in spots {
+            hover(spot.x, spot.y)
+            await sleep(0.7)
+            let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
+            let read = lines(box).map { nameKey($0.text) }
+            for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
+                quests[i].pin = zonePoint(spot.x, spot.y)
+            }
+        }
+        await tap(QuestHUD.mapKey)
+        body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "quests": quests.map {
+            ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
+             "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
+        return (quests, player)
+    }
+
     func turnIn(_ quest: String) async -> String {
         var dialog = lines(QuestHUD.dialog)
         if has(dialog, "Complete Quest") == nil {
@@ -176,6 +221,38 @@ final class QuestRun {
         case nil: return "COMPLETED_EQUIP_SLOT_UNKNOWN"
         }
     }
+}
+
+/// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.
+@MainActor
+func planExecute() async throws -> Int32 {
+    let session = try await wowSession(input: true, full: true)
+    let run = try runDirectory("m4_plan")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    guard let first = await firstFrame(feed), first.image.width == HUD.width else {
+        try? await stream.stopCapture()
+        throw ProbeError("no \(HUD.width)-wide frame within \(Limits.firstFrameWait) s")
+    }
+    _ = await Task.detached { first.image.cropping(to: QuestHUD.questList).map(ocr) }.value
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    let (quests, player) = await (try QuestRun(body: body)).readQuests()
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
+    let plan = questPlan(quests, from: player)
+    body.emit("plan", ["controller": "RULE", "rule": "owner, 24 Sept: finish the player's zone first, nearest first; then the next zone",
+                       "order": plan.map { "\($0.title) [\(questKind($0).rawValue)]" }])
+    for (i, q) in plan.enumerated() {
+        print("\(i + 1). [\(q.level)] \(q.title): \(questKind(q).rawValue) at \(q.pin.map { "\($0.x), \($0.y)" } ?? "no pin")")
+    }
+    return body.holding ? 3 : 0
 }
 
 @MainActor

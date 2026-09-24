@@ -270,6 +270,27 @@ check with the pane. The third reward was read as "Equipped" because OCR missed 
 item" in that frame; the equipped item's box is now bounded by its label too. Not yet handled: an NPC's gossip list, the "Continue"
 page of item quests, Accept for new quests and silver or gold in a sell price.
 
+## M4d — plan the quests zone by zone
+
+`m4-nav --plan --keys wqe` reads the Map & Quest Log and prints the order (controller RULE, read-only):
+the log's titles, levels and objectives; each quest's pin from the minimap's quest icons (their tooltips
+name the quest; a hub's hand-ins sit together under the world map's player arrow) and then from the world
+map's pins; each objective's kind (hand in, kill, collect, use at a place, travel to someone).
+
+The owner's rules, 24 Sept: "finish all available quests in the same zone, accumulate all quests in next
+zone for the next priority", and routes "first put higher priority to walk on road, especially zone to zone
+travel". Pins within 12 y units form a zone; the player's zone comes first, walked nearest-first; a quest
+without a pin counts as here (a finished quest's NPC is usually at this hub). Routing along roads is not
+built yet: a greedy walk from Thendal Village towards Shen'dar Village ended NO_PROGRESS against a ridge
+after 33 decisions, and colour alone did not separate the map's ridges, sea and flat land.
+
+Live, 24 Sept (read-only): the log read five quests; after three fixes (a "- Ready for turn-in" line at
+the title's x is an objective; "Bring X to NPC" is a delivery; a pointer left on a pin leaves a yellow
+tooltip that reads as pins) the order was Harvesting Windstones and The Gift of Skysight (hand-ins here),
+Call of Earth (bring the Rough Quartz to Windshaper Boros, 43.2, 22.4), then The Adventurer and The Next
+Step in Shen'dar. Three minimap "?" 14 px apart are now split by shape (a dot joins the hook above it),
+and their tooltips run over the minimap, so the reading box does too; that pass has not run live yet.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

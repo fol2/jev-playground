@@ -459,10 +459,69 @@ extension NavTests {
         check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1,
               "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
         check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
+        // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
+        let mask = [(161, "..#####"), (162, ".######"), (163, ".##..###"), (164, ".....###"), (165, ".....##"), (166, "....###"),
+                    (167, "...###"), (168, "...##"), (171, "...##"), (172, "...##")]
+        var gl = RGBA(width: 60, height: 60, pixels: [UInt8](repeating: 30, count: 60 * 60 * 4))
+        func stamp(_ dx: Int, _ dy: Int) {
+            var px = gl.pixels
+            for (row, text) in mask { for (i, c) in text.enumerated() where c == "#" {
+                let k = ((row - 155 + dy) * 60 + i + dx) * 4; px[k] = 250; px[k + 1] = 242; px[k + 2] = 57 } }
+            gl = RGBA(width: 60, height: 60, pixels: px)
+        }
+        stamp(10, 0); stamp(25, 7); stamp(5, 14)
+        let parts = glyphs(yellowBlobs(gl, box: (0, 0, 60, 60), gap: 0))
+        check(parts.count == 3 && parts.allSatisfy { $0.n > 20 }, "three touching \"?\": each hook takes its own dot")
 
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")
         check((try? parseNav(["--turn-in", "--keys", "wqe"])) == nil, "--turn-in without --quest is refused")
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "x; rm -rf"])) == nil, "a quest title is letters and simple punctuation")
+        plans()
+    }
+
+    /// The quest log and world-map pins of 24 Sept, after The Cirrusfly Queen was handed in.
+    static let log24Sept = [
+        PlannedQuest(title: "Call of Earth", level: 4, ready: true, objective: "Find the Rise of Spirits and drink the Earth Sapta.", pin: (50.1, 23.8)),
+        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: false, objective: "- 12/15 Windstone Cluster", pin: (44.2, 25.6)),
+        PlannedQuest(title: "The Gift of Skysight", level: 4, ready: false, objective: "- Use Skysight near the Elemental Convergence", pin: (48.9, 20.4)),
+        PlannedQuest(title: "The Next Step", level: 5, ready: true, objective: "- Report to Constable Aonda in Shen'dar Village.", pin: (46.1, 45.2)),
+        PlannedQuest(title: "The Adventurer", level: 6, ready: true, objective: "- Speak to Raan Wildwind near Shen'dar Village.", pin: (42.0, 44.4)),
+    ]
+
+    static func plans() {
+        check(log24Sept.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel], "objective text to quest kind")
+        check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
+              && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
+              "a finished quest is a hand-in; a slain count is a kill")
+        let zones = questZones(log24Sept, within: 12)
+        check(zones.count == 2 && zones.map(\.count).sorted() == [2, 3], "Thendal's three level-4 quests and Shen'dar's two are two zones")
+        let order = questPlan(log24Sept, from: (46.8, 31.5)).map(\.title)
+        check(order == ["Harvesting Windstones", "The Gift of Skysight", "Call of Earth", "The Next Step", "The Adventurer"],
+              "owner's rule: finish the player's zone, nearest first, before the next zone (not the nearest single pin)")
+        let south = questPlan(log24Sept, from: (45.0, 43.0)).map(\.title)
+        check(Array(south.prefix(2)).sorted() == ["The Adventurer", "The Next Step"], "standing in Shen'dar, its quests come first")
+        var unpinned = log24Sept
+        unpinned[0].pin = nil
+        check(questPlan(unpinned, from: (46.8, 31.5)).first?.title == "Call of Earth", "a quest with no pin counts as here, before the next zone")
+        let live2 = parseQuestLog(tip([("Zephras Isle", 790, 224), ("[4] Call of Earth", 804, 254), ("Bring the Kough Quartz to", 818, 272),
+            ("Windshaper Boros in Thendal", 818, 284), ("Grove.", 816, 296), ("[4] Harvesting Windstones", 804, 320),
+            ("- Ready for turn-in", 804, 336), ("[4] The Gift of Skysight", 804, 362), ("- Ready for turn-in", 804, 378)]))
+        check(live2.map(questKind) == [.travel, .handIn, .handIn], "live 24 Sept: a dash line at the title's x is an objective; \"Bring\" is a delivery")
+        // The log as Vision read it live (24 Sept): the "- " markers are not read; "Zephras" came out "Lephras".
+        let rows: [(String, Double, Double)] = [("Lephras Isle", 792, 226), ("[4] Call of Earth", 804, 254),
+            ("Find the Rise of Spirits and drink", 816, 270), ("the Earth Sapta.", 816, 284), ("[4] Harvesting Windstones", 804, 308),
+            ("12/15 Windstone Cluster", 816, 324), ("[4] The Gift of Skysight", 804, 348), ("Use Skysight near the Elemental", 816, 364),
+            ("Convergence", 816, 378), ("[5] The Next Step", 804, 402), ("Report to Constable Aonda in", 814, 418),
+            ("Shen' dar Village.", 816, 431), ("Camping", 792, 459), ("[6] The Adventurer", 804, 490),
+            ("Speak to Raan Wildwind near", 816, 506), ("Shen'dar Village.", 816, 517)]
+        let parsed = parseQuestLog(tip(rows).reversed())
+        check(parsed.map(\.title) == ["Call of Earth", "Harvesting Windstones", "The Gift of Skysight", "The Next Step", "The Adventurer"]
+              && parsed.map(\.level) == [4, 4, 4, 5, 6], "quest log: titles and levels, in the log's order")
+        check(parsed[0].objective == "Find the Rise of Spirits and drink the Earth Sapta." && parsed.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel],
+              "objectives join their wrapped lines, and read as the same kinds")
+        let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
+        check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
+              "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
     }
 }
