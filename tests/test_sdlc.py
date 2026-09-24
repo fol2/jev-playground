@@ -206,5 +206,61 @@ class Manifest(unittest.TestCase):
         self.assertEqual(recomputed, published['manifest_sha256'])
 
 
+class LearningContract(unittest.TestCase):
+    """Structural policy regressions, not proof of learned or autonomous gameplay."""
+
+    def text(self, path):
+        return ' '.join((sdlc.ROOT / path).read_text().split())
+
+    def test_compact_kernel_keeps_learning_and_control_boundaries(self):
+        text = self.text('AGENTS.md')
+        self.assertLessEqual(len((sdlc.ROOT / 'AGENTS.md').read_bytes()), 6500)
+        for term in ('AI-SDLC DNA', 'Minimise Wall Time', 'Minimise Token Consumption',
+                     'No compromise', 'Learning:', 'Playing:', 'visual decoder',
+                     'JEV', 'scripts', 'held-out', 'runtime consumer',
+                     'Source merge does NOT authorise', 'release held input'):
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+        self.assertIn('docs/agents/ai-sdlc.md', text)
+
+    def test_learning_contract_covers_grounding_transfer_and_qualification(self):
+        text = self.text('docs/agents/ai-sdlc.md')
+        for heading in ('Two connected loops', 'Source grounding and frame-by-frame learning',
+                        'From evidence to a runtime capability', 'Evaluation and promotion',
+                        'Autonomous run envelope and human-above control',
+                        'Repository gates and integration'):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, text)
+        for term in ('pre-action', 'frame indices/PTS', 'held-out', 'candidate',
+                     'offline-validated', 'runtime-qualified', 'active',
+                     'model weight training', 'actual consumer', 'knowledge consumed',
+                     'supervised', 'unattended', 'rollback', 'per-action confirmation'):
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+
+    def test_entrypoints_share_the_existing_learning_home(self):
+        for path in ('README.md', 'AGENTS.md', 'REVIEW.md', 'experiments/README.md'):
+            with self.subTest(path=path):
+                self.assertIn('docs/agents/ai-sdlc.md', self.text(path))
+        readme = self.text('README.md')
+        self.assertIn('experiments/002_wow_visual/learning/README.md', readme)
+        self.assertIn('experiments/002_wow_visual/m4/README.md', readme)
+        self.assertNotIn('Existing work remains on its branches', readme)
+        self.assertNotIn('starts without product code on main',
+                         self.text('docs/agents/ai-sdlc.md'))
+        for term in ('held-out', 'runtime consumer', 'run envelope'):
+            self.assertIn(term, self.text('.github/pull_request_template.md'))
+
+    def test_learning_policy_files_do_not_get_a_document_only_bypass(self):
+        for path in ('AGENTS.md', 'REVIEW.md', 'docs/agents/ai-sdlc.md',
+                     '.github/pull_request_template.md', 'tests/test_sdlc.py'):
+            self.assertIn('python-tests', sdlc.route([('M', path)])['checks'])
+        for path in ('knowledge/shaman.md', 'zerocks1/part1_decisions.jsonl', 'video_jev.py'):
+            self.assertIn('motor-offline', sdlc.route([
+                ('M', 'experiments/002_wow_visual/learning/' + path)])['checks'])
+        with self.assertRaises(sdlc.GateError):
+            sdlc.route([('A', 'experiments/002_wow_visual/learning/unregistered.py')])
+
+
 if __name__ == '__main__':
     unittest.main()
