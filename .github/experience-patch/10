@@ -1,0 +1,14 @@
+index e12bd3adf0bba8a209bc58decf8a0351ddef7b5d..425b6ae87c62353afb7dda8c29bd1a510cf13e5d 100644
+--- a/tools/sdlc.py
++++ b/tools/sdlc.py
+@@ -38,7 +38,9 @@ LEARN = VISUAL + "learning/"  # video/research evidence; video_jev.py --check pr
+ MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
+                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
+                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
+-               {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift", "DecisionGraph.swift", "GraphTests.swift", "skyborne-hunt.graph.json", "README.md")} |
++               {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift",
++                                            "DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
++                                            "skyborne-hunt.graph.json", "README.md")} |
+                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
+                                         "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "tabletop.py", "README.md")})
+ # Load and count the suite here. Running the file trusts its own __main__, so deleting
