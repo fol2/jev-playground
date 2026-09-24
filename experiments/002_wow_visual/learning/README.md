@@ -110,12 +110,16 @@ and register their proof; do not invent or reconstruct missing historical output
 
 The owner's earlier demo informed M4b: no mana gate before pulling, recovery
 choices, melee/casting costs, tapped targets and hotkey range cues. See
-`../m4/Hunt.swift` and `../m4/tabletop.py`. The reported tabletop 13/13 is historical;
-this review does not recertify it. Important observation-to-completion and missing
-frame issues are documented in the [review](review_20260924.md).
+`../m4/Hunt.swift` and `../m4/tabletop.py`. The tabletop was re-run against live Jev on
+24 Sept after the chase fact became conditional: 13/13.
 
-Prioritise those runtime regressions and an independently relabelled, held-out
-observation set before adding more general facts. Keep original annotations intact;
+The [review](review_20260924.md) found two runtime issues: a vanished tracker line counted
+as completion, and a missing frame read as calm. Both are fixed in M4b, with negative
+checks: lost row, title-only read, collapsed tracker, reappearance, genuine completion,
+a stalled capture, and an attack or stall while Jev decides. See `../m4/README.md`. They
+are simulation-only proof until a live hunt runs.
+
+Next, relabel a held-out observation set independently before adding more general facts. Keep original annotations intact;
 store corrections separately with pre-action crops, timestamps and review provenance.
 Videos, frames, full transcripts, credentials and raw owner captures remain outside
 this source change. No new footage was visually inspected in this review.
