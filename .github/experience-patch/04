@@ -1,0 +1,113 @@
+-            case .huntSimJev: exit(try await huntSimJev(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
+-            case .hunt: exit(try await huntExecute(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
++            case .huntDryRun, .huntSimJev, .hunt:
++                let graph = try command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }
++                let experience = try huntExperience(command.experience, graph: graph)
++                switch command.mode {
++                case .huntDryRun: exit(try await huntDryRun(graph: graph, experience: experience))
++                case .huntSimJev: exit(try await huntSimJev(graph: graph, experience: experience))
++                case .hunt: exit(try await huntExecute(graph: graph, experience: experience))
++                default: fatalError("unreachable")
++                }
+             case .turnIn: exit(try await questExecute(command))
+             }
+         } catch {
+diff --git a/experiments/002_wow_visual/m4/README.md b/experiments/002_wow_visual/m4/README.md
+index 2e9a4ff4c0ba89cdcc150a7035ac4cb1c0487242..ab29c3b552e47adc9e8cc1a36c0153686592ea96 100644
+--- a/experiments/002_wow_visual/m4/README.md
++++ b/experiments/002_wow_visual/m4/README.md
+@@ -293,11 +293,14 @@ swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
+   $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
+   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
+   -o /tmp/m4-nav
+-/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json"
++/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json" \
++  --experience /tmp/skyborne-hunt-experience.json
+ ```
+ 
+-The opt-in [tool graph](../runtime/README.md) organises Jev's information and skill
+-choices. The command above uses canned replies and SimHunt, not live Jev or WoW.
++The opt-in [tool graph](../runtime/README.md) organises Jev's information, retained
++experience and skill choices. The command above records local synthetic episodes; a
++later run can choose `READ:experience`. It uses canned replies and SimHunt, not live
++Jev or WoW, and it does not prove that retrieval improves gameplay.
+ Omit `--graph` for the existing flat-policy rehearsal. No current or historical
+ live result below/above certifies the new graph policy.
+ 
+diff --git a/experiments/002_wow_visual/runtime/DecisionGraph.swift b/experiments/002_wow_visual/runtime/DecisionGraph.swift
+index 7599e07bc403018fe88bbb267e4f8d2d75e61094..cbd94b5da2ce328da997f66c3d4110ece4a39b51 100644
+--- a/experiments/002_wow_visual/runtime/DecisionGraph.swift
++++ b/experiments/002_wow_visual/runtime/DecisionGraph.swift
+@@ -95,6 +95,10 @@ final class GraphSession {
+         path = [graph.root]
+     }
+ 
++    // A meta-tool can finish its bounded review and return control to the root goal.
++    // Loaded references stay available; no model-written graph mutation occurs.
++    func returnToRoot() { path = [graph.root] }
++
+     // Snapshot local reference sections once per episode. Preserve source text and its qualifications.
+     // No memory dump, vector search, background retrieval or model call. Paths are trusted repo config.
+     static func load(_ url: URL) throws -> GraphSession {
+diff --git a/experiments/002_wow_visual/runtime/Experience.swift b/experiments/002_wow_visual/runtime/Experience.swift
+index 166b101e07f7b9296f0e28b700beba2480139748..479af8c37d3e215242c2ecfb4424a2ba3dc41f46 100644
+--- a/experiments/002_wow_visual/runtime/Experience.swift
++++ b/experiments/002_wow_visual/runtime/Experience.swift
+@@ -2,7 +2,7 @@
+ import Foundation
+ 
+ struct ExperienceFrame: Codable {
+-    let context: [String: String]  // Exact buckets, not a learned similarity metric.
++    let context: [String: String]  // Coarse exact buckets; no hidden learned similarity.
+     let progress: [String: Int]
+     let capturedAt: Double
+     let stream: String
+@@ -48,6 +48,17 @@ struct ExperienceReview: Codable {
+         "retain_example": "Bookmark this useful episode for later evaluation, not as a universal rule.",
+         "unclear": "Record that the available evidence does not identify what should be improved."
+     ]
++    static let toolTopics: [String: String] = [
++        "REVIEW_PERCEPTION": "perception",
++        "REVIEW_MOVEMENT": "movement",
++        "REVIEW_TACTICS": "tactics",
++        "RETAIN_EXAMPLE": "retain_example",
++        "REVIEW_UNCLEAR": "unclear"
++    ]
++    static var tools: [String: String] {
++        Dictionary(uniqueKeysWithValues: toolTopics.map { ($0.key, topics[$0.value]!) })
++    }
++    static func topic(for tool: String) -> String? { toolTopics[tool] }
+ }
+ 
+ enum ExperienceError: Error { case incompatibleStore, invalidRecord }
+@@ -111,13 +122,16 @@ final class ExperienceStore {
+     }
+     func hint(_ context: [String: String]) -> [String: Any] {
+         let found = matches(context)
+-        return ["matching_cases": found.count, "stored_cases": cases.count,
++        return ["enabled": true, "scope": scope, "matching_cases": found.count, "stored_cases": cases.count,
+                 "blocked_cases": found.filter { $0.blocked == true }.count,
+-                "review_requests": reviews.count, "persistence_error": persistenceError as Any? ?? NSNull()]
++                "counter_increased_cases": found.filter { ($0.progressDelta ?? 0) > 0 }.count,
++                "counter_unknown_cases": found.filter { $0.progressDelta == nil }.count,
++                "review_requests": reviews.filter { r in found.contains { $0.id == r.caseID } }.count,
++                "persistence_error": persistenceError as Any? ?? NSNull()]
+     }
+     func recall(_ context: [String: String]) -> [String: Any] {
+         let found = matches(context)
+-        // Include opposite outcomes rather than selecting only the best recent run.
++        // Include contrasting outcomes rather than selecting only the best recent run.
+         var chosen: [ExperienceCase] = []
+         for candidate in [found.last, found.last(where: { $0.blocked == true }),
+                           found.last(where: { ($0.progressDelta ?? 0) > 0 })].compactMap({ $0 }) {
+@@ -130,13 +144,23 @@ final class ExperienceStore {
+                     "counter_increased": rows.filter { ($0.progressDelta ?? 0) > 0 }.count,
+                     "counter_unknown": rows.filter { $0.progressDelta == nil }.count]
+         }
+-        return ["scope": scope, "matching": "exact pre-action buckets; not causal or calibrated success probabilities",
++        return ["scope": scope, "matching": "exact coarse pre-action buckets; not causal or calibrated success probabilities",
+                 "cases": chosen.map(\.json), "counts": stats,
+                 "reviews": reviews.filter { r in chosen.contains { $0.id == r.caseID } }.map(\.json)]
+     }
+ 
+-    @discardableResult func reviewLatest(_ topic: String) -> ExperienceReview? {
