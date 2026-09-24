@@ -1,0 +1,100 @@
+                          "holding": result.holding, "actions": result.steps.map(\.action.rawValue), "provider_calls": 0, "graph_calls": result.graphRecords.count,
++                         "experience_cases": result.experience?["cases"] ?? 0, "experience_reviews": result.experience?["reviews"] ?? 0,
+                          "meaning": "proves the hunt loop, targeting keys and stops against a simulated field, not WoW"])
+     return !result.fights.isEmpty && !result.holding ? 0 : 2
+ }
+ 
+ /// Rehearsal: the real Jev against the simulated field, before any live hunt.
+-func huntSimJev(graph: GraphSession? = nil) async throws -> Int32 {
++func huntSimJev(graph: GraphSession? = nil, experience: ExperienceStore? = nil) async throws -> Int32 {
+     let key = try apiKey()
+     let world = SimHunt.field(clock: FightClock())
+     let run = try runDirectory("m4_hunt_sim")
+@@ -278,7 +288,8 @@ func huntSimJev(graph: GraphSession? = nil) async throws -> Int32 {
+     guard let warm = await warmJev(key) else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
+     log.emit("start", ["run_id": run.id, "mode": "hunt-sim-jev", "effects": "SimHunt + Jev via TypeSafe; no capture or OS input",
+                        "jev_warm_up_s": roundTo(warm)])
+-    let result = await runHunt(host: world, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0), graph: graph)
++    let result = await runHunt(host: world, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
++                               graph: graph, experience: experience, experienceRun: run.id)
+     try recordHunt(result, into: run.url, manifest: [
+         "schema": "m4-hunt-run/v1", "run_id": run.id, "mode": "hunt-sim-jev", "scenario": "field",
+         "started_utc": ISO8601DateFormatter().string(from: Date()),
+@@ -291,7 +302,7 @@ func huntSimJev(graph: GraphSession? = nil) async throws -> Int32 {
+ }
+ 
+ @MainActor
+-func huntExecute(graph: GraphSession? = nil) async throws -> Int32 {
++func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil) async throws -> Int32 {
+     let key = try apiKey()
+     let session = try await wowSession(input: true, full: true)
+     guard session.config.width == HUD.width, session.config.height == HUD.height else {
+@@ -334,7 +345,8 @@ func huntExecute(graph: GraphSession? = nil) async throws -> Int32 {
+         "capture": "window-only ScreenCaptureKit at \(HUD.width)x\(HUD.height), audio off, cursor hidden",
+     ]
+     host.emit("start", ["run_id": run.id, "mode": "hunt", "objectives": start.objectives.count, "jev_warm_up_s": roundTo(warm)])
+-    let result = await runHunt(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0), graph: graph)
++    let result = await runHunt(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
++                               graph: graph, experience: experience, experienceRun: run.id)
+     try? await stream.stopCapture()
+     withExtendedLifetime(signals) {}
+     try recordHunt(result, into: run.url, manifest: manifest)
+@@ -347,6 +359,7 @@ func huntExecute(graph: GraphSession? = nil) async throws -> Int32 {
+ // It proves graph plumbing, not Jev quality. Real modes always use LiveJev with no fallback.
+ final class HuntGraphDemo: JevClient {
+     private var read = false
++    private var readExperience = false
+     func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+         let options = question["criteria"] as? [String: String] ?? [:]
+         var preference = hunterPreference.map { "DO:" + $0.rawValue }
+@@ -355,9 +368,12 @@ final class HuntGraphDemo: JevClient {
+             preference = ["DO:FIGHT_TARGET", "BACK"] + preference
+         }
+         if !read { preference.insert("READ:recent", at: 0) }
++        let index = state["experience_index"] as? [String: Any]
++        if (index?["matching_cases"] as? Int ?? 0) > 0 && !readExperience { preference.insert("READ:experience", at: 0) }
+         preference += ["ENTER:search", "ENTER:travel", "ENTER:compass", "BACK"]
+         guard let name = preference.first(where: { options[$0] != nil }) else { throw GraphError.noSkills }
+         if name == "READ:recent" { read = true }
++        if name == "READ:experience" { readExperience = true }
+         return ["model": FightLimits.model, "answers": ["action": ["choice": name, "confidence": 1.0,
+             "probabilities": Dictionary(uniqueKeysWithValues: options.keys.map { ($0, $0 == name ? 1.0 : 0.0) })]]]
+     }
+diff --git a/experiments/002_wow_visual/m4/Nav.swift b/experiments/002_wow_visual/m4/Nav.swift
+index 55d06a3f1135fcb4125f14db5663f888c070ddf3..1b4067182d159d94757f7f11acf3c2c2c36589f9 100644
+--- a/experiments/002_wow_visual/m4/Nav.swift
++++ b/experiments/002_wow_visual/m4/Nav.swift
+@@ -624,6 +624,7 @@ struct NavCommand: Equatable {
+     var scenario: String?
+     var quest: String?
+     var graph: String?
++    var experience: String?
+ }
+ 
+ let navScenarios: Set<String> = ["open", "wall", "pocket"]
+@@ -655,6 +656,8 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
+         switch (mode, option) {
+         case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"):
+             command.graph = value
++        case (.hunt, "--experience"), (.huntDryRun, "--experience"), (.huntSimJev, "--experience"):
++            command.experience = value
+         case (.simJev, "--scenario"):
+             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
+             command.scenario = value
+diff --git a/experiments/002_wow_visual/m4/NavProbe.swift b/experiments/002_wow_visual/m4/NavProbe.swift
+index f285baa5c18181d01433e2739779035d384c029e..f590256780d642722b615229ccbf007426cae2b9 100644
+--- a/experiments/002_wow_visual/m4/NavProbe.swift
++++ b/experiments/002_wow_visual/m4/NavProbe.swift
+@@ -18,6 +18,7 @@ let navUsage = """
+            m4-nav --sim-jev --scenario open|wall|pocket
+            m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
+            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
++                    [--graph PATH] [--experience PATH]
+            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
+     Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
+     Recovery: m0-probe --release --keys wqe
+@@ -312,9 +313,15 @@ struct M4Nav {
+             case .replay: exit(try navReplay(command.directory ?? "."))
+             case .simJev: exit(try await navSimJev(command))
+             case .execute: exit(try await navExecute(command))
+-            case .huntDryRun: exit(try await huntDryRun(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
