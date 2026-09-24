@@ -272,8 +272,8 @@ final class QuestRun {
         body.emit("after_complete", ["chat": fresh])
         let after = lines(QuestHUD.dialog, await frame())
         guard has(after, "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
-        // The owner: always accept quests. A follow-up offered on completion shows "Accept".
-        if let accept = has(after, "Accept") {
+        // The owner: always accept quests. A follow-up offered on completion shows an "Accept" button.
+        if let accept = acceptButton(after) {
             body.emit("accept", ["controller": "RULE", "rule": "owner: always accept quests", "dialog": after.prefix(3).map(\.text)])
             let before = Set((await frame()).map(chatLines) ?? [])
             if click(accept.x + 30, accept.y + 7) {
@@ -313,10 +313,14 @@ final class LiveQuestHost: QuestHost {
         // behind the camera, no mark was found).
         if let pin = quest.pin, let at = quester.body.look(), distance((at.x, at.y), pin) > 0.5 {
             guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
+            // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
+            // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
+            if walker?.holding == true { return "WALK_KEYS_HELD" }
             let legs = walk()
             walker = legs
             let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
                                       destination: NavDestination(label: String(quest.title.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
+            guard !legs.holding else { return "WALK_KEYS_HELD" }
             guard walked.outcome == "ARRIVED" else { return "WALK_" + walked.outcome }
         }
         let outcome = await quester.turnIn(quest.title)

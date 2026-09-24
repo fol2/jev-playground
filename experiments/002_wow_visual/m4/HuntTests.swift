@@ -483,6 +483,9 @@ extension NavTests {
               && (try? parseNav(["--quests", "--keys", "wqe"])) == nil && (try? parseNav(["--quests", "--graph", "g.json"])) == nil,
               "--quests needs a quest graph and the confirmed key profile")
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "x; rm -rf"])) == nil, "a quest title is letters and simple punctuation")
+        let offered = tip([("Accept the Windstones from Boros", 30, 200), ("Accept", 40, 690), ("Decline", 280, 690)])
+        check(acceptButton(offered)?.y == 690 && acceptButton(tip([("Accept the Windstones", 30, 200), ("Goodbye", 40, 690)])) == nil,
+              "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
         plans()
     }
 

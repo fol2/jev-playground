@@ -1,6 +1,6 @@
 {
   "id": "skyborne-quest-tools-v1",
-  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins within one walk of the player only; kill, collect and use-at quests, accepting new quests and travel between zones are NOT built here.",
+  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins within one walk of the player only; kill, collect and use-at quests, taking quests from a \"!\" giver and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
   "root": "quest",
   "nodes": {
     "quest": {

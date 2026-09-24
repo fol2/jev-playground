@@ -268,7 +268,9 @@ character pane then showed the vest (33 Armor) in the chest slot. The first buil
 raised the "Allow custom scripts?" prompt instead; I clicked No (no setting changed) and replaced the
 check with the pane. The third reward was read as "Equipped" because OCR missed "If you replace this
 item" in that frame; the equipped item's box is now bounded by its label too. An NPC's quest list and
-the "Continue" page were added in M4e. Not yet handled: Accept for new quests and silver or gold in a sell price.
+the "Continue" page were added in M4e. A follow-up quest offered on completion is accepted by its "Accept"
+button (the owner: always accept quests; RULE, not yet seen live). Not yet handled: taking a quest from a
+"!" giver and silver or gold in a sell price.
 
 ## M4d — plan the quests zone by zone
 
@@ -337,7 +339,8 @@ experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replace
    because a hand-in changes the log.
 
 Stops: no offer left (`NO_HAND_IN_LEFT`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
-a walk stopped for combat, health, the owner or the HUD; the second `WALK_NO_PROGRESS`; eight steps.
+a walk stopped for combat, health, the owner or the HUD; a walk whose key release is unconfirmed
+(`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; eight steps.
 A failed hand-in is not offered again. Offline, 8 checks run the loop on the live Thendal values of
 24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
 reach only the request after the READ, and the one-quest log read stops before any Jev call. They do not

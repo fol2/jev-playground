@@ -215,6 +215,12 @@ func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Doub
     return plan + located.filter { $0.pin == nil }
 }
 
+/// The "Accept" button of a quest offered in the dialogue (a follow-up shown on completion): the whole
+/// line, never a word inside the quest's text. The owner, 24 Sept: "always accept quests" (RULE).
+func acceptButton(_ dialog: [TipLine]) -> TipLine? {
+    dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
+}
+
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
 /// zone is road travel, which is not built (live, 24 Sept: with the hub's two hand-ins unread, the nearest
 /// zone was Shen'dar, 20 units south, and the walk ran for a cliff).
