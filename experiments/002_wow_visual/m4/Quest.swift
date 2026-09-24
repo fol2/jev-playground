@@ -19,22 +19,25 @@ struct Reward: Equatable {
     var sell: Int  // copper
 }
 
-/// Character slot IDs for GetInventoryItemLink, by the slot word on the tooltip.
-let equipSlots: [String: Int] = ["Head": 1, "Neck": 2, "Shoulder": 3, "Chest": 5, "Waist": 6, "Legs": 7, "Feet": 8,
-                                 "Wrist": 9, "Hands": 10, "Finger": 11, "Trinket": 13, "Back": 15, "Main Hand": 16,
-                                 "One-Hand": 16, "Two-Hand": 16, "Off Hand": 17, "Held In Off-hand": 17, "Ranged": 18]
+/// The slot words a worn item's tooltip names.
+let equipSlots: Set<String> = ["Head", "Neck", "Shoulder", "Back", "Chest", "Shirt", "Tabard", "Wrist", "Hands", "Waist",
+                               "Legs", "Feet", "Finger", "Trinket", "Main Hand", "One-Hand", "Two-Hand", "Off Hand",
+                               "Held In Off-hand", "Ranged"]
 
 /// A reward's tooltip, read while the pointer rests on it. The game draws the equipped item beside it
 /// ("Equipped", then "If you replace this item, the following stat changes will occur: +2 Armor"),
 /// and the quest text shows through behind both: lines are kept by alignment, as in tooltipLines.
 func parseReward(_ lines: [TipLine]) -> Reward? {
     guard let foot = lines.first(where: { isTooltipFooter($0.text) }) else { return nil }
+    // The equipped item's box starts at its "Equipped" label or its "If you replace" line; live on 24 Sept
+    // OCR missed the latter once, and the box's own lines were then read as the reward's.
     let compare = lines.first { $0.text.hasPrefix("If you replace this item") }
+    let equipped = lines.filter { $0.text == "Equipped" || $0.text.hasPrefix("If you replace this item") }.map(\.x).min()
     let own = lines.filter {
-        $0.y < foot.y && $0.x < (compare?.x ?? .infinity) - 8 && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150)
+        $0.y < foot.y && $0.x < (equipped ?? .infinity) - 12 && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150)
     }.sorted { ($0.y, $0.x) < ($1.y, $1.x) }
     guard let name = own.first?.text else { return nil }
-    let slot = own.map(\.text).first { equipSlots[$0] != nil }
+    let slot = own.map(\.text).first { equipSlots.contains($0) }
     let sell = own.first { $0.text.hasPrefix("Sell Price") }.flatMap { Int($0.text.filter(\.isNumber)) } ?? 0
     let change: Double
     if let compare {
@@ -42,6 +45,8 @@ func parseReward(_ lines: [TipLine]) -> Reward? {
             guard let first = line.text.split(separator: " ").first, "+-".contains(first.prefix(1)) else { return nil }
             return Double(first)
         }.reduce(0, +)
+    } else if equipped != nil {
+        change = 0  // an equipped item, but its stat changes were not read: not an upgrade
     } else {
         change = own.lazy.compactMap { $0.text.hasSuffix(" Armor") ? Double($0.text.dropLast(6)) : nil }.first ?? 0
     }

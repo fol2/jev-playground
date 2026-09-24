@@ -14,6 +14,14 @@ enum QuestHUD {
     static let rewardX = [130.0, 274.0], firstRow = 37.0, rowGap = 44.0  // reward names below "Choose your reward:"
     static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
     static let enter: UInt16 = 36
+    static let characterPane: UInt16 = 8  // C
+    /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
+    static let paneSlots: [String: (x: Double, y: Double)] = [
+        "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
+        "Tabard": (62, 536), "Wrist": (62, 584), "Hands": (404, 258), "Waist": (404, 304), "Legs": (404, 350), "Feet": (404, 398),
+        "Finger": (404, 444), "Trinket": (404, 536), "Main Hand": (166, 620), "One-Hand": (166, 620), "Two-Hand": (166, 620),
+        "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
+    static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
 }
 
 final class QuestRun {
@@ -64,10 +72,27 @@ final class QuestRun {
 
     func sleep(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
 
-    func tapEnter() async {
-        body.keys.press(QuestHUD.enter)
+    func tap(_ code: UInt16) async {
+        body.keys.press(code)
         await sleep(0.06)
-        body.keys.lift(QuestHUD.enter)
+        body.keys.lift(code)
+    }
+
+    func tapEnter() async { await tap(QuestHUD.enter) }
+
+    /// As a human checks: open the character pane, rest the pointer on the slot, read its name, close it.
+    /// (/run print(...) raised the client's "Allow custom scripts?" prompt on 24 Sept: that is the
+    /// owner's security choice, so the engine uses no /run.)
+    func wearing(_ name: String, slot: String) async -> Bool? {
+        guard let point = QuestHUD.paneSlots[slot] else { return nil }
+        await tap(QuestHUD.characterPane)
+        await sleep(1.0)
+        hover(point.x, point.y)
+        await sleep(0.8)
+        let read = lines(QuestHUD.paneTooltip).map(\.text)
+        await tap(QuestHUD.characterPane)
+        body.emit("pane_slot", ["slot": slot, "lines": Array(read.prefix(4))])
+        return read.contains { nameKey($0) == nameKey(name) }
     }
 
     /// A chat command: Enter, and only once the edit box shows, the text and Enter. Typed letters are
@@ -113,7 +138,7 @@ final class QuestRun {
         }
         guard dialog.contains(where: { nameKey($0.text) == nameKey(quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
 
-        var equip: (name: String, slot: Int)? = nil
+        var equip: (name: String, slot: String)? = nil
         if let choose = has(dialog, "Choose your reward") {
             var rewards: [(x: Double, y: Double, reward: Reward)] = []
             for i in 0..<6 {
@@ -132,7 +157,7 @@ final class QuestRun {
                                         "rule": "owner, 24 Sept: an upgrade is taken and equipped, otherwise the highest sell price"])
             guard click(chosen.x, chosen.y) else { return "CLICK_FAILED" }
             await sleep(0.6)
-            if pick.equip, let slot = chosen.reward.slot.flatMap({ equipSlots[$0] }) { equip = (chosen.reward.name, slot) }
+            if pick.equip, let slot = chosen.reward.slot { equip = (chosen.reward.name, slot) }
         }
         guard let button = has(dialog, "Complete Quest") else { return "DIALOGUE_NOT_OPEN" }
         let before = Set(image().map(chatLines) ?? [])
@@ -145,12 +170,11 @@ final class QuestRun {
 
         guard await command("/equip " + equip.name.replacingOccurrences(of: "\u{2019}", with: "'")) else { return "COMPLETED_EQUIP_NOT_TYPED" }
         await sleep(1.0)
-        let shown = Set(image().map(chatLines) ?? [])
-        guard await command("/run print(GetInventoryItemLink(\"player\",\(equip.slot)))") else { return "COMPLETED_EQUIP_UNCHECKED" }
-        await sleep(1.0)
-        let printed = (image().map(chatLines) ?? []).filter { !shown.contains($0) }
-        body.emit("equipped_check", ["slot": equip.slot, "chat": printed])
-        return printed.contains { nameKey($0).contains(nameKey(equip.name)) } ? "COMPLETED_AND_EQUIPPED" : "COMPLETED_EQUIP_UNCONFIRMED"
+        switch await wearing(equip.name, slot: equip.slot) {
+        case true?: return "COMPLETED_AND_EQUIPPED"
+        case false?: return "COMPLETED_EQUIP_UNCONFIRMED"
+        case nil: return "COMPLETED_EQUIP_SLOT_UNKNOWN"
+        }
     }
 }
 

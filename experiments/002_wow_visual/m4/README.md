@@ -248,15 +248,24 @@ Every step is a script (controller RULE); there is no Jev call.
    line drawn red (such as "Mail" for a Shaman) makes the item unusable.
 3. The owner's rule (24 Sept): "choose if it benefit (eg armor better than now, take and equip). or
    take the highest value (take and sell)." Click that reward, then Complete Quest.
-4. For an upgrade, `/equip NAME` in chat, then `/run print(GetInventoryItemLink("player", SLOT))` to
-   confirm it. Letters are only typed once the chat box shows "Say:": outside it they are game keys.
+4. For an upgrade, `/equip NAME` in chat, then open the character pane (C), rest the pointer on the
+   slot and read the item's name, as a human checks. Letters are only typed once the chat box shows
+   "Say:" (read after a x3 upscale): outside it they are game keys. The engine uses no `/run`: it
+   raises the client's "Allow custom scripts?" prompt, which is the owner's security choice.
 
 Calibrated on the 24 Sept live exploration of The Cirrusfly Queen (Elatrell Featherlight, Thendal
 Village): the minimap "?" tooltip named the quest when the world-map pin was hidden under the player
 arrow, M4a arrived in 4 decisions (one blocked step, two left detours), and one right-click opened
 the completion page. Offline: the three real reward tooltips parse to Exterminator's Vest (+2, taken
 and equipped), Gardening Pants (-8) and Watcher's Mail Chest (red Mail, 14 copper); on 14 saved
-frames only the two real "?" marks are found. Not yet handled: an NPC's gossip list, the "Continue"
+frames only the two real "?" marks are found.
+
+Live, 24 Sept (the dialogue was already open from the exploration): the rule took Exterminator's Vest;
+chat read "The Cirrusfly Queen completed.", 320 experience and 1 silver; `/equip` worked, and the
+character pane then showed the vest (33 Armor) in the chest slot. The first build's `/run` check
+raised the "Allow custom scripts?" prompt instead; I clicked No (no setting changed) and replaced the
+check with the pane. The third reward was read as "Equipped" because OCR missed "If you replace this
+item" in that frame; the equipped item's box is now bounded by its label too. Not yet handled: an NPC's gossip list, the "Continue"
 page of item quests, Accept for new quests and silver or gold in a sell price.
 
 ## Limits

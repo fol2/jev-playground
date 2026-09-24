@@ -429,6 +429,9 @@ extension NavTests {
         check(m == Reward(name: "Watcher's Mail Chest", slot: "Chest", usable: false, change: 36, sell: 14),
               "red Mail: not usable, whatever the armour; an OCR-garbled footer still ends the tooltip")
         check(parseReward(vest.filter { !$0.text.hasPrefix("Press") }) == nil, "no footer: no reward")
+        check(parseReward(mail.filter { !$0.text.hasPrefix("If you replace") }) == Reward(name: "Watcher's Mail Chest", slot: "Chest",
+              usable: false, change: 0, sell: 14),
+              "live: OCR missed \"If you replace\"; the \"Equipped\" label still bounds the reward's box, and an unread change is 0")
         let all = [v!, p!, m!]
         check(chooseReward(all).map { [$0.index, $0.equip ? 1 : 0] } == [0, 1],
               "owner's rule: the usable upgrade is taken and equipped, not the unusable +36 mail")
