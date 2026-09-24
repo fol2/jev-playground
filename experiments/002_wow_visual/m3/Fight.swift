@@ -62,7 +62,6 @@ enum FightLimits {
     static let fillDrop = 0.3
     static let tab: UInt16 = 48
     // ponytail: set once from the bar's tooltips before a live run (applyRoles); sims keep these defaults.
-    static var melee: UInt16 = 18
     static var bolt: UInt16 = 19
     static var heal: UInt16 = 20
     static var buff: UInt16 = 21
@@ -73,7 +72,7 @@ enum FightLimits {
     static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
     static let zoomOut: UInt16 = 109  // F10, Camera Zoom Out (owner-consented bind, 24 Sept)
     static let zoomSeconds = 2.5
-    static var releaseCodes: [UInt16] { [tab, melee, bolt, heal, buff, turnLeft, forward, turnRight, interact, zoomOut] }
+    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, turnLeft, forward, turnRight, interact, zoomOut] }
 }
 
 /// Watchdog grant for one held key. Refresh while the skill still needs it; expired(now:)
@@ -296,7 +295,7 @@ enum FightAction: String, JevAction {
         case .castLightningBolt:
             return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
         case .startMelee:
-            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
+            return "Press Interact With Target: turn on automatic weapon swings at the target, walking up to it if it is not adjacent. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
         case .heal:
             return "Cast Healing Wave on the character: about a 2-second cast that restores most of its health, costs mana, and is delayed by melee hits like any cast."
         case .lootCorpse:
@@ -873,7 +872,7 @@ final class SimFight: FightHost {
             strike(1.0 / 3)
             return "Lightning Bolt cast at 75 %; the key stays held, so the next cast follows unless another action is chosen"
         case .startMelee:
-            await tap(FightLimits.melee)
+            await tap(FightLimits.interact)
             episode.meleeOn = true
             strike(0.25)
             return "automatic swings on"
@@ -937,6 +936,14 @@ enum SkillHUD {
     static let slot1X = 660.0, pitch = 50.3, slotY = 1290.0  // slot centres, 24 Sept bar
 }
 
+/// The owner, 24 Sept: "should detect 'you are not face the mob' to trigger F9". Zoomed out, an adjacent
+/// creature's nameplate sits mid-screen whichever way the character faces, so the game's own error is
+/// the signal. Turning is a reflex inside the cast, not one of Jev's decisions.
+func facingError(_ errorText: String?) -> Bool {
+    guard let text = errorText?.lowercased() else { return false }
+    return text.contains("in front of you") || text.contains("facing")
+}
+
 /// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
 /// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
 /// nameplate read as slot 8's name, 24 Sept) is dropped.
@@ -967,20 +974,23 @@ func role(_ s: Skill) -> SkillRole? {
     return nil
 }
 
+/// Interact With Target (F9) turns, attacks and walks, so a fight needs no Attack slot; a hunt adds food and drink.
+let fightRoles: [SkillRole] = [.bolt, .heal, .buff]
+let huntRoles = fightRoles + [.drink, .food]
+
 /// The first slot of each role; problems name what a live run must not start without.
-func assignRoles(_ bar: [Skill?]) -> (keys: [SkillRole: UInt16], problems: [String]) {
+func assignRoles(_ bar: [Skill?], required: [SkillRole] = huntRoles) -> (keys: [SkillRole: UInt16], problems: [String]) {
     var keys: [SkillRole: UInt16] = [:], problems: [String] = []
     let names = bar.compactMap { $0?.name }
     if Set(names).count != names.count { problems.append("one tooltip on two slots (was the pointer moved?)") }
     for (i, skill) in bar.enumerated() where i < SkillHUD.keys.count {
         if let skill, let r = role(skill), keys[r] == nil { keys[r] = SkillHUD.keys[i] }
     }
-    problems += SkillRole.allCases.filter { keys[$0] == nil }.map { "no \($0.rawValue) skill on the bar" }
+    problems += required.filter { keys[$0] == nil }.map { "no \($0.rawValue) skill on the bar" }
     return (keys, problems)
 }
 
 func applyRoles(_ keys: [SkillRole: UInt16]) {
-    FightLimits.melee = keys[.melee] ?? FightLimits.melee
     FightLimits.bolt = keys[.bolt] ?? FightLimits.bolt
     FightLimits.heal = keys[.heal] ?? FightLimits.heal
     FightLimits.buff = keys[.buff] ?? FightLimits.buff

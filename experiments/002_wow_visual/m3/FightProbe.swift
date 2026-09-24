@@ -313,9 +313,12 @@ final class LiveHost: FightHost {
         case .approachToRange:
             return await approach()
         case .castLightningBolt:
-            return await castHeld()
+            let first = await castHeld()
+            guard !first.contains("cast at 75"), facingError(errorText()) else { return first }
+            let turned = await face(&episode)
+            return "\(first); the game said the target was not in front, so Interact With Target turned to it (\(turned)); retried: \(await castHeld())"
         case .startMelee:
-            await tap(FightLimits.melee)
+            await tap(FightLimits.interact)  // Attack on the bar is a toggle: pressed while swinging, it stops
             episode.meleeOn = true
             return "automatic swings on"
         case .heal:
@@ -335,7 +338,7 @@ final class LiveHost: FightHost {
 /// holds, not from constants. Throws (a HOLD) when a role is missing or the pointer was contested.
 let tooltipBox = CGRect(x: 2240, y: 900, width: 320, height: 340)  // bottom-right; a tooltip grows upwards
 
-func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log) async throws -> [SkillRole: UInt16] {
+func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [SkillRole]) async throws -> [SkillRole: UInt16] {
     let bounds = session.window.frame
     let routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds)
     var bar: [Skill?] = []
@@ -352,17 +355,18 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log) async throw
         log.emit("skill_slot", ["key": key, "name": orNull(skill?.name), "role": orNull(skill.flatMap(role)?.rawValue),
                                 "cast_s": orNull(skill?.cast), "text": orNull(skill?.text), "t": hostNow()])
     }
-    let (keys, problems) = assignRoles(bar)
+    let (keys, problems) = assignRoles(bar, required: required)
     guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }
     return keys
 }
 
-/// The owner, 23-24 Sept: zoomed out to the widest view by default. Holds F10 (Camera Zoom Out).
-func zoomOut(_ sink: PidKeySink, _ log: Log) async {
-    let keys = LiveKeys(sink: sink, releaseCodes: [FightLimits.zoomOut], clock: hostNow) { event, fields in log.emit(event, fields) }
+/// The owner, 23-24 Sept: zoomed out to the widest view by default. Holds F10 (Camera Zoom Out) on a
+/// host's keys, after its signal trap: the watchdog and every exit path release it.
+func zoomOut(_ keys: LiveKeys, _ log: Log) async {
+    keys.grant(FightLimits.zoomOut, seconds: FightLimits.zoomSeconds + 1)
     keys.press(FightLimits.zoomOut)
     try? await Task.sleep(nanoseconds: UInt64(FightLimits.zoomSeconds * 1_000_000_000))
-    keys.releaseAll()
+    keys.lift(FightLimits.zoomOut)
     log.emit("zoomed_out", ["seconds": FightLimits.zoomSeconds, "t": hostNow()])
 }
 
@@ -418,12 +422,12 @@ func fightExecute() async throws -> Int32 {
     let warm = Task.detached { _ = ocr(first.image.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 100)) ?? first.image) }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     _ = await warm.value
-    applyRoles(try await readSkillBar(session, feed, log))
-    await zoomOut(sink, log)
+    applyRoles(try await readSkillBar(session, feed, log, required: fightRoles))
     let host = LiveHost(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holdingKeys })
+    await zoomOut(host.keys, log)
     var manifest: [String: Any] = [
         "schema": "m3-run/v1", "run_id": run.id, "mode": "execute",
         "started_utc": ISO8601DateFormatter().string(from: Date()),

@@ -423,7 +423,8 @@ func release(_ profile: KeyProfile) throws {
         throw ProbeError("release needs exactly one running WoW process and existing Accessibility permission")
     }
     let sink = PidKeySink(pid: app.processIdentifier)
-    let codes = Primitive.allCases.map { profile.code($0) } + [48]  // 48: Tab, from M2's --target
+    // 48 Tab (M2); M3/M4: the main bar 1-9, 0, -, =, Esc, F9 Interact With Target, F10 Camera Zoom Out
+    let codes = Primitive.allCases.map { profile.code($0) } + [48, 18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24, 53, 101, 109]
     for code in codes { try sink.post(code, down: false) }
     try Log(file: nil).emit("release_sent", ["pid": Int(app.processIdentifier), "keys": profile.rawValue,
                                              "codes": codes.map { Int($0) }, "key_down_sent": 0])

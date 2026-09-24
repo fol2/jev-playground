@@ -77,6 +77,14 @@ now waits up to 2 s for a fresh frame (event `frame_wait`, with the seconds wait
 ends NO_FRESH_FRAME; it never turns a missing frame into a health reading. Why the capture goes
 quiet after that click is not yet measured.
 
+The second live fight killed its target but then pressed Lightning Bolt 12 times with nothing cast:
+"Target needs to be in front of you." was on screen, and zoomed out, an adjacent creature's
+nameplate sits mid-screen whichever way the character faces, so FACE_TARGET was not offered. The
+owner: "should detect 'you are not face the mob' to trigger F9". A bolt that fails with the game's
+facing error now turns with F9 and retries once, inside the same action. START_MELEE is also F9:
+the bar's Attack is a toggle, so pressing it while swinging would stop the swings. A fight needs
+bolt, heal and enchant skills on the bar; a hunt also needs food and drink.
+
 The owner's taught tactics, recorded as the reference Jev is not given: enchant before a
 fight; pull at the farthest range where the spell's hotkey is no longer red; cast
 continuously until first hit; then rely on automatic swings, because melee hits delay casts;

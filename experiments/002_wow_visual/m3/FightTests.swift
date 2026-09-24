@@ -203,6 +203,10 @@ struct FightTests {
         check(bar.map { $0.flatMap(role) } == [.melee, .bolt, nil, .heal, nil, nil, nil, .buff, nil, nil, .drink, .food],
               "roles: Earth Shock, Skysight and Walk on Air have none")
         let (keys, problems) = assignRoles(bar)
+        check(assignRoles(Array(bar.prefix(9)), required: fightRoles).problems.isEmpty,
+              "a fight needs no food or drink on the bar")
+        check(assignRoles(Array(bar.prefix(9))).problems == ["no drink skill on the bar", "no food skill on the bar"],
+              "a hunt does")
         check(problems.isEmpty && keys == [.melee: 18, .bolt: 19, .heal: 21, .buff: 28, .drink: 27, .food: 24],
               "24 Sept bar: heal is key 4 and the enchant key 8, not the 23 Sept 3 and 4")
         check(assignRoles(bar.enumerated().map { $0.offset == 3 ? nil : $0.element }).problems == ["no heal skill on the bar"],
@@ -216,6 +220,10 @@ struct FightTests {
             ("Imbue the Shaman's weapon,", 29, 119), ("Lasts for 60 minutes.", 93, 173), ("Press F6 to submit an issue for this Spell", 31, 203)]
         check(parseTooltip(tooltipLines(boxes))?.name == "Rockbiter Weapon", "world text above the tooltip is not its name")
         check(tooltipLines(boxes.filter { !$0.text.hasPrefix("Press") }).isEmpty, "no footer: no tooltip lines")
+        check(parseTooltip(tooltipLines(boxes.reversed()))?.name == "Rockbiter Weapon" && tooltipLines(boxes.reversed()).first == "Rockbiter Weapon",
+              "Vision's order does not matter: lines are sorted top to bottom")
+        check(facingError("Target needs to be in front of you.") && facingError("You are facing the wrong way!")
+              && !facingError("Out of range.") && !facingError(nil), "the game's facing errors, and only those, trigger the F9 turn")
         let saved = (FightLimits.bolt, HUD.rangeX0)
         applyRoles([.bolt: 20])
         check(FightLimits.bolt == 20 && HUD.rangeX0 == 758, "the range digit box follows the bolt's slot")

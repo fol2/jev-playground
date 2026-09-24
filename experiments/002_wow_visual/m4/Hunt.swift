@@ -33,7 +33,7 @@ enum HuntLimits {
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53
-    static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat] }
+    static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat, FightLimits.zoomOut] }
     static let continueAfter: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE", "JEV_STOP"]
 }
 

@@ -254,12 +254,12 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
     }
     _ = await Task.detached { coordsText(first.image) }.value  // Vision's first OCR in a process takes ~30 s
     let sink = PidKeySink(pid: session.app.processIdentifier)
-    await zoomOut(sink, log)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     body.ghost = command.ghost
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await zoomOut(body.keys, log)
     guard let start = body.look() else {
         try? await stream.stopCapture()
         throw ProbeError("coordinates or minimap arrow unreadable at the start")
