@@ -189,6 +189,10 @@ final class GraphReplies: JevClient {
         check(command.graph == path && command.experience == "/tmp/episodes.json" && command.mode == .huntDryRun,
               "catalogue and persistent experience selected explicitly in native CLI")
         check(try parseNav(["--hunt", "--keys", "wqe"]).graph == nil, "legacy mode still default")
+        do {
+            _ = try parseNav(["--hunt-dry-run", "--experience", "/tmp/episodes.json"])
+            preconditionFailure("experience without graph must not bypass explicit READ")
+        } catch { /* expected: persistent experience requires the Jev decision graph */ }
         if CommandLine.arguments.contains("--graph") { print(try load().graph.mermaid()) }
         print("decision graph checks passed: \(n)")
     }

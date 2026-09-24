@@ -692,6 +692,9 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
             throw ProbeError("unexpected option '\(option.prefix(40))'")
         }
     }
+    if command.experience != nil && command.graph == nil {
+        throw ProbeError("--experience requires --graph PATH so Jev explicitly chooses READ:experience")
+    }
     if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
     if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }
     if mode == .turnIn && (command.profile == nil || command.quest == nil) {
