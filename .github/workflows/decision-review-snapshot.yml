@@ -1,0 +1,29 @@
+name: Decision review source snapshot
+on:
+  push:
+    branches: [feat/jev-tool-decision-graph]
+    paths: [.github/workflows/decision-review-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        shell: bash
+        run: |
+          git ls-files -z | python3 -c 'import sys; p=sys.stdin.buffer.read().split(b"\0"); sys.stdout.buffer.write(b"\0".join(x for x in p if x and not x.startswith(b"data/") and x.rsplit(b".",1)[-1] not in (b"png",b"jpg",b"jpeg",b"mp4",b"mov"))+b"\0")' > /tmp/paths
+          tar --null -T /tmp/paths -czf /tmp/decision-source.tar.gz
+          git rev-parse HEAD > /tmp/source-head.txt
+          git ls-tree -rz HEAD > /tmp/source-tree.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decision-review-source
+          path: |
+            /tmp/decision-source.tar.gz
+            /tmp/source-head.txt
+            /tmp/source-tree.bin
+          retention-days: 1
