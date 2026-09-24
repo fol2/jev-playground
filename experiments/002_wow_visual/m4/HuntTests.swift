@@ -456,7 +456,7 @@ extension NavTests {
         paint(150, 120, 120, 8)
         paint(200, 20, 12, 20)  // a glowing insect: upright and yellow, no green name
         let marks = questMarks(image, box: (0, 0, 400, 300))
-        check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1,
+        check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1 && marks[0].h == 20 && marks[0].body == 240 + 48,
               "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
         check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
         // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
@@ -507,7 +507,14 @@ extension NavTests {
         check(Array(south.prefix(2)).sorted() == ["The Adventurer", "The Next Step"], "standing in Shen'dar, its quests come first")
         var unpinned = log24Sept
         unpinned[0].pin = nil
-        check(questPlan(unpinned, from: (46.8, 31.5)).first?.title == "Call of Earth", "a quest with no pin counts as here, before the next zone")
+        check(questPlan(unpinned, from: (46.8, 31.5)).last?.title == "Call of Earth", "a pinless quest that is not finished goes last")
+        var lostPin = log24Sept
+        lostPin[3].pin = nil
+        lostPin[1].objective = "- Ready for turn-in"
+        lostPin[1].pin = nil
+        let lost = questPlan(lostPin, from: (46.8, 31.5)).map(\.title)
+        check(lost.first == "Harvesting Windstones" && lost.last == "The Next Step",
+              "live: a finished pinless quest is here; a Shen'dar delivery whose pin was not read is not pulled into this zone")
         let live2 = parseQuestLog(tip([("Zephras Isle", 790, 224), ("[4] Call of Earth", 804, 254), ("Bring the Kough Quartz to", 818, 272),
             ("Windshaper Boros in Thendal", 818, 284), ("Grove.", 816, 296), ("[4] Harvesting Windstones", 804, 320),
             ("- Ready for turn-in", 804, 336), ("[4] The Gift of Skysight", 804, 362), ("- Ready for turn-in", 804, 378)]))

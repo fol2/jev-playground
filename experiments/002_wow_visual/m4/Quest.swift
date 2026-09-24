@@ -69,13 +69,14 @@ func chooseReward(_ rewards: [Reward]) -> (index: Int, equip: Bool)? {
 /// the screenshot's (248, 246, 58). So the test is the hue: parchment (R-B 55) and tan land (75) stay out.
 func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 170 && g > 140 && r - b > 90 && g - b > 80 }
 
-/// The NPC's green name under its mark: (50-65, 150-198, 32-42) on 24 Sept.
-func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 150 && g > r + 60 && g > b + 60 }
+/// The NPC's green name under its mark: (50-65, 150-198, 32-42) in a screenshot, (43-104, 121-172, 26-89)
+/// in the live capture (24 Sept), which is the reference.
+func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 110 && g > r + 40 && g > b + 30 }
 
 /// Centres of yellow quest marks in a box (x0, y0, x1, y1), nearest the view's centre first. A mark is
 /// an upright blob (a "?" is about 10 x 18 px zoomed out) with a green NPC name 8-50 px below it: a
 /// neutral creature's yellow nameplate bar is a flat strip, and a glowing Cirrusfly has no green name
-/// (live frames: 305 green pixels under the real "?", 0-23 under the insects).
+/// (live frames: 305 green pixels under a near "?", about 60 under a distant one, 0-23 under the insects).
 typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
 
 /// Yellow pixels of a box as connected blobs: pixels within `gap` px of each other join. (A fixed grid
@@ -118,24 +119,28 @@ func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> 
         .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
 }
 
-func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 20) -> [(x: Double, y: Double)] {
+/// `body` is where to right-click: below the green name by 2.4 mark heights (near: name bottom 577, body
+/// 608 under a 17-px "?"; a distant NPC's "?" was 4 x 6 px live, and a fixed step landed on its name).
+func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [(x: Double, y: Double, h: Double, body: Double)] {
     let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
-    func greenBelow(_ x: Int, _ y: Int) -> Int {
-        var n = 0
+    func greenBelow(_ x: Int, _ y: Int) -> (n: Int, bottom: Int) {
+        var n = 0, bottom = y
         for yy in max(0, y + 8)..<min(image.height, y + 50) {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
-                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1 }
+                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1; bottom = yy }
             }
         }
-        return n
+        return (n, bottom)
     }
-    return blobs.filter { b in
+    return blobs.compactMap { b -> (x: Double, y: Double, h: Double, body: Double)? in
         let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
-        return b.n >= minPixels && w <= 24 && h >= 10 && Double(h) >= 0.8 * Double(w)
-            && greenBelow(b.sx / b.n, b.sy / b.n) >= 80
-    }.map { (x: Double($0.sx) / Double($0.n), y: Double($0.sy) / Double($0.n)) }
+        guard b.n >= minPixels, w <= 24, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
+        let name = greenBelow(b.sx / b.n, b.sy / b.n)
+        guard name.n >= 40 else { return nil }
+        return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h))
+    }
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
 }
 
@@ -186,11 +191,12 @@ func questZones(_ quests: [PlannedQuest], within: Double) -> [[PlannedQuest]] {
 
 /// The owner, 24 Sept: "finish all available quests in the same zone, accumulate all quests in next zone
 /// for the next priority." The player's zone comes first, walked nearest-first; the other zones follow,
-/// nearest first. A quest without a pin counts as here: a finished quest's NPC is usually at this hub.
+/// nearest first. A finished quest without a pin counts as here (its NPC is usually at this hub); any
+/// other pinless quest goes last (live, 24 Sept: an unread pin put a Shen'dar quest in Thendal's zone).
 /// A RULE, logged as such.
 // ponytail: nearest-neighbour order, not an optimal tour; a hub has a handful of quests.
 func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
-    let located = quests.map { q -> PlannedQuest in var q = q; if q.pin == nil { q.pin = player }; return q }
+    let located = quests.map { q -> PlannedQuest in var q = q; if q.pin == nil && questKind(q) == .handIn { q.pin = player }; return q }
     var zones = questZones(located, within: zoneRadius)
     var plan: [PlannedQuest] = []
     var here = player
@@ -206,7 +212,7 @@ func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Doub
             here = q.pin!
         }
     }
-    return plan
+    return plan + located.filter { $0.pin == nil }
 }
 
 /// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under

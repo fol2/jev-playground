@@ -10,7 +10,6 @@ enum QuestHUD {
     static let tooltip = CGRect(x: 150, y: 100, width: 850, height: 560)  // a reward's tooltip and the equipped one
     static let chatInput = CGRect(x: 30, y: 1160, width: 700, height: 44)  // "Say:" once Enter opens it
     static let world = (300, 100, 2100, 950)  // where quest marks are looked for
-    static let belowMark = 68.0  // from a "?" to the NPC's body
     static let rewardX = [130.0, 274.0], firstRow = 37.0, rowGap = 44.0  // reward names below "Choose your reward:"
     static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
     static let enter: UInt16 = 36
@@ -189,19 +188,31 @@ final class QuestRun {
     }
 
     func turnIn(_ quest: String) async -> String {
-        var dialog = lines(QuestHUD.dialog, await frame())
         func ours(_ lines: [TipLine]) -> TipLine? { lines.first { nameKey($0.text) == nameKey(quest) } }
+        /// A delivery shows its progress page first ("Continue", live 24 Sept for Call of Earth).
+        func pastContinue(_ dialog: [TipLine]) async -> [TipLine] {
+            guard has(dialog, "Complete Quest") == nil, ours(dialog) != nil, let next = has(dialog, "Continue") else { return dialog }
+            body.emit("continue", ["quest": quest])
+            guard click(next.x + 30, next.y + 7) else { return dialog }
+            await sleep(1.5)
+            return lines(QuestHUD.dialog, await frame())
+        }
+        var dialog = await pastContinue(lines(QuestHUD.dialog, await frame()))
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
             guard let image = await frame() else { return "NO_FRESH_FRAME" }
             // A hub's NPCs stand close together (24 Sept: three "?" in Thendal Village): try the nearest
             // three; a dialogue for someone else's quest is closed with Esc (only when one is open: Esc
             // with nothing open is the Game Menu).
-            let marks = questMarks(rgba(image), box: QuestHUD.world)
-            body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y)] }])
-            guard !marks.isEmpty else { return "NO_QUEST_MARK_IN_VIEW" }
+            var marks = questMarks(rgba(image), box: QuestHUD.world)
+            body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+            guard !marks.isEmpty else {
+                write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
+                return "NO_QUEST_MARK_IN_VIEW"
+            }
             var opened = false
-            for mark in marks.prefix(3) {
-                guard click(mark.x, mark.y + QuestHUD.belowMark, right: true) else { return "CLICK_FAILED" }
+            for _ in 0..<3 {
+                guard let mark = marks.first else { break }
+                guard click(mark.x, mark.body, right: true) else { return "CLICK_FAILED" }
                 await sleep(2.5)
                 dialog = lines(QuestHUD.dialog, await frame())
                 if has(dialog, "Complete Quest") == nil, let entry = ours(dialog) {  // an NPC with several quests lists them
@@ -209,12 +220,17 @@ final class QuestRun {
                     await sleep(1.5)
                     dialog = lines(QuestHUD.dialog, await frame())
                 }
+                dialog = await pastContinue(dialog)
                 if has(dialog, "Complete Quest") != nil, ours(dialog) != nil { opened = true; break }
-                if has(dialog, "Continue") != nil, ours(dialog) != nil { return "CONTINUE_PAGE_NOT_HANDLED" }
+                if has(dialog, "Continue") != nil, ours(dialog) != nil { return "CONTINUE_DID_NOT_ADVANCE" }
                 body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": dialog.prefix(4).map(\.text)])
-                if !dialog.isEmpty {
+                if !dialog.isEmpty {  // someone else's quest: close it and try the next mark
                     await tap(QuestHUD.escape)
                     await sleep(0.8)
+                    marks.removeFirst()
+                } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
+                    marks = questMarks(rgba(again), box: QuestHUD.world)
+                    body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
                 }
             }
             guard opened else { return "DIALOGUE_NOT_OPEN" }
@@ -297,9 +313,13 @@ func questsExecute() async throws -> Int32 {
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
-    defer { body.releaseAll() }
+    // Each walk gets its own keys: runNav's exit sweep ends a key set for good (live, 24 Sept: the second
+    // walk of a run pressed nothing for ten decisions).
+    var walker: LiveNavBody?
+    defer { body.releaseAll(); walker?.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
-    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll(); walker?.releaseAll() },
+                              holding: { body.holding || (walker?.holding ?? false) })
     await zoomOut(body.keys, log)
     let quester = try QuestRun(body: body)
     let (quests, player) = await quester.readQuests()
@@ -316,9 +336,13 @@ func questsExecute() async throws -> Int32 {
             outcomes.append(["quest": q.title, "outcome": "NOT_BUILT_" + kind.rawValue])
             break
         }
-        if let pin = q.pin, let at = body.look(), distance((at.x, at.y), pin) > 1.0 {
-            let walk = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                    destination: NavDestination(label: String(q.title.prefix(60)), x: pin.x, y: pin.y, arrive: 1.0))
+        // Walk even a short way: walking faces the NPC, so its "?" is in view (live, 24 Sept: 1.0 away and
+        // behind the camera, no mark was found).
+        if let pin = q.pin, let at = body.look(), distance((at.x, at.y), pin) > 0.5 {
+            let legs = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+            walker = legs
+            let walk = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
+                                    destination: NavDestination(label: String(q.title.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
             guard walk.outcome == "ARRIVED" else {
                 outcomes.append(["quest": q.title, "outcome": "WALK_" + walk.outcome])
                 break
