@@ -1,0 +1,106 @@
+         check(!result.codesPosted.isEmpty && !result.holding, "existing simulated key skill, released at end")
+         check(result.graphRecords.count == 4, "including failed follow-up request in Hunt accounting")
+         let terminal = result.records.first?["question"] as! [String: Any]
+         check((terminal["criteria"] as! [String: String])["DO:LOOK_AROUND"] != nil, "record actual terminal tool menu")
+         check(result.memory?.goal == "complete the initial unfinished objectives", "task survives graph tool calls")
+-        check(result.graphID == "skyborne-hunt-tools-v1", "actual policy identity in result")
++        check(result.graphID == "skyborne-hunt-tools-v2", "actual policy identity in result")
+         let frozenWorld = SimHunt.field(clock: FightClock())
+         graph = try load()
+         let freeze = GraphReplies(["ENTER:search", "DO:LOOK_AROUND"])
+@@ -121,6 +147,26 @@ final class GraphReplies: JevClient {
+         check(frozen.codesPosted.isEmpty, "lost vision after graph reply still uses existing executive check")
+         check(!frozen.holding, "graph introduces no second input owner")
+ 
++        // Jev can call the learning branch while hunting; it labels evidence, then returns to normal tools.
++        let reviewWorld = SimHunt.field(clock: FightClock())
++        let reviewMemory = try ExperienceStore(scope: "skyborne-hunt-tools-v2")
++        let reviewFrame = huntExperienceFrame(reviewWorld.survey()!, blocked: [])!
++        try reviewMemory.record(ExperienceCase(id: "seed", run: "prior", action: "GO_N", before: reviewFrame,
++            after: nil, reported: "blocked in prior fixture", blocked: true, elapsed: 1))
++        graph = try load()
++        let reviewer = GraphReplies(["ENTER:improve", "DO:REVIEW_MOVEMENT", "ENTER:search", "DO:LOOK_AROUND"])
++        var cleanBeforeGameSkill = false
++        reviewer.after = { if reviewer.states.count == 2 { cleanBeforeGameSkill = reviewWorld.world.keys.codesPosted.isEmpty } }
++        let reviewed = await runHunt(host: reviewWorld, jev: reviewer, graph: graph,
++                                     experience: reviewMemory, experienceRun: "review-test")
++        check(cleanBeforeGameSkill, "review branch itself posts no game input")
++        check(reviewMemory.reviews.contains { $0.caseID == "seed" && $0.topic == "movement" },
++              "Jev review remains tied to the exact retained case")
++        check(reviewed.experienceReviews.count == 1, "run evidence records the improvement request")
++        check(reviewer.questions.count >= 3 && (reviewer.questions[2]["criteria"] as! [String: String])["ENTER:search"] != nil,
++              "after review the graph returns to the root decision")
++        check(reviewed.steps.contains { $0.action == .lookAround }, "ordinary Hunt continues after the learning branch")
++
+         // New class/skill and extra depth are data, not a change to graph traversal code.
+         let extensionJSON = """
+         {"id":"fixture-other-class","profile":"synthetic, not implemented in Hunt","root":"r",
+@@ -139,8 +185,9 @@ final class GraphReplies: JevClient {
+             check(false, "missing skill must not be silently dropped")
+         } catch { check(error as? GraphError == .definition, "catalogue must cover the actual supplied skill menu") }
+ 
+-        let command = try parseNav(["--hunt-dry-run", "--graph", path])
+-        check(command.graph == path && command.mode == .huntDryRun, "catalogue selected explicitly in native CLI")
++        let command = try parseNav(["--hunt-dry-run", "--graph", path, "--experience", "/tmp/episodes.json"])
++        check(command.graph == path && command.experience == "/tmp/episodes.json" && command.mode == .huntDryRun,
++              "catalogue and persistent experience selected explicitly in native CLI")
+         check(try parseNav(["--hunt", "--keys", "wqe"]).graph == nil, "legacy mode still default")
+         if CommandLine.arguments.contains("--graph") { print(try load().graph.mermaid()) }
+         print("decision graph checks passed: \(n)")
+diff --git a/experiments/002_wow_visual/runtime/README.md b/experiments/002_wow_visual/runtime/README.md
+index b3e0e926d07cc8961da25979795a5959ebcff89f..d40b3f8e2c326e1e1d0b4873d6368b28af64dafb 100644
+--- a/experiments/002_wow_visual/runtime/README.md
++++ b/experiments/002_wow_visual/runtime/README.md
+@@ -2,8 +2,9 @@
+ 
+ This is the runtime entry point, not another agent framework. Languages do not
+ own architectural roles. `Runtime.swift` keeps task/evidence contracts, `Input.swift`
+-keeps input ownership, and `DecisionGraph.swift` lets Jev choose **information,
+-branching, or skills**. The existing Fight/Nav/Hunt implementations remain tools.
++keeps input ownership, `DecisionGraph.swift` lets Jev choose **information,
++branching, or skills**, and `Experience.swift` retains bounded pre/post outcomes for
++optional later recall. The existing Fight/Nav/Hunt implementations remain tools.
+ 
+ ## Implemented slice
+ 
+@@ -38,8 +39,11 @@ This gives a sequence of adaptive skill choices, **not a blind queued combo**.
+ 
+ ```mermaid
+ flowchart TD
+-    H[Jev: hunt] --> R[READ task history / progress / class conflicts]
++    H[Jev: hunt] --> R[READ task history / progress / references / experience]
+     R --> H
++    H --> I[Jev: improve one retained episode]
++    I --> IR[perception / movement / tactics / retain / unclear hypothesis]
++    IR --> H
+     H --> S[Jev: search]
+     H --> F[DO FIGHT_TARGET]
+     H --> E[DO REST / EAT_DRINK]
+@@ -57,7 +61,8 @@ flowchart TD
+     DS --> N
+     CS --> N
+     E --> N
+-    N --> H
++    N --> X[deterministic pre/post episode record]
++    X --> H
+ ```
+ 
+ `BACK` edges and local READ edges are omitted above. The session actually retains
+@@ -65,6 +70,62 @@ its selected node after a skill; new observations can prompt BACK. `ToolGraph.me
+ renders the exact catalogue, including all skills, reads and child edges. The test
+ binary's `--graph` option prints it. There is no independent graph database or editor.
+ 
++## Experience loop: self-improvement without model weight updates
++
++`Experience.swift` adds one bounded, local episodic cache. After an existing Hunt
++skill actually executes, native code records the coarse pre-action situation, the
++selected skill, its reported result, whether a walk was observed blocked, elapsed
++time and a later observation when one is available. Missing post-action vision or
++a missing objective line remains unknown. Recording an outcome performs no model
++call and does not turn one success/failure into a rule.
++
++On the next decision the compact `experience_index` is always visible. It reports
++whether comparable retained cases exist, but not all episode detail. Jev may then
++choose `READ:experience`; only the following request receives up to three contrasting
++cases (latest, blocked and objective-progress examples) plus per-action counts. The
++matching key uses explicit coarse screen-derived buckets such as combat/recovery
