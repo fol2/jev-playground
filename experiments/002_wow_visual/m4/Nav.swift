@@ -40,7 +40,7 @@ enum NavLimits {
     static let unreadableLimit = 6
     static let recentMoves = 6
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
-    static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, 36]  // 36: Enter, M4c's chat
+    static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, 36, 8]  // M4c: Enter for chat, C for the character pane
 }
 
 typealias MapPoint = (x: Double, y: Double)

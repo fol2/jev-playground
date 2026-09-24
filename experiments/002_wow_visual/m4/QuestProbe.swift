@@ -159,7 +159,7 @@ final class QuestRun {
             await sleep(0.6)
             if pick.equip, let slot = chosen.reward.slot { equip = (chosen.reward.name, slot) }
         }
-        guard let button = has(dialog, "Complete Quest") else { return "DIALOGUE_NOT_OPEN" }
+        guard let button = has(dialog, "Complete Quest") else { return "COMPLETE_BUTTON_MISSING" }
         let before = Set(image().map(chatLines) ?? [])
         guard click(button.x + QuestHUD.buttonCentre, button.y + 7) else { return "CLICK_FAILED" }
         await sleep(2.0)
