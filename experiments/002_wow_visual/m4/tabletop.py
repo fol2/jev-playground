@@ -38,7 +38,7 @@ S = [
        {"BUFF_THEN_BOLT": "Apply the weapon buff, then open with Lightning Bolt at range", "RUN_IN_MELEE": "Run up and auto-attack",
         "BOLT_NO_BUFF": "Bolt immediately without the buff"}),
     sc("mob_in_melee", "MELEE", {"in_combat": True, "target": {"name": "Scrawny Ursera", "health": 0.55, "distance_yards": 2},
-        "note": "each hit taken pushes a cast back about 0.5-1 s, so a 2 s bolt in melee often takes 4 s or is interrupted, wasting its 15% mana; melee costs no mana and hits every swing; a melee mob runs as fast as the character, so backing off only gives it free hits on your back and you cannot get range"},
+        "note": "each hit taken pushes a cast back about 0.5-1 s, so a 2 s bolt in melee often takes 4 s or is interrupted, wasting its 15% mana; melee costs no mana and hits every swing; a melee mob runs as fast as the character, so backing off only gives it free hits on your back and you cannot get range; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range"},
        {"MELEE": "Keep auto-attacking in melee", "CAST_BOLT": "Stand and cast Lightning Bolt", "BACK_OFF": "Walk back to try to get range for bolts (the mob follows at the same speed)"}),
     sc("facing_error", "TURN_TO_TARGET", {"in_combat": True, "error_text": "You are facing the wrong way!",
         "target": {"name": "Ursera Scavenger", "bearing_from_facing_degrees": 140, "distance_yards": 3}},

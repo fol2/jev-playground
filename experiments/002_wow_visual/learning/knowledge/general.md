@@ -72,7 +72,7 @@ Facts a questing agent can reason from, not instructions. One mechanic per line.
 - Owner demo (level 4, Thendal Grove, 15 min): 29 fights in 891 s, about 10 s each, ~32% of time in combat, ~15 s between fights (loot and walk). [owner-live] owner-demo-play
 - Same-level starter mobs often die without a rest; the owner rested rarely on those pulls. [owner-live] owner-demo-play
 - After a hard named fight (Malduko Cloudcrush, health ~30%, red-screen warning) the owner healed, then sat to drink Refreshing Spring Water and eat, full again in about 20 s. [owner-live] owner-demo-play
-- A melee mob that runs as fast as the player: backing off only gives it free hits. [owner-live] owner-demo-play (tabletop)
+- A melee mob that runs as fast as the player: backing off only gives it free hits; a Windshaper's Skysight blessing (+10% run speed, when active) gains under 1 yard a second, too little to open range. [owner-live] owner-demo-play (tabletop)
 - Each incoming hit pushes a cast back 0.5–1 s. [owner-live] owner-demo-play (tabletop)
 - Classic Spirit mana regen: after 5 s without spending mana, mana regenerates from Spirit every 2 s (“five-second rule”). [classic-baseline] leveling_fundamentals §11; Warcraft Tavern Mana management
 - One Forever beta stream claims mana after casting regenerates continuously on the client rather than Classic block/tick recovery. [video-forever] videos_mid `UeZ6P86snOo` 1:41–2:15 — see conflicts.md

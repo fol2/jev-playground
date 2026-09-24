@@ -25,6 +25,17 @@ extension NavTests {
         check(parseTracker(["Agitators", "Oyo Roiling Winds destroyed"]).isEmpty, "a misread count is not an objective")
         check(parseTracker(["- 0/6 Roiling Winds destroyed"]).isEmpty, "an objective with no quest title above is dropped")
         check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
+        // The owner's demo tracker (23 Sept): finished quests show "Ready for turn-in" instead of objectives.
+        let demo = parseTracker(["Quests", "Aggressive Encroachment", "Ready for turn-in", "Harvesting Windstones",
+                                 "- 3/15 Windstone Cluster", "Call of Earth", "adyfor turnien"])
+        check(demo == [Objective(quest: "Aggressive Encroachment", done: 1, need: 1, text: Objective.ready),
+                       Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster"),
+                       Objective(quest: "Call of Earth", done: 1, need: 1, text: Objective.ready)],
+              "\"Ready for turn-in\" under a title, as OCR reads it, finishes that quest")
+        check(parseTracker(["Agitators", "- 2/7 Al'Aketh Convert slain", "Ready for turn-in"]).count == 1,
+              "\"Ready for turn-in\" under an objective line (its own title missed) finishes nothing")
+        check(parseTracker(["Waiting for Turnips", "- 0/5 Turnip"]).first?.quest == "Waiting for Turnips",
+              "a title containing \"for turn\" is still a title")
     }
 
     /// A minimap-sized frame with ring outlines: (centre offset from the character, radius, colour).
@@ -103,8 +114,17 @@ extension NavTests {
         var done = objectives
         done[1].done = 6
         check(objective(for: "Roiling Wind", in: done) == nil, "a finished objective no longer counts")
-        check(remaining(objectives, in: done).count == 2 && remaining(objectives, in: []).isEmpty,
-              "a finished or vanished objective is no longer remaining")
+        check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
+        let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
+                     "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]
+        check(remaining(objectives, in: parseTracker(lines.filter { !$0.contains("Roiling") })).count == 3,
+              "a row lost among several stays remaining: an OCR miss is not a completion")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Infestation Investigation"])).count == 3
+              && remaining(objectives, in: parseTracker(["All Objectives"])).count == 3 && remaining(objectives, in: []).count == 3,
+              "title-only OCR, a collapsed tracker or nothing read: every objective stays remaining")
+        check(remaining(objectives, in: parseTracker(lines)).count == 3, "a line that reappears unfinished is still remaining")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Ready for turn-in", "Infestation Investigation", "- 8/8 Pesky Cirrusfly slain"])).isEmpty,
+              "completion: a quest's \"Ready for turn-in\" or a line read at 8/8")
 
         let here = NavObs(x: 40, y: 30, facing: 0)
         let wind = HuntObs(objectives: objectives, target: "Roiling Wind", targetAlive: true, facing: 0, here: here)
@@ -229,6 +249,15 @@ extension NavTests {
         check(ate == "ate and drank for 20 s" && hungry.world.player == 1 && hungry.mana == 1 && hungry.keys.codesPosted == [29, 27],
               "EAT_DRINK: water (0), bread (-), 20 s seated restores both to full")
 
+        let stalled = SimHunt.field(clock: FightClock())
+        stalled.world.player = 0.5
+        stalled.frozen = true
+        let stalledRest = await rest(stalled, seconds: HuntLimits.restSeconds)
+        check(stalledRest.hasSuffix("no fresh frame") && stalled.clock.t < 1, "a rest stops at once when the capture stalls: no frame is not calm")
+        let stalledLook = await lookAround(stalled)
+        check(stalledLook.result.hasPrefix("no fresh frame") && stalled.keys.codesPosted.isEmpty && !stalled.keys.holding,
+              "a look does not turn without a fresh frame")
+
         let resting = SimHunt.field(clock: FightClock())
         resting.world.player = 0.5
         let rested = await rest(resting, seconds: HuntLimits.restSeconds)
@@ -293,6 +322,23 @@ extension NavTests {
         check(fled.outcome == "FIGHT_SAFETY_STOP_PLAYER_BELOW_30" && fled.fights.count == 1 && !fled.holding,
               "a fight's safety stop ends the hunt")
 
+        let blurred = plain([])
+        var reads = 0
+        blurred.readLines = { lines in reads += 1; return reads == 1 ? lines : lines.filter { !$0.hasPrefix("-") } }
+        let unsure = await runHunt(host: blurred, jev: huntScripted([.nextTarget, .lookAround, .east, .west]))
+        check(unsure.outcome == "NO_TARGET_FOUND" && reads > 2,
+              "a tracker read later as titles only does not end the hunt as OBJECTIVES_COMPLETE (\(unsure.outcome))")
+
+        let ambushed = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 31)])
+        let ambush = await runHunt(host: ambushed, jev: AmbushJev(world: ambushed, then: huntScripted([.east, .fight, .lookAround])))
+        check(ambush.steps.count >= 2 && ambush.steps[0].action == .east && ambush.steps[0].result.hasPrefix("not done")
+              && ambush.steps[1].action == .fight,
+              "attacked while Jev decided: the walk is not done, and the next decision fights back (\(ambush.outcome))")
+        let frozenMid = plain([])
+        let stall = await runHunt(host: frozenMid, jev: FreezingJev(world: frozenMid, then: huntScripted([.east])))
+        check(stall.outcome == "HUD_UNREADABLE" && stall.steps.first?.result.hasPrefix("not done") == true && frozenMid.world.x == 40
+              && !stall.holding, "the capture stalls while Jev decides: nothing is done and the hunt ends unreadable")
+
         let down = await runHunt(host: SimHunt.field(clock: FightClock()), jev: NavThrowingJev())
         check(down.outcome == "JEV_FAILED" && down.decisions == 0, "a failed Jev call ends the hunt, no fallback")
         let odd = await runHunt(host: SimHunt.field(clock: FightClock()), jev: NavReplyJev(choice: "STOP"))
@@ -308,5 +354,27 @@ extension NavTests {
             let result = await runHunt(host: world, jev: huntScripted(hunter))
             check(result.outcome == outcome && result.decisions == 0 && !result.holding, "\(outcome) stops before any decision")
         }
+    }
+}
+
+/// Answers as `then`, but a hostile creature reaches the character while the first question is out.
+final class AmbushJev: JevClient {
+    let world: SimHunt, then: ScriptedJev<HuntAction>
+    var asked = 0
+    init(world: SimHunt, then: ScriptedJev<HuntAction>) { self.world = world; self.then = then }
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        asked += 1
+        if asked == 1 { world.mobs[0].y = world.world.y + 0.1; world.world.combat = true; world.selected = 0 }
+        return try await then.ask(state: state, question: question)
+    }
+}
+
+/// Answers as `then`, but the capture stalls while the first question is out.
+final class FreezingJev: JevClient {
+    let world: SimHunt, then: ScriptedJev<HuntAction>
+    init(world: SimHunt, then: ScriptedJev<HuntAction>) { self.world = world; self.then = then }
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        world.frozen = true
+        return try await then.ask(state: state, question: question)
     }
 }

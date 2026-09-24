@@ -286,7 +286,7 @@ enum FightAction: String, JevAction {
         case .castLightningBolt:
             return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
         case .startMelee:
-            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits."
+            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
         case .heal:
             return "Cast Healing Wave on the character: about a 2-second cast that restores most of its health, costs mana, and is delayed by melee hits like any cast."
         case .lootCorpse:

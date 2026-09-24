@@ -18,6 +18,8 @@ enum HuntLimits {
     static let settle = 0.5  // for the target frame to follow a key
     static let tick = 0.25
     static let unreadableLimit = 3
+    // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
+    static let maxFrameAge = 1.0
     static let recent = 6
     static let restHealth = 0.99
     static let restMana = 0.95
@@ -43,13 +45,18 @@ struct Objective: Equatable {
     var need: Int
     var text: String
     var unfinished: Bool { done < need }
+    /// A finished quest's tracker entry: its title, then "Ready for turn-in" where its objectives were
+    /// (the owner's recorded demo, 23 Sept). Parsed as one finished pseudo-objective with this text.
+    static let ready = "Ready for turn-in"
 }
 
 /// Reads the objectives tracker's OCR lines, top to bottom: "Agitators", "- 0/6 Roiling Winds destroyed".
 /// A line with no count is a quest title. Upscale the crop first: at 1x, "0/6" reads as "Oyo".
+/// "Ready for turn-in" counts only straight under a title: under an objective line it may belong to a
+/// quest whose title OCR missed, and must not finish the quest above.
 func parseTracker(_ lines: [String]) -> [Objective] {
     let count = try! NSRegularExpression(pattern: #"^\W*(\d{1,3})\s*/\s*(\d{1,3})\s+(\S.*)$"#)
-    var quest = "", out: [Objective] = []
+    var quest = "", underTitle = false, out: [Objective] = []
     for raw in lines {
         let line = raw.trimmingCharacters(in: .whitespaces)
         if let m = count.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -57,11 +64,24 @@ func parseTracker(_ lines: [String]) -> [Objective] {
             if !quest.isEmpty && need > 0 {
                 out.append(Objective(quest: quest, done: done, need: need, text: String(line[Range(m.range(at: 3), in: line)!])))
             }
+            underTitle = false
+        } else if readyLine(line) {
+            if underTitle { out.append(Objective(quest: quest, done: 1, need: 1, text: Objective.ready)) }
+            underTitle = false
         } else if line.first?.isLetter == true && line.filter(\.isLetter).count >= 4 {
             quest = line
+            underTitle = true
         }
     }
     return out
+}
+
+/// "Ready for turn-in" as the demo's OCR read it ("Ready for turn-", "adyfor turnien"), but not a
+/// title that merely contains "for turn" ("Waiting for Turnips").
+func readyLine(_ line: String) -> Bool {
+    let key = nameKey(line)
+    guard let r = key.range(of: "forturn") else { return false }
+    return key.distance(from: key.startIndex, to: r.lowerBound) <= 5 && key.distance(from: r.upperBound, to: key.endIndex) <= 4
 }
 
 /// Letters only, lower case, with "i" read as "l": OCR reads "Al'Aketh" as "AI' Aketh".
@@ -78,10 +98,13 @@ func objective(for name: String?, in objectives: [Objective]) -> Objective? {
     return objectives.first { $0.unfinished && nameKey($0.text).hasPrefix(nameKey(name)) }
 }
 
-/// The objectives in `wanted` still unfinished in `now`. A line that has gone counts as finished.
+/// The objectives in `wanted` not yet seen finished in `now`: finished is its own line read at done >= need,
+/// or its quest's "Ready for turn-in". A line that has merely gone (an OCR miss, a collapsed tracker)
+/// stays remaining: missing evidence is not a completion.
 func remaining(_ wanted: [Objective], in now: [Objective]) -> [Objective] {
     wanted.filter { w in
-        now.contains { nameKey($0.quest) == nameKey(w.quest) && nameKey($0.text) == nameKey(w.text) && $0.unfinished }
+        !now.contains { nameKey($0.quest) == nameKey(w.quest) && !$0.unfinished
+            && ($0.text == Objective.ready || nameKey($0.text) == nameKey(w.text)) }
     }
 }
 
@@ -371,7 +394,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
     if let facing = o.facing { character["facing_deg"] = Int(facing.rounded()) }
     if let here = o.here { character["position"] = ["x": here.x, "y": here.y] }
     return [
-        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
+        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
         "objectives": o.objectives.filter(\.unfinished).map {
             ["quest": $0.quest, "objective": $0.text, "progress": "\($0.done)/\($0.need)"]
         },
@@ -394,7 +417,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
 /// its host is a NavBody: `look` reads position and facing for the walk skill.
 protocol HuntHost: NavBody {
     func survey() -> HuntObs?  // everything, OCR included; nil when the tracker is unreadable
-    func vitals() -> HuntObs  // pixels only (no OCR), for polling and aiming
+    func vitals() -> HuntObs?  // pixels only (no OCR), for polling; nil without a fresh frame
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult
 }
 
@@ -423,7 +446,9 @@ func rest(_ host: HuntHost, seconds: Double) async -> String {
     let began = host.now()
     while host.now() - began < seconds {
         await host.sleep(HuntLimits.tick)
-        if host.vitals().combat { return "attacked after \(Int(host.now() - began)) s" }
+        // No frame is no evidence of calm: stop rather than sit on through an unseen attack.
+        guard let v = host.vitals() else { return "stopped after \(Int(host.now() - began)) s: no fresh frame" }
+        if v.combat { return "attacked after \(Int(host.now() - began)) s" }
         if host.ownerTookFocus() { return "stopped after \(Int(host.now() - began)) s" }
     }
     return "rested \(Int(seconds)) s"
@@ -458,7 +483,8 @@ func lookAround(_ host: HuntHost) async -> (result: String, seen: [Seen]) {
     var seen: [Seen] = []
     for step in 0..<4 {
         if let o = host.survey() { seen = merged(seen, o.seen) }
-        if host.vitals().combat {
+        guard let v = host.vitals() else { return ("no fresh frame; stopped turning after \(step * 90)°", seen) }
+        if v.combat {
             let tabbed = await selectNearest(host)
             if host.survey()?.targetAlive == true { return ("attacked; turned \(step * 90)° and " + tabbed, seen) }
         }
@@ -548,6 +574,14 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
 
         var result: String
         sinceFight += 1
+        // A reply takes seconds, and a creature may attack meanwhile: a non-combat action runs only on a
+        // fresh frame still out of combat. Otherwise the next decision sees the new state.
+        if !o.combat && choice.action != .fight && host.vitals()?.combat != false {
+            result = "not done: attacked, or no fresh frame, while Jev decided"
+            r.steps.append(HuntStep(action: choice.action, result: result))
+            host.emit("acted", ["action": choice.action.rawValue, "result": result])
+            continue
+        }
         switch choice.action {
         case .fight:
             let fight = await host.fight(jev: jev, inCombat: o.combat)
@@ -609,6 +643,8 @@ final class SimHunt: HuntHost {
     var fightOutcome = "KILLED_AND_LOOTED"
     var fightsRun = 0
     var surveyBlind = false
+    var frozen = false  // the capture has stalled: no fresh frame for vitals or a survey
+    var readLines: ([String]) -> [String] = { $0 }  // what the tracker's OCR keeps of its lines
     var eating = false  // sitting with food or water: regain 5% a second until standing up or attacked
 
     init(world: SimNav, mobs: [Mob], objectives: [Objective]) {
@@ -658,7 +694,20 @@ final class SimHunt: HuntHost {
         }
     }
 
-    func vitals() -> HuntObs {
+    func vitals() -> HuntObs? { frozen ? nil : reading() }
+
+    /// The tracker as WoW draws it: each quest's title, then its objective lines, or "Ready for turn-in"
+    /// once all of them are done.
+    var trackerLines: [String] {
+        var quests: [String] = []
+        for o in objectives where !quests.contains(o.quest) { quests.append(o.quest) }
+        return quests.flatMap { quest -> [String] in
+            let mine = objectives.filter { $0.quest == quest }
+            return [quest] + (mine.contains(where: \.unfinished) ? mine.map { "- \($0.done)/\($0.need) \($0.text)" } : [Objective.ready])
+        }
+    }
+
+    private func reading() -> HuntObs {
         var o = HuntObs(player: world.player, mana: mana, combat: world.combat, facing: world.facing, here: world.look())
         if let a = area {
             let here: MapPoint = (world.x, world.y), centre: MapPoint = (a.x, a.y)
@@ -669,9 +718,9 @@ final class SimHunt: HuntHost {
     }
 
     func survey() -> HuntObs? {
-        guard !world.unreadable, !surveyBlind else { return nil }
-        var o = vitals()
-        o.objectives = objectives
+        guard !world.unreadable, !surveyBlind, !frozen else { return nil }
+        var o = reading()
+        o.objectives = parseTracker(readLines(trackerLines))
         o.target = selected.map { mobs[$0].name }
         o.targetAlive = selected.map { mobs[$0].alive } ?? false
         o.gameMenu = gameMenu

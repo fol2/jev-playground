@@ -78,15 +78,21 @@ final class LiveHuntHost: HuntHost {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
     }
 
-    func vitals() -> HuntObs {
-        guard let image = feed.latest else { return HuntObs() }  // a missing frame never ends a move early
-        return pixelObs(rgba(image))
+    /// The newest frame, or nil when there is none or it is older than `HuntLimits.maxFrameAge`: a stalled
+    /// capture must not pass for a calm, healthy scene.
+    private func freshImage() -> CGImage? {
+        guard let frame = feed.latestFrame, hostNow() - frame.pts <= HuntLimits.maxFrameAge else { return nil }
+        return frame.image
+    }
+
+    func vitals() -> HuntObs? {
+        freshImage().map { pixelObs(rgba($0)) }
     }
 
     /// The walk skill's reading, as M4a's: coordinates, the minimap arrow and the M3 bars. Every other
     /// frame is kept as w###.jpg.
     func look() -> NavObs? {
-        guard let image = feed.latest else { return nil }
+        guard let image = freshImage() else { return nil }
         if walkNo % 2 == 0 { write(image, to: directory.appendingPathComponent(String(format: "w%03d.jpg", walkNo)), type: .jpeg) }
         walkNo += 1
         let pixels = rgba(image)
@@ -103,7 +109,7 @@ final class LiveHuntHost: HuntHost {
     /// Everything a decision needs: the tracker, target, Game Menu, position, and the creatures whose
     /// plates are in view with their names. Nil when the tracker is unreadable.
     func survey() -> HuntObs? {
-        guard let image = feed.latest else { return nil }
+        guard let image = freshImage() else { return nil }
         write(image, to: directory.appendingPathComponent(String(format: "h%03d.jpg", frameNo)), type: .jpeg)
         frameNo += 1
         let lines = upscaledText(image, HuntHUD.tracker)
