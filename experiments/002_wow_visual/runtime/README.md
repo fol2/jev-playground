@@ -31,7 +31,9 @@ skills or named map/equipment records. A new menu is not a new physical capabili
 References are snapshotted once from the trusted local repo configuration and
 loaded into model context only when selected. Snapshot resources refresh their
 values from each new input; absent values remain null. Loaded READ options are
-removed to avoid spending another call fetching the same data. Jev can act directly
+removed to avoid spending another call fetching the same data. A READ is offered only
+when at least one of its snapshot keys is in this input, and a branch only when an
+offered skill lies below it: an empty menu would cost a call just to leave. Jev can act directly
 without a lookup, remain inside a subgoal for successive skills, or return upward.
 This gives a sequence of adaptive skill choices, **not a blind queued combo**.
 
@@ -79,7 +81,8 @@ time and a later observation when one is available. Missing post-action vision o
 a missing objective line remains unknown. Recording an outcome performs no model
 call and does not turn one success/failure into a rule.
 
-On the next decision the compact `experience_index` is always visible. It reports
+With a store, the compact `experience_index` is visible on every decision; without one,
+neither experience key is sent, so flat and graph requests stay as they were. It reports
 whether comparable retained cases exist, but not all episode detail. Jev may then
 choose `READ:experience`; only the following request receives up to three contrasting
 cases (latest, blocked and objective-progress examples) plus per-action counts. The
@@ -88,7 +91,7 @@ phase, health/mana band, selected-target kind, quest-area relation, nearby hosti
 blocked-heading presence and a coarse zone-map cell. It is deliberately not semantic
 similarity, causal attribution or a calibrated success probability.
 
-Jev may also enter the `improve` node. Its outputs are deliberately narrow:
+When a matching retained episode has a review still open, Jev may also enter the `improve` node. Its outputs are deliberately narrow:
 `REVIEW_PERCEPTION`, `REVIEW_MOVEMENT`, `REVIEW_TACTICS`, `RETAIN_EXAMPLE` or
 `REVIEW_UNCLEAR`. This stores a hypothesis/bookmark tied to the exact episode, posts
 no game input, then returns the graph to the Hunt root. It cannot write Swift, create
@@ -98,7 +101,8 @@ those changes still need ordinary source review and evidence before becoming run
 inputs. This separates immediate non-parametric adaptation from slower software
 improvement.
 
-The store is opt-in and local:
+The store is opt-in and local. It holds OCR'd target and objective names, so keep it
+under the ignored `runs/` or outside the repository, never in a tracked path:
 
 ```sh
 # First run accumulates episodes; later runs can choose READ:experience.

@@ -157,7 +157,7 @@ def main():
         graph_tests = str(Path(tmp, "graph-tests"))
         build(graph_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift",
               NAV + "Nav.swift", NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "GraphTests.swift")
-        graph_checks = suite(graph_tests, "decision graph", 53)
+        graph_checks = suite(graph_tests, "decision graph", 56)
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
         seek_tests, seek = str(Path(tmp, "seek-tests")), str(Path(tmp, "m1-seek"))
         build(tests, MOTOR + "Motor.swift", MOTOR + "MotorTests.swift")

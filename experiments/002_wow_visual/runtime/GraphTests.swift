@@ -193,6 +193,26 @@ final class GraphReplies: JevClient {
             _ = try parseNav(["--hunt-dry-run", "--experience", "/tmp/episodes.json"])
             preconditionFailure("experience without graph must not bypass explicit READ")
         } catch { /* expected: persistent experience requires the Jev decision graph */ }
+        // Offers lead somewhere (review of #25): no empty branch, no read with nothing in this input.
+        let menu = provider.questions[0]["criteria"] as! [String: String]
+        check(menu["ENTER:improve"] == nil && menu["READ:experience"] == nil && menu["ENTER:search"] != nil,
+              "without review tools or a store, improve and experience are not offered; search still is")
+        let restOnly = try load()
+        let rests = GraphReplies(["DO:REST"])
+        _ = try await restOnly.next(state: state, skills: ["REST": "rest"], jev: rests, now: { 0 }, deadline: 10)
+        check((rests.questions[0]["criteria"] as! [String: String])["ENTER:search"] == nil,
+              "a branch with no offered skill below it is not entered at the cost of a call")
+        final class Flat: JevClient {
+            var states: [[String: Any]] = []
+            let inner = ScriptedJev<HuntAction>(preference: [.fight, .nextTarget, .lookAround])
+            func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+                states.append(state); return try await inner.ask(state: state, question: question)
+            }
+        }
+        let flat = Flat()
+        _ = await runHunt(host: SimHunt.field(clock: FightClock()), jev: flat)
+        check(!flat.states.isEmpty && flat.states.allSatisfy { $0["experience_index"] == nil && $0["experience_recall"] == nil },
+              "the flat baseline's requests carry no experience keys without a store")
         if CommandLine.arguments.contains("--graph") { print(try load().graph.mermaid()) }
         print("decision graph checks passed: \(n)")
     }
