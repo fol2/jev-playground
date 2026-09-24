@@ -174,10 +174,10 @@ python3 -m tools.motor_offline   # builds and checks M0, M1/M2 and M3 with no li
 ```sh
 V=experiments/002_wow_visual
 C=experiments/001_wow_fishing/probes/background-click
-swiftc -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/FightTests.swift \
+swiftc -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/FightTests.swift $V/runtime/Runtime.swift $V/runtime/Input.swift \
   -o /tmp/fight-tests && /tmp/fight-tests
 swiftc -O -parse-as-library -D SEEK -D FIGHT $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift \
-  $V/m1/Plate.swift $V/m1/SeekProbe.swift $V/m3/Fight.swift $V/m3/FightProbe.swift \
+  $V/m1/Plate.swift $V/m1/SeekProbe.swift $V/m3/Fight.swift $V/m3/FightProbe.swift $V/runtime/Runtime.swift $V/runtime/Input.swift \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift -o /tmp/m3-fight
 /tmp/m3-fight --preflight   # JSON facts only
 /tmp/m3-fight --dry-run     # SimFight + a scripted chooser: no capture, input or network

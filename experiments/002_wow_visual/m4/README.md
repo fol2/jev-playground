@@ -19,7 +19,9 @@ stops on safety rules. Jev chooses every move. The owner supervises every live w
 | `NavProbe.swift` | Native shell: capture, coordinates OCR, pid keys, Jev HTTP, run files; `--replay` and `--sim-jev` rehearsals | `--preflight`, `--dry-run` in `tools/motor_offline.py` |
 | `NavTests.swift` | Counted offline checks on synthetic arrows, rules, rejections and simulated walks | Focus Gate `motor-offline` |
 
-Two pieces now shared with M3 live in `m3/Fight.swift`:
+Shared with M3: the question/response helpers remain in `m3/Fight.swift`; the input
+owner now lives in `runtime/Input.swift`. The integrated evidence and decision boundary
+is described in [the runtime decision record](../../../docs/changes/2026-09-24-runtime-boundaries.md).
 
 - **The generic Jev question and reply validation** (`JevAction`, `actionQuestion`, `parseChoice`).
 - **`LiveKeys`**, the pid-targeted key state that M3's review hardened:
@@ -283,7 +285,8 @@ page of item quests, Accept for new quests and silver or gold in a sell price.
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
-  experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
+  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 ```
