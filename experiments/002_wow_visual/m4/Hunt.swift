@@ -521,10 +521,13 @@ struct HuntResult {
     var codesPosted: [UInt16] = []
     var runtime: SkillResult? = nil
     var memory: TaskMemory? = nil
+    var graphID: String? = nil
+    var graphRecords: [[String: Any]] = []
 }
 
-func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
+func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -> HuntResult {
     var r = HuntResult()
+    r.graphID = graph?.graph.id
     var executive = RuntimeExecutive(goal: "complete the initial unfinished objectives")
     executive.begin("hunt")
     var lastStamp: ObservationStamp?
@@ -572,18 +575,37 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         let blocked = o.here.map { r.walks.blockedHeadings(near: $0) } ?? []
 
         let allowed = huntAdmissible(o, steps: r.steps, blocked: blocked)
-        let state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
-        let question = actionQuestion(allowed, instructions: huntInstructions)
+        var state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
+        if graph != nil {
+            state["task_memory"] = ["goal": executive.memory.goal, "revision": executive.memory.revision,
+                "active_skill": executive.memory.activeSkill ?? "none", "recent": executive.memory.recent.map(\.json)]
+        }
+        var question = actionQuestion(allowed, instructions: huntInstructions)
         let asked = host.now()
         guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
-                policy: "hunt-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
+                policy: graph?.graph.id ?? "hunt-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
                 deadline: min(asked + HuntLimits.jevTimeout, began + HuntLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
+        let selected: HuntAction?
+        func recordGraphCalls() {
+            for call in graph?.lastTrace ?? [] { r.graphRecords.append(call); host.emit("graph_call", call) }
+        }
         do {
-            reply = try await jev.ask(state: state, question: question)
+            if let graph {
+                let decision = try await graph.next(state: state,
+                    skills: Dictionary(uniqueKeysWithValues: allowed.map { ($0.rawValue, $0.facts) }),
+                    jev: jev, now: host.now, deadline: context.deadline, stopped: host.ownerTookFocus)
+                reply = decision.response; state = decision.state; question = decision.question
+                selected = HuntAction(rawValue: decision.action)
+                recordGraphCalls()
+            } else {
+                reply = try await jev.ask(state: state, question: question)
+                selected = parseChoice(reply, admissible: allowed, model: FightLimits.model)?.action
+            }
         } catch {
+            recordGraphCalls()
             host.emit("jev_error", ["error": "\(error)"])
-            return finish("JEV_FAILED")
+            return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
         }
         r.latencies.append(host.now() - asked)
         r.decisions += 1
@@ -591,35 +613,33 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
                                      "admissible": allowed.map(\.rawValue), "response": reply, "context": context.json]
         r.records.append(record)
         host.emit("decision", record)
-        guard let choice = parseChoice(reply, admissible: allowed, model: FightLimits.model) else {
-            return finish("INVALID_REPLY")
-        }
+        guard let action = selected, allowed.contains(action) else { return finish("INVALID_REPLY") }
 
         var result: String
         sinceFight += 1
         // A reply takes seconds: re-read before acting. Without a fresh frame nothing is done; attacked
         // meanwhile, a non-combat action is not done (the next decision sees the attack) and a pull
         // starts as a fight already in combat.
-        guard let fresh = host.vitals(), !(fresh.combat && !o.combat && choice.action != .fight) else {
+        guard let fresh = host.vitals(), !(fresh.combat && !o.combat && action != .fight) else {
             result = "not done: attacked, or no fresh frame, while Jev decided"
-            r.steps.append(HuntStep(action: choice.action, result: result))
-            host.emit("acted", ["action": choice.action.rawValue, "result": result])
+            r.steps.append(HuntStep(action: action, result: result))
+            host.emit("acted", ["action": action.rawValue, "result": result])
             continue
         }
         let latest = host.readSurvey().value
         let latestAllowed = latest.map { huntAdmissible($0, steps: r.steps, blocked: blocked).map(\.rawValue) } ?? []
-        if let rejection = executive.rejection(DecisionProposal(context: context, action: choice.action.rawValue),
+        if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),
                 current: latest?.stamp, candidates: latestAllowed, now: host.now(), maximumAge: FightLimits.maxFrameAge,
                 ownerStopped: host.ownerTookFocus()) {
             host.emit("proposal_rejected", ["reason": rejection, "request": context.request])
             if rejection == "owner_stop" { return finish("OWNER_TOOK_FOCUS") }
             if rejection == "decision_expired" { return finish("DECISION_EXPIRED") }
-            r.steps.append(HuntStep(action: choice.action, result: "not done: " + rejection))
+            r.steps.append(HuntStep(action: action, result: "not done: " + rejection))
             continue
         }
         o = latest!
         lastStamp = o.stamp
-        switch choice.action {
+        switch action {
         case .fight:
             executive.begin("combat")
             let fight = await host.fight(jev: jev, inCombat: o.combat || fresh.combat)
@@ -648,14 +668,14 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         case .toCreature:
             let heading = questCreature(o)?.bearing
             result = heading == nil ? "nothing to walk to" : await walkOn(host, heading: heading!, episode: &r.walks)
-        case _ where choice.action.areaOffset != nil:
-            let heading = o.area.map { $0.bearing + choice.action.areaOffset! }
+        case _ where action.areaOffset != nil:
+            let heading = o.area.map { $0.bearing + action.areaOffset! }
             result = heading == nil ? "no area to walk by" : await walkOn(host, heading: heading!, episode: &r.walks)
         default:
-            result = await walkOn(host, heading: choice.action.compassHeading ?? 0, episode: &r.walks)
+            result = await walkOn(host, heading: action.compassHeading ?? 0, episode: &r.walks)
         }
-        r.steps.append(HuntStep(action: choice.action, result: result))
-        host.emit("acted", ["action": choice.action.rawValue, "result": result])
+        r.steps.append(HuntStep(action: action, result: result))
+        host.emit("acted", ["action": action.rawValue, "result": result])
     }
     return finish("DECISION_LIMIT")
 }

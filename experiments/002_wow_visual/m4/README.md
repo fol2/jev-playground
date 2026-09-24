@@ -281,12 +281,32 @@ page of item quests, Accept for new quests and silver or gold in a sell price.
 
 ## Reproduce
 
+Native build and no-effect graph rehearsal (macOS, from the repo root):
+
+```sh
+V=experiments/002_wow_visual
+C=experiments/001_wow_fishing/probes/background-click
+swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
+  $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift $V/m1/Plate.swift $V/m1/SeekProbe.swift \
+  $V/m3/Fight.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
+  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift \
+  $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
+  $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
+  -o /tmp/m4-nav
+/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json"
+```
+
+The opt-in [tool graph](../runtime/README.md) organises Jev's information and skill
+choices. The command above uses canned replies and SimHunt, not live Jev or WoW.
+Omit `--graph` for the existing flat-policy rehearsal. No current or historical
+live result below/above certifies the new graph policy.
+
 ```sh
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
   experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
-  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 ```

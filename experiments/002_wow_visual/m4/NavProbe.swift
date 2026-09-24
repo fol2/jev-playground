@@ -312,9 +312,9 @@ struct M4Nav {
             case .replay: exit(try navReplay(command.directory ?? "."))
             case .simJev: exit(try await navSimJev(command))
             case .execute: exit(try await navExecute(command))
-            case .huntDryRun: exit(try await huntDryRun())
-            case .huntSimJev: exit(try await huntSimJev())
-            case .hunt: exit(try await huntExecute())
+            case .huntDryRun: exit(try await huntDryRun(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
+            case .huntSimJev: exit(try await huntSimJev(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
+            case .hunt: exit(try await huntExecute(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
             case .turnIn: exit(try await questExecute(command))
             }
         } catch {
