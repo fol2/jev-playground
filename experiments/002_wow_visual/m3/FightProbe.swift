@@ -315,6 +315,7 @@ final class LiveHost: FightHost {
         case .castLightningBolt:
             let first = await castHeld()
             guard !first.contains("cast at 75"), facingError(errorText()) else { return first }
+            emit("reflex", ["controller": "RULE", "trigger": "facing error", "within": "CAST_LIGHTNING_BOLT", "does": "F9 turn, one retry"])
             let turned = await face(&episode)
             return "\(first); the game said the target was not in front, so Interact With Target turned to it (\(turned)); retried: \(await castHeld())"
         case .startMelee:

@@ -81,7 +81,8 @@ The second live fight killed its target but then pressed Lightning Bolt 12 times
 "Target needs to be in front of you." was on screen, and zoomed out, an adjacent creature's
 nameplate sits mid-screen whichever way the character faces, so FACE_TARGET was not offered. The
 owner: "should detect 'you are not face the mob' to trigger F9". A bolt that fails with the game's
-facing error now turns with F9 and retries once, inside the same action. START_MELEE is also F9:
+facing error now turns with F9 and retries once, inside the same action; the log records it as
+a `reflex` row with controller RULE, apart from Jev's choice. START_MELEE is also F9:
 the bar's Attack is a toggle, so pressing it while swinging would stop the swings. A fight needs
 bolt, heal and enchant skills on the bar; a hunt also needs food and drink.
 
