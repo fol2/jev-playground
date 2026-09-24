@@ -11,7 +11,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, ROOT, GateError
+from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
@@ -206,6 +206,10 @@ def main():
                                   capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
         if not re.search(r"^tabletop scenarios checked: (1[2-9]|[2-9]\d)$", tabletop.stdout, re.M):
             raise GateError(f"tabletop --check reported {tabletop.stdout.strip() or 'nothing'}")
+        video = subprocess.run([sys.executable, LEARN + "video_jev.py", "--check"], cwd=ROOT, check=True,
+                               capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
+        if not re.search(r"^askable decision points: (2[3-9]\d|[3-9]\d\d)$", video.stdout, re.M):
+            raise GateError(f"video_jev --check reported {video.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
     print(f"M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
