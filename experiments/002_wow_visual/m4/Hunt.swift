@@ -652,9 +652,10 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         let experienceContext = experienceFrame?.context ?? [:]
         let reviewTools = graph == nil ? [:] : (experience?.availableReviewTools(experienceContext) ?? [:])
         let graphSkills = Dictionary(uniqueKeysWithValues: allowed.map { ($0.rawValue, $0.facts) }).merging(reviewTools) { old, _ in old }
-        state["experience_index"] = experience.map { $0.hint(experienceContext) }
-            ?? ["enabled": false, "matching_cases": 0, "stored_cases": 0]
-        state["experience_recall"] = experience.map { $0.recall(experienceContext) } as Any? ?? NSNull()
+        if let experience {  // only with a store: without one, the flat and graph requests stay as before #25
+            state["experience_index"] = experience.hint(experienceContext)
+            state["experience_recall"] = experience.recall(experienceContext)
+        }
         if graph != nil {
             state["task_memory"] = ["goal": executive.memory.goal, "revision": executive.memory.revision,
                 "active_skill": executive.memory.activeSkill ?? "none", "recent": executive.memory.recent.map(\.json)]

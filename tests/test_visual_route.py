@@ -74,7 +74,7 @@ class VisualRouteTests(unittest.TestCase):
             motor_offline.build("unused", FIGHT + "Fight.swift")
         self.assertIn(RUNTIME + "DecisionGraph.swift", run.call_args.args[0])
         self.assertIn(RUNTIME + "Experience.swift", run.call_args.args[0])
-        self.assertEqual(motor_offline.counted("decision graph checks passed: 53", "decision graph", 53), 53)
+        self.assertEqual(motor_offline.counted("decision graph checks passed: 56", "decision graph", 56), 56)
         self.assertEqual(motor_offline.counted("experience checks passed: 34", "experience", 34), 34)
         # Compilation inputs must not turn the existing single-file checks into nested paths.
         motor_offline.fight_trap()

@@ -130,6 +130,16 @@ final class GraphSession {
         return references[id]!
     }
 
+    private func leadsToSkill(_ id: String, _ skills: [String: String], seen: Set<String> = []) -> Bool {
+        guard let node = graph.nodes[id], !seen.contains(id) else { return false }
+        return node.skills.contains { skills[$0] != nil }
+            || node.branches.keys.contains { leadsToSkill($0, skills, seen: seen.union([id])) }
+    }
+
+    private func readable(_ id: String, in state: [String: Any]) -> Bool {
+        graph.resources[id]?.keys.map { $0.contains { state[$0] != nil } } ?? true  // a file reference is always there
+    }
+
     func next(state: [String: Any], skills: [String: String], jev: JevClient,
               now: () -> Double, deadline: Double, stopped: () -> Bool = { false }) async throws -> GraphDecision {
         lastTrace = []
@@ -143,8 +153,12 @@ final class GraphSession {
             let nodeID = path.last!, node = graph.nodes[nodeID]!
             var options: [String: String] = [:]
             for skill in node.skills { if let text = skills[skill] { options["DO:" + skill] = text } }
-            for (child, text) in node.branches { options["ENTER:" + child] = text }
-            for read in node.reads where !loaded.contains(read) { options["READ:" + read] = graph.resources[read]!.summary }
+            // Offer only what can lead somewhere: a branch with an offered skill below it, and a snapshot
+            // read with at least one of its keys in this input. An empty menu would cost a call to leave.
+            for (child, text) in node.branches where leadsToSkill(child, skills) { options["ENTER:" + child] = text }
+            for read in node.reads where !loaded.contains(read) && readable(read, in: state) {
+                options["READ:" + read] = graph.resources[read]!.summary
+            }
             if path.count > 1 { options["BACK"] = "Return to the parent decision to choose a different goal or skill family." }
             guard !options.isEmpty else { throw GraphError.noSkills }
             var input = state
