@@ -37,6 +37,8 @@ def released(rows: list, pulses: int | None = None) -> None:
 
 
 def build(output: str, *sources: str, flags: tuple = ()) -> None:
+    if FIGHT + "Fight.swift" in sources:
+        sources = (*sources, "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift")
     subprocess.run(["swiftc", "-parse-as-library", *flags, *sources, "-o", output], cwd=ROOT, check=True, timeout=300)
 
 
@@ -98,7 +100,7 @@ def nav_trap() -> None:
 def fight_trap() -> None:
     """Execute must trap SIGINT onto a retrying host.releaseAll; this is not OS-key proof."""
     probe = Path(ROOT, FIGHT + "FightProbe.swift").read_text()
-    core = Path(ROOT, FIGHT + "Fight.swift").read_text()
+    core = Path(ROOT, "experiments/002_wow_visual/runtime/Input.swift").read_text()
     if "struct HeldKey" not in core or "func expired(now:" not in core:
         raise GateError("watchdog decision is not HeldKey")
     execute = probe.split("func fightExecute", 1)[-1]
@@ -131,6 +133,14 @@ def interrupted_dry(command: list) -> None:
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
+        runtime = "experiments/002_wow_visual/runtime/"
+        core_tests = str(Path(tmp, "runtime-tests"))
+        build(core_tests, runtime + "Runtime.swift", runtime + "RuntimeTests.swift")
+        suite(core_tests, "runtime", 33)
+        integration = str(Path(tmp, "integration-tests"))
+        build(integration, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift",
+              NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "IntegrationTests.swift")
+        suite(integration, "runtime integration", 41)
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
         seek_tests, seek = str(Path(tmp, "seek-tests")), str(Path(tmp, "m1-seek"))
         build(tests, MOTOR + "Motor.swift", MOTOR + "MotorTests.swift")

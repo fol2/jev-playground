@@ -250,6 +250,7 @@ func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
 }
 
 struct HuntObs: Equatable {
+    var stamp: ObservationStamp? = nil
     var objectives: [Objective] = []
     var player = 1.0
     var mana = 1.0
@@ -421,6 +422,14 @@ protocol HuntHost: NavBody {
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult
 }
 
+extension HuntHost {
+    func readSurvey() -> Observation<HuntObs> {
+        guard let o = survey(), let stamp = o.stamp,
+              stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("hunt_unreadable") }
+        return .observed(o, stamp)
+    }
+}
+
 func tap(_ host: HuntHost, _ code: UInt16) async {
     guard host.keys.press(code) else { return }
     await host.sleep(HuntLimits.tap)
@@ -510,10 +519,15 @@ struct HuntResult {
     var end: [Objective] = []
     var holding = false
     var codesPosted: [UInt16] = []
+    var runtime: SkillResult? = nil
+    var memory: TaskMemory? = nil
 }
 
 func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
     var r = HuntResult()
+    var executive = RuntimeExecutive(goal: "complete the initial unfinished objectives")
+    executive.begin("hunt")
+    var lastStamp: ObservationStamp?
     let began = host.now()
     var misses = 0, sinceFight = 0
     var panorama: (at: NavObs, seen: [Seen])?
@@ -523,10 +537,15 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         r.outcome = outcome
         r.holding = host.keys.holding
         r.codesPosted = host.keys.codesPosted
+        let skill = SkillResult(skill: "hunt", status: skillStatus(outcome), code: outcome,
+                                evidence: lastStamp, holdingInput: r.holding)
+        executive.finish(skill)
+        r.runtime = skill; r.memory = executive.memory
+        host.emit("skill_result", skill.json)
         return r
     }
 
-    guard let first = host.survey() else { return finish("HUD_UNREADABLE") }
+    guard let first = host.readSurvey().value else { return finish("HUD_UNREADABLE") }
     r.start = first.objectives
     let wanted = first.objectives.filter(\.unfinished)
     if wanted.isEmpty { return finish("NO_UNFINISHED_OBJECTIVE") }
@@ -534,13 +553,14 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
     while r.decisions < HuntLimits.maxDecisions {
         if host.now() - began >= HuntLimits.maxSeconds { return finish("TIME_LIMIT") }
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
-        guard var o = host.survey() else {
+        guard var o = host.readSurvey().value else {
             misses += 1
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             await host.sleep(HuntLimits.settle)
             continue
         }
         misses = 0
+        lastStamp = o.stamp
         r.end = o.objectives
         if o.player < 0.01 && !o.combat { return finish("DEAD") }  // an empty health bar out of combat
         if remaining(wanted, in: o.objectives).isEmpty { return finish("OBJECTIVES_COMPLETE") }
@@ -555,6 +575,9 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         let state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
         let question = actionQuestion(allowed, instructions: huntInstructions)
         let asked = host.now()
+        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
+                policy: "hunt-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
+                deadline: min(asked + HuntLimits.jevTimeout, began + HuntLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
         do {
             reply = try await jev.ask(state: state, question: question)
@@ -565,7 +588,7 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         r.latencies.append(host.now() - asked)
         r.decisions += 1
         let record: [String: Any] = ["decision": r.decisions, "t": asked, "state": state, "question": question,
-                                     "admissible": allowed.map(\.rawValue), "response": reply]
+                                     "admissible": allowed.map(\.rawValue), "response": reply, "context": context.json]
         r.records.append(record)
         host.emit("decision", record)
         guard let choice = parseChoice(reply, admissible: allowed, model: FightLimits.model) else {
@@ -583,9 +606,28 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
             host.emit("acted", ["action": choice.action.rawValue, "result": result])
             continue
         }
+        let latest = host.readSurvey().value
+        let latestAllowed = latest.map { huntAdmissible($0, steps: r.steps, blocked: blocked).map(\.rawValue) } ?? []
+        if let rejection = executive.rejection(DecisionProposal(context: context, action: choice.action.rawValue),
+                current: latest?.stamp, candidates: latestAllowed, now: host.now(), maximumAge: FightLimits.maxFrameAge,
+                ownerStopped: host.ownerTookFocus()) {
+            host.emit("proposal_rejected", ["reason": rejection, "request": context.request])
+            if rejection == "owner_stop" { return finish("OWNER_TOOK_FOCUS") }
+            if rejection == "decision_expired" { return finish("DECISION_EXPIRED") }
+            r.steps.append(HuntStep(action: choice.action, result: "not done: " + rejection))
+            continue
+        }
+        o = latest!
+        lastStamp = o.stamp
         switch choice.action {
         case .fight:
+            executive.begin("combat")
             let fight = await host.fight(jev: jev, inCombat: o.combat || fresh.combat)
+            let skill = fight.runtime ?? SkillResult(skill: "combat", status: skillStatus(fight.outcome),
+                code: fight.outcome, evidence: nil, holdingInput: fight.holdingKeys)
+            executive.finish(skill)
+            host.emit("task_resumed", ["goal": executive.memory.goal, "revision": executive.memory.revision,
+                                       "active_skill": executive.memory.activeSkill ?? "none"])
             r.fights.append(fight)
             sinceFight = 0
             result = "the fight ended \(fight.outcome) after \(fight.decisions) decisions"
@@ -710,7 +752,9 @@ final class SimHunt: HuntHost {
     }
 
     private func reading() -> HuntObs {
-        var o = HuntObs(player: world.player, mana: mana, combat: world.combat, facing: world.facing, here: world.look())
+        var o = HuntObs(stamp: ObservationStamp(stream: "sim-hunt", geometry: "sim-layout", capturedAt: now(),
+                                               target: selected.map { mobs[$0].name }),
+                        player: world.player, mana: mana, combat: world.combat, facing: world.facing, here: world.look())
         if let a = area {
             let here: MapPoint = (world.x, world.y), centre: MapPoint = (a.x, a.y)
             let d = distance(here, centre)

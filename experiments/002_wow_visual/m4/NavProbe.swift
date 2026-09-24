@@ -91,7 +91,8 @@ final class LiveNavBody: NavBody {
     }
 
     func look() -> NavObs? {
-        guard let image = feed.latest else { return nil }
+        guard let frame = runtimeFrame(session, feed) else { return nil }
+        let image = frame.image
         if frameNo % 2 == 0 {
             write(image, to: directory.appendingPathComponent(String(format: "f%03d.jpg", frameNo)), type: .jpeg)
         }
@@ -104,7 +105,7 @@ final class LiveNavBody: NavBody {
         }
         let hud = observe(pixels, plates: false)
         emit("look", ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
-        return NavObs(x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player)
+        return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player)
     }
 
     var holding: Bool { keys.holding }

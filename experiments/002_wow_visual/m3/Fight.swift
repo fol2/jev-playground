@@ -75,149 +75,9 @@ enum FightLimits {
     static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, turnLeft, forward, turnRight, interact, zoomOut] }
 }
 
-/// Watchdog grant for one held key. Refresh while the skill still needs it; expired(now:)
-/// is the timer's only decision. The grant stays until a confirmed key-up.
-struct HeldKey: Equatable {
-    var code: UInt16
-    var until: Double
-
-    mutating func refresh(now: Double, hold: Double = FightLimits.watchdogSeconds) {
-        until = now + hold
-    }
-
-    func expired(now: Double) -> Bool { now > until }
-}
-
-/// Key-up with M0's retry-and-keep-held rule. False means the caller keeps the grant.
-func confirmKeyUp(_ code: UInt16, sink: KeySink, emit: Emit) -> Bool {
-    for attempt in 1...Limits.releaseAttempts {
-        do {
-            try sink.post(code, down: false)
-            emit("key_up", ["code": Int(code), "attempt": attempt])
-            return true
-        } catch {
-            emit("key_up_failed", ["code": Int(code), "attempt": attempt, "error": "\(error)"])
-        }
-    }
-    emit("release_unconfirmed", ["code": Int(code)])
-    return false
-}
-
-/// Key state of the live shells (M3 fight, M4 walk; SimNav drives it with a fake sink). The grant
-/// is taken before the post, as InputLease does, so a partly delivered down is still released;
-/// posts happen under one lock and stop once releaseAll has run, so a down cannot land after the
-/// SIGINT sweep; a held key with a watchdog grant is lifted by sweepExpired once the grant lapses.
-/// A key-up that failed every attempt is retried by the next sweep, and no grant can postpone that.
-/// Events are emitted after the lock is released: a blocked log write never holds up the exit sweep.
-final class LiveKeys {
-    private let sink: KeySink
-    private let releaseCodes: [UInt16]
-    private let clock: () -> Double
-    var emit: Emit  // set once, before any other thread can release
-    private let lock = NSLock()
-    private var held: Set<UInt16> = []
-    private var grants: [UInt16: HeldKey] = [:]
-    private var releasing: Set<UInt16> = []  // key-ups that failed; the sweep retries them
-    private var cancelled = false
-    private var posted: [UInt16] = []
-    private var pending: [(String, [String: Any])] = []  // events noted under the lock
-
-    init(sink: KeySink, releaseCodes: [UInt16], clock: @escaping () -> Double, emit: @escaping Emit = { _, _ in }) {
-        self.sink = sink
-        self.releaseCodes = releaseCodes
-        self.clock = clock
-        self.emit = emit
-    }
-
-    private func locked<T>(_ body: () -> T) -> T {
-        lock.lock()
-        let value = body()
-        let events = pending
-        pending.removeAll()
-        lock.unlock()
-        for (event, fields) in events { emit(event, fields) }
-        return value
-    }
-
-    private func note(_ event: String, _ fields: [String: Any]) { pending.append((event, fields)) }  // under the lock
-
-    /// Key-up under the lock. A failure leaves the key held with an expired grant, so the next sweep retries it.
-    private func up(_ code: UInt16) -> Bool {
-        guard confirmKeyUp(code, sink: sink, emit: note) else {
-            releasing.insert(code)
-            grants[code] = HeldKey(code: code, until: -.infinity)
-            return false
-        }
-        held.remove(code)
-        releasing.remove(code)
-        grants[code] = nil
-        return true
-    }
-
-    var holding: Bool { locked { !held.isEmpty } }
-    var codesPosted: [UInt16] { locked { posted } }
-    func isDown(_ code: UInt16) -> Bool { locked { held.contains(code) } }
-
-    /// False once releaseAll has run: nothing was posted.
-    @discardableResult
-    func press(_ code: UInt16) -> Bool {
-        locked {
-            guard !cancelled else { return false }
-            held.insert(code)
-            releasing.remove(code)
-            do { try sink.post(code, down: true) } catch {
-                note("key_down_failed", ["code": Int(code), "error": "\(error)"])
-            }
-            posted.append(code)
-            return true
-        }
-    }
-
-    /// Keep the key and its grant until a key-up posts. `listed` posts the up even if not held.
-    func lift(_ code: UInt16, listed: Bool = false) {
-        locked {
-            guard held.contains(code) || listed else { return }
-            _ = up(code)
-        }
-    }
-
-    /// Start or refresh the watchdog for a held key; not for one whose key-up is being retried.
-    func grant(_ code: UInt16, seconds: Double) {
-        locked {
-            guard !releasing.contains(code) else { return }
-            var grant = HeldKey(code: code, until: 0)
-            grant.refresh(now: clock(), hold: seconds)
-            grants[code] = grant
-        }
-    }
-
-    /// The watchdog's tick: lift every held key whose grant has lapsed. Decided and lifted under
-    /// the lock, so a refresh cannot slip in between.
-    func sweepExpired() {
-        let now = clock()
-        let released: [UInt16] = locked {
-            var out: [UInt16] = []
-            for (code, grant) in grants where grant.expired(now: now) {
-                guard held.contains(code) else { grants[code] = nil; continue }
-                if up(code) { out.append(code) }
-            }
-            return out
-        }
-        for code in released { emit("watchdog", ["released": Int(code)]) }
-    }
-
-    /// The exit sweep: no key goes down afterwards, and every listed code gets a key-up. All the key-ups
-    /// post under one hold of the lock before any event is logged: a log write blocked on stdout must
-    /// not keep W down behind Q's event.
-    func releaseAll() {
-        locked {
-            cancelled = true
-            for code in releaseCodes { _ = up(code) }
-        }
-    }
-}
 
 struct Obs {
+    var stamp: ObservationStamp? = nil
     var player = 0.0, mana = 0.0, target = 0.0
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
     var plate: Plate? = nil
@@ -550,6 +410,15 @@ protocol FightHost: AnyObject {
     func emit(_ event: String, _ fields: [String: Any])
 }
 
+extension FightHost {
+    func readObservation() -> Observation<Obs> {
+        let o = observe(plates: true)
+        guard o.fresh, let stamp = o.stamp,
+              stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("no_fresh_frame") }
+        return .observed(o, stamp)
+    }
+}
+
 protocol JevClient {
     func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any]
 }
@@ -565,6 +434,7 @@ struct FightResult {
     var holdingKeys: Bool
     var codesPosted: [UInt16]
     var jevRecords: [[String: Any]]
+    var runtime: SkillResult? = nil
 }
 
 func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
@@ -577,14 +447,14 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
 /// A missing frame is neither calm nor low health: on 24 Sept, twice, the capture went quiet after the
 /// background loot click and the empty observation read as 0 % health. Wait for a fresh frame; nil if none.
 func freshObservation(_ host: FightHost) async -> Obs? {
-    var o = host.observe(plates: true)
+    var observation = host.readObservation()
     let start = host.now()
-    while !o.fresh && host.now() - start < FightLimits.freshWait {
+    while observation.value == nil && host.now() - start < FightLimits.freshWait {
         await host.sleep(0.1)
-        o = host.observe(plates: true)
+        observation = host.readObservation()
     }
-    if host.now() > start { host.emit("frame_wait", ["seconds": host.now() - start, "fresh": o.fresh]) }
-    return o.fresh ? o : nil
+    if host.now() > start { host.emit("frame_wait", ["seconds": host.now() - start, "fresh": observation.value != nil]) }
+    return observation.value
 }
 
 /// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
@@ -595,13 +465,20 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     var latencies: [Double] = []
     var records: [[String: Any]] = []
     var outcome = "DECISION_LIMIT"
+    var executive = RuntimeExecutive(goal: "one supervised fight")
+    executive.begin("combat")
+    var lastStamp: ObservationStamp?
 
     func finish(_ outcome: String) -> FightResult {
         host.releaseBolt()
         host.releaseAll()
+        let skill = SkillResult(skill: "combat", status: skillStatus(outcome), code: outcome,
+                                evidence: lastStamp, holdingInput: host.holdingKeys)
+        executive.finish(skill)
+        host.emit("skill_result", skill.json)
         return FightResult(outcome: outcome, decisions: decisions, jevCalls: jevCalls, latencies: latencies,
                            episode: episode, walkedMs: host.walkedMs, turnedMs: host.turnedMs,
-                           holdingKeys: host.holdingKeys, codesPosted: host.codesPosted, jevRecords: records)
+                           holdingKeys: host.holdingKeys, codesPosted: host.codesPosted, jevRecords: records, runtime: skill)
     }
 
     if host.refreshNotice() { return finish("HOLD_REFRESH_NOTICE") }
@@ -614,6 +491,7 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
+        lastStamp = o.stamp
         episode.update(o)
         if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
@@ -622,6 +500,9 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         let state = statePacket(obs: o, episode: episode, lastAction: lastAction, lastResult: lastResult, events: ev)
         let question = actionQuestion(allowed)
         let asked = host.now()
+        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
+                policy: "fight-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
+                deadline: min(asked + FightLimits.jevTimeout, FightLimits.maxSeconds)) else { return finish("NO_FRESH_FRAME") }
         let reply: [String: Any]
         do {
             reply = try await jev.ask(state: state, question: question)
@@ -640,7 +521,7 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         if parsed == nil { lastResult = "Jev answer failed validation" }
         let record: [String: Any] = [
             "decision": decisions, "t": asked, "state": state, "question": question,
-            "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency,
+            "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency, "context": context.json,
         ]
         records.append(record)
         host.emit("decision", record)
@@ -648,7 +529,22 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         lastAction = action.rawValue
         if action != .castLightningBolt { host.releaseBolt() }
         if parsed == nil { outcome = "JEV_STOP"; break }
-        lastResult = await host.perform(action, observation: o, episode: &episode)
+        let current = host.observe(plates: true)
+        if current.fresh, current.player < FightLimits.playerSafety, !current.combat {
+            return finish("SAFETY_STOP_PLAYER_BELOW_30")
+        }
+        if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),
+                current: current.fresh ? current.stamp : nil, candidates: admissible(current, episode).map(\.rawValue),
+                now: host.now(), maximumAge: FightLimits.maxFrameAge, ownerStopped: host.wowFrontmost()) {
+            host.releaseBolt()
+            host.emit("proposal_rejected", ["reason": rejection, "request": context.request])
+            if rejection == "owner_stop" { return finish("OWNER_TOOK_FOCUS") }
+            if rejection == "decision_expired" { return finish("DECISION_EXPIRED") }
+            lastResult = "not done: " + rejection
+            continue
+        }
+        lastStamp = current.stamp
+        lastResult = await host.perform(action, observation: current, episode: &episode)
         host.emit("acted", ["action": action.rawValue, "result": lastResult])
         switch action {
         case .lootCorpse:
@@ -772,6 +668,7 @@ final class SimFight: FightHost {
     func observe(plates: Bool) -> Obs {
         if stalls > 0 { stalls -= 1; return Obs(fresh: false) }
         var o = Obs()
+        o.stamp = ObservationStamp(stream: "sim-fight", geometry: "sim-layout", capturedAt: now())
         o.player = player
         o.mana = mana
         o.target = selected ? targetHP : 0

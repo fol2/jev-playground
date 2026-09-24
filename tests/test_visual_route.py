@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from tools import motor_offline, sdlc
-from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, SEEK, FIGHT, NAV, VISUAL, VISUAL_CODE, GateError, route
+from tools.sdlc import FISHING, MOTOR, MOTOR_PATHS, SEEK, FIGHT, NAV, RUNTIME, VISUAL, VISUAL_CODE, GateError, route
 
 
 class VisualRouteTests(unittest.TestCase):
@@ -55,6 +55,16 @@ class VisualRouteTests(unittest.TestCase):
         outcome = subprocess.run([sdlc.sys.executable, "-S", "-c", sdlc.VISUAL_SUITE],
                                  cwd=sdlc.ROOT, capture_output=True, text=True)
         self.assertEqual(outcome.returncode, 0, outcome.stderr[-400:])
+
+    def test_runtime_contracts_select_actual_consumer_proof(self):
+        for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift"):
+            self.assertIn("motor-offline", route([("M", RUNTIME + name)])["checks"])
+        with self.assertRaises(GateError):
+            route([("A", RUNTIME + "Unregistered.swift")])
+        for name, minimum in (("runtime", 33), ("runtime integration", 41)):
+            self.assertEqual(motor_offline.counted(f"{name} checks passed: {minimum}", name, minimum), minimum)
+            with self.assertRaises(GateError):
+                motor_offline.counted(f"{name} checks passed: {minimum - 1}", name, minimum)
 
     def test_motor_probe_selects_its_native_proof(self):
         for path in MOTOR_PATHS:

@@ -158,6 +158,7 @@ func turnPulse(_ error: Double) -> (code: UInt16, ms: Int)? {
 }
 
 struct NavObs: Equatable {
+    var stamp: ObservationStamp? = nil
     var x: Double
     var y: Double
     var facing: Double
@@ -300,6 +301,14 @@ protocol NavBody: AnyObject {
     func emit(_ event: String, _ fields: [String: Any])
 }
 
+extension NavBody {
+    func readObservation() -> Observation<NavObs> {
+        guard let o = look(), let stamp = o.stamp,
+              stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("navigation_unreadable") }
+        return .observed(o, stamp)
+    }
+}
+
 /// One bounded move: steer by Q/E pulses with W held, re-aiming at the destination each tick for
 /// GO_TOWARD or holding the move's fixed heading otherwise, until its time is up, arrival, a block
 /// (W held for blockedWindow with less than blockedMoved of movement), or an unsafe frame. A move that
@@ -376,10 +385,13 @@ struct NavResult {
     var end: NavObs?
     var holding = false
     var codesPosted: [UInt16] = []
+    var runtime: SkillResult? = nil
 }
 
 func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async -> NavResult {
     var result = NavResult()
+    var executive = RuntimeExecutive(goal: d.label)
+    executive.begin("navigation")
     let began = body.now()
     var misses = 0
 
@@ -391,12 +403,17 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         var fields: [String: Any] = ["outcome": outcome, "decisions": result.decisions]
         if let end = result.end { fields["x"] = end.x; fields["y"] = end.y }
         body.emit("outcome", fields)
+        let skill = SkillResult(skill: "navigation", status: skillStatus(outcome), code: outcome,
+                                evidence: result.end?.stamp, holdingInput: result.holding)
+        executive.finish(skill)
+        result.runtime = skill
+        body.emit("skill_result", skill.json)
         return result
     }
 
     while true {
         if body.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
-        guard let o = body.look() else {
+        guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
@@ -421,6 +438,9 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
                                    decisionsLeft: NavLimits.maxDecisions - result.decisions)
         let question = actionQuestion(allowed, instructions: navInstructions)
         let asked = body.now()
+        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
+                policy: "nav-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
+                deadline: min(asked + FightLimits.jevTimeout, began + NavLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
         do {
             reply = try await jev.ask(state: state, question: question)
@@ -435,14 +455,37 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         result.decisions += 1
         var record: [String: Any] = [
             "decision": result.decisions, "t": asked, "state": state, "question": question,
-            "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency,
+            "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency, "context": context.json,
         ]
         guard let choice = parseChoice(reply, admissible: allowed, model: FightLimits.model) else {
             result.records.append(record)
             body.emit("decision", record)
             return finish("INVALID_REPLY")
         }
-        let attempt = await walk(body, choice.action, from: o, to: d)
+        let current = body.readObservation().value
+        let transition: String?
+        if current?.combat == true { transition = "COMBAT" }
+        else if let current, current.player < FightLimits.playerSafety { transition = "LOW_HEALTH" }
+        else if let current, distance(current.point, d.point) < d.arrive { result.end = current; transition = "ARRIVED" }
+        else { transition = nil }
+        if let transition {
+            record["rejection"] = "state_transition:" + transition
+            result.records.append(record); body.emit("decision", record)
+            return finish(transition)
+        }
+        let candidates = current.map { navAdmissible($0, destination: d, episode: result.episode).map(\.rawValue) } ?? []
+        if let rejection = executive.rejection(DecisionProposal(context: context, action: choice.action.rawValue),
+                current: current?.stamp, candidates: candidates, now: body.now(), maximumAge: FightLimits.maxFrameAge,
+                ownerStopped: body.ownerTookFocus()) {
+            body.keys.lift(FightLimits.forward)
+            record["rejection"] = rejection
+            result.records.append(record)
+            body.emit("decision", record)
+            if rejection == "owner_stop" { return finish("OWNER_TOOK_FOCUS") }
+            if rejection == "decision_expired" { return finish("DECISION_EXPIRED") }
+            continue
+        }
+        let attempt = await walk(body, choice.action, from: current!, to: d)
         result.episode.record(attempt)
         record["attempt"] = attempt.json
         result.records.append(record)
@@ -514,7 +557,8 @@ final class SimNav: NavBody {
     func look() -> NavObs? {
         looks += 1
         guard !unreadable, missEvery == 0 || looks % missEvery != 0 else { return nil }
-        return NavObs(x: roundTo(x, 10), y: roundTo(y, 10), facing: facing.rounded(), combat: combat, player: player)
+        return NavObs(stamp: ObservationStamp(stream: "sim-nav", geometry: "sim-layout", capturedAt: now()),
+                      x: roundTo(x, 10), y: roundTo(y, 10), facing: facing.rounded(), combat: combat, player: player)
     }
 
     /// Integrates in 0.05 s steps; the watchdog is swept after each, as the live 0.2 s timer would.

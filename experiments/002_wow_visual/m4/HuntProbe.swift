@@ -81,18 +81,21 @@ final class LiveHuntHost: HuntHost {
     /// The newest frame, or nil when there is none or it is older than `FightLimits.maxFrameAge`: a stalled
     /// capture must not pass for a calm, healthy scene.
     private func freshImage() -> CGImage? {
-        guard let frame = feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
-        return frame.image
+        runtimeFrame(session, feed)?.image
     }
 
     func vitals() -> HuntObs? {
-        freshImage().map { pixelObs(rgba($0)) }
+        guard let frame = runtimeFrame(session, feed) else { return nil }
+        var o = pixelObs(rgba(frame.image))
+        o.stamp = frame.stamp
+        return o
     }
 
     /// The walk skill's reading, as M4a's: coordinates, the minimap arrow and the M3 bars. Every other
     /// frame is kept as w###.jpg.
     func look() -> NavObs? {
-        guard let image = freshImage() else { return nil }
+        guard let frame = runtimeFrame(session, feed) else { return nil }
+        let image = frame.image
         if walkNo % 2 == 0 { write(image, to: directory.appendingPathComponent(String(format: "w%03d.jpg", walkNo)), type: .jpeg) }
         walkNo += 1
         let pixels = rgba(image)
@@ -103,13 +106,14 @@ final class LiveHuntHost: HuntHost {
         }
         let hud = observe(pixels, plates: false)
         emit("walk_look", ["walk_frame": walkNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
-        return NavObs(x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
+        return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
     }
 
     /// Everything a decision needs: the tracker, target, Game Menu, position, and the creatures whose
     /// plates are in view with their names. Nil when the tracker is unreadable.
     func survey() -> HuntObs? {
-        guard let image = freshImage() else { return nil }
+        guard let frame = runtimeFrame(session, feed) else { return nil }
+        let image = frame.image
         write(image, to: directory.appendingPathComponent(String(format: "h%03d.jpg", frameNo)), type: .jpeg)
         frameNo += 1
         let lines = upscaledText(image, HuntHUD.tracker)
@@ -122,10 +126,12 @@ final class LiveHuntHost: HuntHost {
         var o = pixelObs(pixels)
         o.objectives = parseTracker(lines)
         o.target = name.isEmpty ? nil : name
+        o.stamp = frame.stamp
+        o.stamp?.target = o.target
         o.targetAlive = !name.isEmpty && observe(pixels, plates: false).target > 0.005
         o.gameMenu = upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")
         if let at = parseCoords(coordsText(image)), let facing = o.facing {
-            o.here = NavObs(x: at.x, y: at.y, facing: facing, combat: o.combat, player: o.player)
+            o.here = NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: o.combat, player: o.player)
         }
         if let facing = o.facing {
             o.seen = nameplates(pixels).compactMap { bar in
@@ -142,18 +148,30 @@ final class LiveHuntHost: HuntHost {
         return o
     }
 
-    /// One M3 episode on its own LiveHost: its clock, budgets and watchdog start fresh, and its frames go
+    /// One M3 episode on a child input capability: its clock and budgets start fresh, and its frames go
     /// to their own directory. Its corpse search also looks for the creature being fought.
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult {
         fights += 1
         let folder = directory.appendingPathComponent(String(format: "fight%d", fights))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let host = LiveHost(session: session, feed: feed, sink: sink, directory: folder, log: log)
+        guard let childKeys = keys.takeChild(releaseCodes: FightLimits.releaseCodes) else {
+            return FightResult(outcome: "INPUT_HANDOFF_FAILED", decisions: 0, jevCalls: 0, latencies: [],
+                               episode: Episode(), walkedMs: 0, turnedMs: 0, holdingKeys: keys.holding,
+                               codesPosted: [], jevRecords: [])
+        }
+        let host = LiveHost(session: session, feed: feed, sink: sink, directory: folder, log: log, input: childKeys)
         if let name = lastTarget { host.corpseNames.append(name.lowercased()) }
         lock.withLock { fighting = host }
         defer { lock.withLock { fighting = nil } }
         emit("fight_start", ["fight": fights, "target": orNull(lastTarget), "in_combat": inCombat])
-        return await runFight(host: host, jev: fightJev, startHealth: inCombat ? 0 : FightLimits.startHealth)
+        var result = await runFight(host: host, jev: fightJev, startHealth: inCombat ? 0 : FightLimits.startHealth)
+        if !keys.resume(after: childKeys) {
+            result.outcome = "INPUT_HANDOFF_FAILED"
+            result.runtime = SkillResult(skill: "combat", status: .failed, code: result.outcome,
+                                         evidence: result.runtime?.evidence, holdingInput: keys.holding)
+        }
+        result.holdingKeys = keys.holding
+        return result
     }
 
     var holding: Bool { keys.holding || lock.withLock { fighting?.holdingKeys ?? false } }
