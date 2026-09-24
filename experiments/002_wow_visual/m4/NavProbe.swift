@@ -21,6 +21,7 @@ let navUsage = """
                     [--graph PATH] [--experience PATH]
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
            m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
+           m4-nav --quests --keys wqe                 plan, then deliver and hand in this zone's quests
     Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
     """
@@ -325,6 +326,7 @@ struct M4Nav {
                 }
             case .turnIn: exit(try await questExecute(command))
             case .plan: exit(try await planExecute())
+            case .quests: exit(try await questsExecute())
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

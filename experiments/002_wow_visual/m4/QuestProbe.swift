@@ -14,6 +14,7 @@ enum QuestHUD {
     static let rewardX = [130.0, 274.0], firstRow = 37.0, rowGap = 44.0  // reward names below "Choose your reward:"
     static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
     static let enter: UInt16 = 36
+    static let escape: UInt16 = 53
     static let characterPane: UInt16 = 8  // C
     /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
     static let paneSlots: [String: (x: Double, y: Double)] = [
@@ -189,17 +190,34 @@ final class QuestRun {
 
     func turnIn(_ quest: String) async -> String {
         var dialog = lines(QuestHUD.dialog, await frame())
-        if has(dialog, "Complete Quest") == nil {
+        func ours(_ lines: [TipLine]) -> TipLine? { lines.first { nameKey($0.text) == nameKey(quest) } }
+        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
             guard let image = await frame() else { return "NO_FRESH_FRAME" }
+            // A hub's NPCs stand close together (24 Sept: three "?" in Thendal Village): try the nearest
+            // three; a dialogue for someone else's quest is closed with Esc (only when one is open: Esc
+            // with nothing open is the Game Menu).
             let marks = questMarks(rgba(image), box: QuestHUD.world)
-            body.emit("marks", ["count": marks.count, "nearest": orNull(marks.first.map { [Int($0.x), Int($0.y)] })])
-            guard let mark = marks.first else { return "NO_QUEST_MARK_IN_VIEW" }
-            guard click(mark.x, mark.y + QuestHUD.belowMark, right: true) else { return "CLICK_FAILED" }
-            await sleep(2.5)
-            dialog = lines(QuestHUD.dialog, await frame())
-            guard has(dialog, "Complete Quest") != nil else {
-                return has(dialog, "Continue") != nil ? "CONTINUE_PAGE_NOT_HANDLED" : "DIALOGUE_NOT_OPEN"
+            body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y)] }])
+            guard !marks.isEmpty else { return "NO_QUEST_MARK_IN_VIEW" }
+            var opened = false
+            for mark in marks.prefix(3) {
+                guard click(mark.x, mark.y + QuestHUD.belowMark, right: true) else { return "CLICK_FAILED" }
+                await sleep(2.5)
+                dialog = lines(QuestHUD.dialog, await frame())
+                if has(dialog, "Complete Quest") == nil, let entry = ours(dialog) {  // an NPC with several quests lists them
+                    guard click(entry.x + 40, entry.y + 7) else { return "CLICK_FAILED" }
+                    await sleep(1.5)
+                    dialog = lines(QuestHUD.dialog, await frame())
+                }
+                if has(dialog, "Complete Quest") != nil, ours(dialog) != nil { opened = true; break }
+                if has(dialog, "Continue") != nil, ours(dialog) != nil { return "CONTINUE_PAGE_NOT_HANDLED" }
+                body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": dialog.prefix(4).map(\.text)])
+                if !dialog.isEmpty {
+                    await tap(QuestHUD.escape)
+                    await sleep(0.8)
+                }
             }
+            guard opened else { return "DIALOGUE_NOT_OPEN" }
         }
         guard dialog.contains(where: { nameKey($0.text) == nameKey(quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
 
@@ -230,7 +248,17 @@ final class QuestRun {
         await sleep(2.0)
         let fresh = ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }
         body.emit("after_complete", ["chat": fresh])
-        guard has(lines(QuestHUD.dialog, await frame()), "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
+        let after = lines(QuestHUD.dialog, await frame())
+        guard has(after, "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
+        // The owner: always accept quests. A follow-up offered on completion shows "Accept".
+        if let accept = has(after, "Accept") {
+            body.emit("accept", ["controller": "RULE", "rule": "owner: always accept quests", "dialog": after.prefix(3).map(\.text)])
+            let before = Set((await frame()).map(chatLines) ?? [])
+            if click(accept.x + 30, accept.y + 7) {
+                await sleep(1.5)
+                body.emit("accepted", ["chat": ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }])
+            }
+        }
         guard let equip else { return "COMPLETED" }
 
         guard await command("/equip " + equip.name.replacingOccurrences(of: "\u{2019}", with: "'")) else { return "COMPLETED_EQUIP_NOT_TYPED" }
@@ -241,6 +269,72 @@ final class QuestRun {
         case nil: return "COMPLETED_EQUIP_SLOT_UNKNOWN"
         }
     }
+}
+
+/// `--quests --keys wqe`: plan, then deliver and hand in the player's zone's quests in order: M4a walks to
+/// each NPC (Jev's moves), M4c completes it (RULE). Stops at the zone's edge (roads are not built) and at
+/// any quest kind with no skill yet.
+@MainActor
+func questsExecute() async throws -> Int32 {
+    let key = try apiKey()
+    let session = try await wowSession(input: true, full: true)
+    guard session.config.width == HUD.width, session.config.height == HUD.height else {
+        throw ProbeError("capture is \(session.config.width)x\(session.config.height); M4 is calibrated for \(HUD.width)x\(HUD.height)")
+    }
+    let run = try runDirectory("m4_quests")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    guard let first = await firstFrame(feed), first.image.width == HUD.width else {
+        try? await stream.stopCapture()
+        throw ProbeError("no \(HUD.width)-wide frame within \(Limits.firstFrameWait) s")
+    }
+    _ = await Task.detached { first.image.cropping(to: QuestHUD.questList).map(ocr) }.value
+    guard await warmJev(key) != nil else {
+        try? await stream.stopCapture()
+        throw ProbeError("Jev did not answer a warm-up question within 30 s")
+    }
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await zoomOut(body.keys, log)
+    let quester = try QuestRun(body: body)
+    let (quests, player) = await quester.readQuests()
+    guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
+    let plan = questPlan(quests, from: player)
+    let zone = questZones(plan.map { q -> PlannedQuest in var q = q; if q.pin == nil { q.pin = player }; return q }, within: 12)
+        .first { $0.contains { $0.title == plan.first?.title } } ?? []
+    let here = plan.filter { q in zone.contains { $0.title == q.title } }
+    body.emit("plan", ["controller": "RULE", "order": plan.map(\.title), "this_zone": here.map(\.title)])
+    var outcomes: [[String: String]] = []
+    for q in here {
+        let kind = questKind(q)
+        guard kind == .handIn || kind == .travel else {
+            outcomes.append(["quest": q.title, "outcome": "NOT_BUILT_" + kind.rawValue])
+            break
+        }
+        if let pin = q.pin, let at = body.look(), distance((at.x, at.y), pin) > 1.0 {
+            let walk = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
+                                    destination: NavDestination(label: String(q.title.prefix(60)), x: pin.x, y: pin.y, arrive: 1.0))
+            guard walk.outcome == "ARRIVED" else {
+                outcomes.append(["quest": q.title, "outcome": "WALK_" + walk.outcome])
+                break
+            }
+        }
+        let outcome = await quester.turnIn(q.title)
+        outcomes.append(["quest": q.title, "outcome": outcome])
+        body.emit("quest_done", ["quest": q.title, "outcome": outcome])
+        guard outcome.hasPrefix("COMPLETED") else { break }
+    }
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    body.emit("summary", ["outcomes": outcomes, "next_zone": plan.filter { q in !here.contains { $0.title == q.title } }.map(\.title),
+                          "run_directory": run.url.path])
+    for o in outcomes { print("\(o["quest"]!): \(o["outcome"]!)") }
+    return body.holding ? 3 : 0
 }
 
 /// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.

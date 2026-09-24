@@ -478,6 +478,8 @@ extension NavTests {
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")
         check((try? parseNav(["--turn-in", "--keys", "wqe"])) == nil, "--turn-in without --quest is refused")
+        check((try? parseNav(["--quests", "--keys", "wqe"]))?.mode == .quests && (try? parseNav(["--quests"])) == nil,
+              "--quests needs the confirmed key profile")
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "x; rm -rf"])) == nil, "a quest title is letters and simple punctuation")
         plans()
     }
