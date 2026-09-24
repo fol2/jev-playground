@@ -473,6 +473,18 @@ extension NavTests {
         stamp(10, 0); stamp(25, 7); stamp(5, 14)
         let parts = glyphs(yellowBlobs(gl, box: (0, 0, 60, 60), gap: 0))
         check(parts.count == 3 && parts.allSatisfy { $0.n > 20 }, "three touching \"?\": each hook takes its own dot")
+        // A minimap "?" (the mask above) and a "!" as the 23 Sept Thendal frames drew it: a bar 5 px wide at the
+        // top narrowing to 3, then a 2-px dot.
+        let bang = [(0, ".###."), (1, "#####"), (2, "#####"), (3, "####."), (4, ".###."), (5, ".###."), (6, ".###."), (10, ".##.."), (11, ".##..")]
+        var mini = [UInt8](repeating: 30, count: 2560 * 320 * 4)
+        func put(_ rows: [(Int, String)], _ x0: Int, _ y0: Int) {
+            for (row, text) in rows { for (i, c) in text.enumerated() where c == "#" {
+                let k = ((y0 + row) * 2560 + x0 + i) * 4; mini[k] = 250; mini[k + 1] = 242; mini[k + 2] = 57 } }
+        }
+        put(mask.map { ($0.0 - 161, $0.1) }, MinimapHUD.cx + 20, MinimapHUD.cy - 10)
+        put(bang, MinimapHUD.cx - 30, MinimapHUD.cy + 10)
+        let icons = minimapPins(RGBA(width: 2560, height: 320, pixels: mini)).sorted { $0.x < $1.x }
+        check(icons.count == 2 && icons[0].offer && !icons[1].offer, "a minimap \"!\" (a quest to take) is told from a \"?\" by its width")
         check(markYellow(239, 236, 116) && markYellow(184, 155, 39) && !markYellow(135, 111, 74) && !markYellow(144, 115, 59),
               "yellow by hue: the live minimap \"?\" and a dim NPC \"?\", not parchment or tan land")
 
@@ -559,6 +571,7 @@ extension NavTests {
         init(_ reads: [QuestRead]) { self.reads = reads }
         func readQuests() async -> QuestRead? { reads.isEmpty ? nil : reads.removeFirst() }
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
+        func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -621,6 +634,20 @@ extension NavTests {
         check(combat.outcome == "WALK_COMBAT",
               "a walk stopped by combat ends the quest run")
         let wrong = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        let boros = Giver(names: ["Windshaper Boros"], pin: (43.2, 22.4))
+        let giving = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [boros]),
+                                 QuestRead(quests: [], player: (43.2, 22.4), missing: [])])
+        let taker = CannedGraph(["DO:ACCEPT_1"])
+        let took = await runQuests(host: giving, jev: taker, graph: graph()!)
+        check(taker.offered.first?.contains("DO:ACCEPT_1") == true && giving.handed == ["!43.2,22.4"] && took.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "a minimap \"!\" is offered as ACCEPT_1; after taking it, nothing is left to do here")
+        let refused = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [boros]),
+                                  QuestRead(quests: [], player: thendal, missing: [], givers: [boros])])
+        refused.outcomes = ["!43.2,22.4": "NO_ACCEPT_BUTTON"]
+        let once = CannedGraph(["DO:ACCEPT_1"])
+        let refusal = await runQuests(host: refused, jev: once, graph: graph()!)
+        check(refusal.outcome == "NOTHING_TO_HAND_IN_OR_TAKE" && once.offered.count == 1,
+              "a giver whose offer could not be accepted is not offered again this run")
         let invalid = await runQuests(host: wrong, jev: CannedGraph(["DO:HAND_IN_3"]), graph: graph()!)
         check(invalid.outcome == "GRAPH_invalidReply" && wrong.handed.isEmpty,
               "a reply naming a step not offered runs nothing: no rules fallback")

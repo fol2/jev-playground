@@ -272,16 +272,18 @@ func minimapPoint(_ px: Double, _ py: Double, player: MapPoint) -> MapPoint {
     (player.x + (px - Double(MinimapHUD.cx)) / MinimapHUD.unitPx / mapAspect, player.y + (py - Double(MinimapHUD.cy)) / MinimapHUD.unitPx)
 }
 
-/// Quest icons ("?", "!") on the minimap: a hub's hand-ins sit together under the world map's arrow, and
-/// the minimap's larger scale separates them (24 Sept).
-func minimapPins(_ image: RGBA) -> [(x: Double, y: Double)] {
+/// Quest icons on the minimap: a hub's hand-ins sit together under the world map's arrow, and the minimap's
+/// larger scale separates them (24 Sept). `offer` marks a "!" (a quest to take): its bar is 2-5 px wide on
+/// the 23 Sept Thendal frames, where a "?" hook is 6-7 px on the 24 Sept live scans.
+// ponytail: width alone; add the bar's fill (solid, where a hook has a gap) if a 5-6 px glyph turns up.
+func minimapPins(_ image: RGBA) -> [(x: Double, y: Double, offer: Bool)] {
     let r = MinimapHUD.radius, cx = MinimapHUD.cx, cy = MinimapHUD.cy
     let icons = glyphs(yellowBlobs(image, box: (cx - r, cy - r, cx + r, cy + r), gap: 0))
         .filter { $0.n >= 8 && $0.x1 - $0.x0 <= 20 && $0.y1 - $0.y0 <= 20 && $0.y1 - $0.y0 >= $0.x1 - $0.x0 }  // upright: not an area's dashed edge
     // Four or more on one baseline are the letters of a tooltip's yellow title, not icons.
     return icons.filter { i in icons.filter { abs($0.y1 - i.y1) <= 3 }.count < 4 }
-        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
-        .filter { hypot($0.x - Double(cx), $0.y - Double(cy)) <= Double(r) - 4 }
+        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n), $0.x1 - $0.x0 + 1 <= 5) }
+        .filter { hypot($0.0 - Double(cx), $0.1 - Double(cy)) <= Double(r) - 4 }
 }
 
 /// "?" and "!" as a hook or bar with a dot under it. Three minimap "?" sat so close on 24 Sept that one's
@@ -303,16 +305,26 @@ func glyphs(_ parts: [Blob]) -> [Blob] {
 // reads the log, offers only the steps it can run here and runs the chosen one. The owner's zone-first
 // order is a reference Jev may read, not a queue the script works through.
 
+/// A quest giver's "!" on the minimap: what its tooltip read (not yet known whether that is the giver's or
+/// the quest's name) and where it stands.
+struct Giver {
+    var names: [String]
+    var pin: MapPoint
+    var key: String { String(format: "%.1f,%.1f", pin.x, pin.y) }
+}
+
 /// One read of the Map & Quest Log, the minimap's quest icons and the player's position.
 struct QuestRead {
     var quests: [PlannedQuest]
     var player: MapPoint
-    var missing: [String]  // named by a minimap tooltip but absent from the log read
+    var missing: [String]  // named by a "?" tooltip but absent from the log read
+    var givers: [Giver] = []
 }
 
 protocol QuestHost: AnyObject {
     func readQuests() async -> QuestRead?  // nil: the position was unreadable
     func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
+    func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -320,24 +332,51 @@ protocol QuestHost: AnyObject {
 
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
+    static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let maxSteps = 8
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
 }
 
-/// The hand-ins local code offers: quests a hand-in can finish (ready, or a delivery to someone), with a pin
-/// within one walk of the player, not already failed this run; one slot each, in the owner's order. Kill,
-/// collect and use-at quests have no skill in this graph yet and are not offered.
-func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, quest: PlannedQuest, criterion: String)] {
+/// A step local code can run here: a hand-in or a quest to take.
+enum QuestStep {
+    case handIn(PlannedQuest)
+    case accept(Giver)
+    var name: String {
+        switch self {
+        case .handIn(let q): return q.title
+        case .accept(let g): return g.names.first.map { "\"!\" \($0)" } ?? "\"!\" at \(g.key)"
+        }
+    }
+    var key: String {  // what a failure is remembered by
+        switch self {
+        case .handIn(let q): return q.title
+        case .accept(let g): return "!" + g.key
+        }
+    }
+}
+
+/// The steps local code offers, none already failed this run and each within one walk of the player:
+/// hand-ins for quests a hand-in can finish (ready, or a delivery to someone), in the owner's order; then
+/// the minimap's "!" givers, nearest first (the owner: always accept quests). Kill, collect and use-at
+/// quests have no skill in this graph yet and are not offered.
+func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, step: QuestStep, criterion: String)] {
+    func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
         [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
             && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } == true
     }
-    return open.prefix(QuestLimits.slots).enumerated().map { i, q in
-        let away = String(format: "%.1f", distance(read.player, q.pin!))
-        return ("HAND_IN_\(i + 1)", q, "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away) units away) and hand it in. "
-                + "The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
+    let handIns = open.prefix(QuestLimits.slots).enumerated().map { i, q in
+        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away(q.pin!)) units away) "
+            + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
     }
+    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg }
+        .sorted { distance(read.player, $0.pin) < distance(read.player, $1.pin) }
+    let accepts = givers.prefix(QuestLimits.giverSlots).enumerated().map { i, g in
+        ("ACCEPT_\(i + 1)", QuestStep.accept(g), "Walk to the quest giver shown by a \"!\" on the minimap (\(away(g.pin)) units away; its tooltip read "
+            + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
+    }
+    return handIns + accepts
 }
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
@@ -352,6 +391,7 @@ func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) ->
                 ["title": q.title, "level": q.level, "kind": questKind(q).rawValue, "objective": q.objective,
                  "in_this_zone": zone.contains(q.title),
                  "distance": q.pin.map { roundTo(distance(read.player, $0), 10) } as Any? ?? NSNull()] },
+            "givers": read.givers.map { ["tooltip": $0.names, "distance": roundTo(distance(read.player, $0.pin), 10)] },
             "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
 }
 
@@ -380,7 +420,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         let offers = questOffers(read, failed: failed)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel].contains(questKind($0)) && !failed.contains($0.title) }
-            return finish(deliveries.isEmpty ? "NO_HAND_IN_LEFT" : "NEXT_ZONE_NEEDS_ROADS")
+            return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
         let decision: GraphDecision
         do {
@@ -393,11 +433,15 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         }
         for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
         guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
-        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "quest": offer.quest.title])
-        let outcome = await host.handIn(offer.quest)
-        r.steps.append((offer.quest.title, outcome))
-        if outcome.hasPrefix("COMPLETED") { continue }
-        failed.insert(offer.quest.title)
+        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "step": offer.step.name])
+        let outcome: String
+        switch offer.step {
+        case .handIn(let q): outcome = await host.handIn(q)
+        case .accept(let g): outcome = await host.accept(g)
+        }
+        r.steps.append((offer.step.name, outcome))
+        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { continue }
+        failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {
             stuck += 1
             if stuck >= 2 { return finish("NO_PROGRESS_TWICE") }

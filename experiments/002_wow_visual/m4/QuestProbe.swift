@@ -143,8 +143,9 @@ final class QuestRun {
 
     /// M4d: the quest log and the world map's pins, read-only. L opens the map; the pointer rests on each
     /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
-    /// `missing`: names the minimap's tooltips showed that the log read lacks; the plan must not be trusted.
-    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String]) {
+    /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
+    /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
+    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
         let player = (await frame()).flatMap { parseCoords(coordsText($0)) }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         await sleep(0.4)
@@ -154,14 +155,20 @@ final class QuestRun {
         body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
         var minimapNames: [(names: [String], at: MapPoint)] = []
         var tooltips: [String] = []
+        var givers: [Giver] = []
         for spot in nearby {
             hover(spot.x, spot.y)
             await sleep(0.7)
             let box = CGRect(x: 1850, y: max(0, spot.y - 120), width: 710, height: 160)  // the tip runs over the minimap
             let read = lines(box, await frame()).map(\.text)
-            body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read])
-            minimapNames.append((read.map(nameKey), minimapPoint(spot.x, spot.y, player: player!)))
-            tooltips += read
+            body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read, "offer": spot.offer])
+            let at = minimapPoint(spot.x, spot.y, player: player!)
+            if spot.offer {
+                givers.append(Giver(names: read.filter { nameKey($0).count >= 4 }, pin: at))  // "18 m" is not a name
+            } else {
+                minimapNames.append((read.map(nameKey), at))
+                tooltips += read
+            }
         }
         await tap(QuestHUD.mapKey)
         await sleep(1.2)
@@ -187,10 +194,78 @@ final class QuestRun {
         }
         await tap(QuestHUD.mapKey)
         let missing = missingFromLog(tooltips, quests)
-        body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing, "quests": quests.map {
+        body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
+                                "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
-        return (quests, player, missing)
+        return (quests, player, missing, givers)
+    }
+
+    enum Page { case wanted([TipLine]), other([TipLine]), failed(String) }
+
+    /// Right-click the NPCs under the quest marks in view, nearest the centre first, at most three, until
+    /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
+    /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
+    /// only when one is open: Esc with nothing open is the Game Menu.
+    func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
+        guard let image = await frame() else { return (nil, "NO_FRESH_FRAME") }
+        var marks = questMarks(rgba(image), box: QuestHUD.world)
+        body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+        guard !marks.isEmpty else {
+            write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
+            return (nil, "NO_QUEST_MARK_IN_VIEW")
+        }
+        for _ in 0..<3 {
+            guard let mark = marks.first else { break }
+            guard click(mark.x, mark.body, right: true) else { return (nil, "CLICK_FAILED") }
+            await sleep(2.5)
+            let seen: [TipLine]
+            switch await page(lines(QuestHUD.dialog, await frame())) {
+            case .wanted(let dialog): return (dialog, nil)
+            case .failed(let code): return (nil, code)
+            case .other(let dialog): seen = dialog
+            }
+            body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": seen.prefix(4).map(\.text)])
+            if !seen.isEmpty {  // someone else's: close it and try the next mark
+                await tap(QuestHUD.escape)
+                await sleep(0.8)
+                marks.removeFirst()
+            } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
+                marks = questMarks(rgba(again), box: QuestHUD.world)
+                body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+            }
+        }
+        return (nil, "DIALOGUE_NOT_OPEN")
+    }
+
+    /// Take the quest a giver offers: its dialogue's "Accept" button (the owner: always accept quests).
+    /// A giver with several quests lists them; an entry is clicked only when the minimap's tooltip named it.
+    /// The chat's "accepted" line confirms it; the next log read is the proof.
+    func accept(_ giver: Giver) async -> String {
+        func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { nameKey($0) == nameKey(l.text) } } }
+        var dialog = lines(QuestHUD.dialog, await frame())
+        if acceptButton(dialog) == nil {
+            let opened = await openAtMark { page in
+                var page = page
+                if acceptButton(page) == nil, let entry = listed(page) {
+                    guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
+                    await self.sleep(1.5)
+                    page = self.lines(QuestHUD.dialog, await self.frame())
+                }
+                return acceptButton(page) == nil ? .other(page) : .wanted(page)
+            }
+            guard let open = opened.dialog else { return opened.failure! }
+            dialog = open
+        }
+        guard let button = acceptButton(dialog) else { return "NO_ACCEPT_BUTTON" }
+        body.emit("accept", ["controller": "RULE", "rule": "owner: always accept quests", "dialog": dialog.prefix(3).map(\.text)])
+        let before = Set((await frame()).map(chatLines) ?? [])
+        guard click(button.x + 30, button.y + 7) else { return "CLICK_FAILED" }
+        await sleep(1.5)
+        let chat = ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }
+        body.emit("accepted", ["chat": chat])
+        guard acceptButton(lines(QuestHUD.dialog, await frame())) == nil else { return "STILL_OPEN_AFTER_ACCEPT" }
+        return chat.contains { $0.lowercased().contains("accepted") } ? "ACCEPTED" : "ACCEPTED_UNCONFIRMED"
     }
 
     func turnIn(_ quest: String) async -> String {
@@ -205,41 +280,20 @@ final class QuestRun {
         }
         var dialog = await pastContinue(lines(QuestHUD.dialog, await frame()))
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
-            guard let image = await frame() else { return "NO_FRESH_FRAME" }
-            // A hub's NPCs stand close together (24 Sept: three "?" in Thendal Village): try the nearest
-            // three; a dialogue for someone else's quest is closed with Esc (only when one is open: Esc
-            // with nothing open is the Game Menu).
-            var marks = questMarks(rgba(image), box: QuestHUD.world)
-            body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
-            guard !marks.isEmpty else {
-                write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
-                return "NO_QUEST_MARK_IN_VIEW"
-            }
-            var opened = false
-            for _ in 0..<3 {
-                guard let mark = marks.first else { break }
-                guard click(mark.x, mark.body, right: true) else { return "CLICK_FAILED" }
-                await sleep(2.5)
-                dialog = lines(QuestHUD.dialog, await frame())
-                if has(dialog, "Complete Quest") == nil, let entry = ours(dialog) {  // an NPC with several quests lists them
-                    guard click(entry.x + 40, entry.y + 7) else { return "CLICK_FAILED" }
-                    await sleep(1.5)
-                    dialog = lines(QuestHUD.dialog, await frame())
+            let opened = await openAtMark { page in
+                var page = page
+                if self.has(page, "Complete Quest") == nil, let entry = ours(page) {  // an NPC with several quests lists them
+                    guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
+                    await self.sleep(1.5)
+                    page = self.lines(QuestHUD.dialog, await self.frame())
                 }
-                dialog = await pastContinue(dialog)
-                if has(dialog, "Complete Quest") != nil, ours(dialog) != nil { opened = true; break }
-                if has(dialog, "Continue") != nil, ours(dialog) != nil { return "CONTINUE_DID_NOT_ADVANCE" }
-                body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": dialog.prefix(4).map(\.text)])
-                if !dialog.isEmpty {  // someone else's quest: close it and try the next mark
-                    await tap(QuestHUD.escape)
-                    await sleep(0.8)
-                    marks.removeFirst()
-                } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
-                    marks = questMarks(rgba(again), box: QuestHUD.world)
-                    body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
-                }
+                page = await pastContinue(page)
+                if self.has(page, "Complete Quest") != nil, ours(page) != nil { return .wanted(page) }
+                if self.has(page, "Continue") != nil, ours(page) != nil { return .failed("CONTINUE_DID_NOT_ADVANCE") }
+                return .other(page)
             }
-            guard opened else { return "DIALOGUE_NOT_OPEN" }
+            guard let open = opened.dialog else { return opened.failure! }
+            dialog = open
         }
         guard dialog.contains(where: { nameKey($0.text) == nameKey(quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
 
@@ -299,32 +353,42 @@ final class QuestRun {
 final class LiveQuestHost: QuestHost {
     let quester: QuestRun
     let key: String
-    let walk: () -> LiveNavBody
+    let newWalker: () -> LiveNavBody
     var walker: LiveNavBody?
-    init(quester: QuestRun, key: String, walk: @escaping () -> LiveNavBody) { self.quester = quester; self.key = key; self.walk = walk }
+    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody) { self.quester = quester; self.key = key; self.newWalker = newWalker }
 
     func readQuests() async -> QuestRead? {
-        let (quests, player, missing) = await quester.readQuests()
-        return player.map { QuestRead(quests: quests, player: $0, missing: missing) }
+        let (quests, player, missing, givers) = await quester.readQuests()
+        return player.map { QuestRead(quests: quests, player: $0, missing: missing, givers: givers) }
+    }
+
+    /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
+    /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
+    func walk(to pin: MapPoint, label: String) async -> String? {
+        guard let at = quester.body.look(), distance((at.x, at.y), pin) > 0.5 else { return nil }
+        guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
+        // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
+        // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
+        if walker?.holding == true { return "WALK_KEYS_HELD" }
+        let legs = newWalker()
+        walker = legs
+        let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
+                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
+        guard !legs.holding else { return "WALK_KEYS_HELD" }
+        return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {
-        // Walk even a short way: walking faces the NPC, so its "?" is in view (live, 24 Sept: 1.0 away and
-        // behind the camera, no mark was found).
-        if let pin = quest.pin, let at = quester.body.look(), distance((at.x, at.y), pin) > 0.5 {
-            guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
-            // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
-            // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
-            if walker?.holding == true { return "WALK_KEYS_HELD" }
-            let legs = walk()
-            walker = legs
-            let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                      destination: NavDestination(label: String(quest.title.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
-            guard !legs.holding else { return "WALK_KEYS_HELD" }
-            guard walked.outcome == "ARRIVED" else { return "WALK_" + walked.outcome }
-        }
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
+        return outcome
+    }
+
+    func accept(_ giver: Giver) async -> String {
+        if let stop = await walk(to: giver.pin, label: "quest giver") { return stop }
+        let outcome = await quester.accept(giver)
+        emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
         return outcome
     }
 
@@ -396,7 +460,7 @@ func planExecute() async throws -> Int32 {
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
-    let (quests, player, missing) = await (try QuestRun(body: body)).readQuests()
+    let (quests, player, missing, givers) = await (try QuestRun(body: body)).readQuests()
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
@@ -407,6 +471,7 @@ func planExecute() async throws -> Int32 {
     for (i, q) in plan.enumerated() {
         print("\(i + 1). [\(q.level)] \(q.title): \(questKind(q).rawValue) at \(q.pin.map { "\($0.x), \($0.y)" } ?? "no pin")")
     }
+    for g in givers { print("! \(g.names.isEmpty ? "(tooltip unread)" : g.names.joined(separator: ", ")) at \(g.key)") }
     return body.holding ? 3 : 0
 }
 
