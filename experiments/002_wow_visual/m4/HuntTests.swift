@@ -395,3 +395,71 @@ final class FreezingJev: JevClient {
         return try await then.ask(state: state, question: question)
     }
 }
+
+extension NavTests {
+    /// Reward tooltips as Vision read them live on 24 Sept (The Cirrusfly Queen): text, left x, top y.
+    /// The equipped item's comparison sits to the right, and quest text shows through at x 149-241.
+    static func tip(_ rows: [(String, Double, Double)], red: Set<String> = []) -> [TipLine] {
+        rows.map { TipLine(text: $0.0, x: $0.1, y: $0.2, red: red.contains($0.0)) }
+    }
+    static let vest = tip([("Elatrell Featherlight", 149, 159), ("Equipped", 493, 190), ("Exterminator's Vest", 201, 219),
+        ("Ragged Leather Vest", 489, 221), ("QUEE", 151, 235), ("Chest", 489, 237), ("Leather", 685, 237),
+        ("Binds when picked up", 201, 237), ("31 Armor", 487, 251), ("Leather", 415, 251), ("Chest", 201, 252),
+        ("make a fine", 239, 259), ("33 Armor", 203, 267), ("Durability 45 / 45", 487, 267), ("Requires Level 2", 203, 275),
+        ("Sell Price: 8", 487, 281), ("Sell Price: 13", 201, 297), ("If you replace this item, the following", 487, 313),
+        ("stat changes will occur:", 487, 329), ("Press F6 to submit an issue for this Item", 201, 329), ("ard:", 150, 335),
+        ("+2 Armor", 487, 343), ("Gardening", 239, 363)])
+    static let pants = tip([("Equipped", 653, 207), ("Gardening Pants", 361, 235), ("Ragged Leather Pants", 649, 235),
+        ("Leather", 843, 251), ("Binds when picked up", 359, 251), ("Legs", 647, 253), ("17 Armor", 647, 267), ("Cloth", 589, 267),
+        ("Legs", 359, 268), ("\"adventurer\" thing", 169, 269), ("9 Armor", 359, 283), ("Durability 30 / 30", 647, 283),
+        ("Sell Price: 2", 647, 297), ("Sell Price: 9", 359, 297), ("If you replace this item, the following", 647, 329),
+        ("Press F6 to submit an issue for this Item", 359, 329), ("stat changes will occur:", 647, 343), ("-8 Armor", 648, 357)])
+    static let mail = tip([("Equipped", 493, 255), ("Watcher's Mail Chest", 203, 281), ("Ragged Leather Vest", 489, 283),
+        ("Chest", 489, 297), ("Leather", 685, 299), ("Binds when picked up", 201, 299), ("Chest", 201, 313), ("31 Armor", 487, 314),
+        ("Mail", 435, 315), ("67 Armor", 201, 329), ("Durability 45 / 45", 489, 329), ("Sell Price: 8", 487, 343),
+        ("Sell Price: 14 -", 201, 343), ("Gardening,", 241, 361), ("Press Forto submit an issue for this Item", 201, 375),
+        ("If you replace this item, the following", 487, 375), ("stat changes will occur:", 487, 389), ("+36 Armor", 487, 403)],
+        red: ["Mail"])
+
+    static func quests() {
+        let v = parseReward(vest), p = parseReward(pants), m = parseReward(mail)
+        check(v == Reward(name: "Exterminator's Vest", slot: "Chest", usable: true, change: 2, sell: 13),
+              "reward tooltip: its own lines by alignment, the game's +2 Armor from the equipped comparison")
+        check(p == Reward(name: "Gardening Pants", slot: "Legs", usable: true, change: -8, sell: 9), "a worse item: -8 Armor")
+        check(m == Reward(name: "Watcher's Mail Chest", slot: "Chest", usable: false, change: 36, sell: 14),
+              "red Mail: not usable, whatever the armour; an OCR-garbled footer still ends the tooltip")
+        check(parseReward(vest.filter { !$0.text.hasPrefix("Press") }) == nil, "no footer: no reward")
+        let all = [v!, p!, m!]
+        check(chooseReward(all).map { [$0.index, $0.equip ? 1 : 0] } == [0, 1],
+              "owner's rule: the usable upgrade is taken and equipped, not the unusable +36 mail")
+        check(chooseReward([p!, m!]).map { [$0.index, $0.equip ? 1 : 0] } == [1, 0],
+              "no usable upgrade: the highest sell price is taken to sell, even an unusable item")
+        check(chooseReward([]) == nil, "no rewards: no choice")
+        var bare = vest.filter { $0.x < 480 }
+        bare.removeAll { $0.text == "Leather" && $0.x > 400 }
+        check(parseReward(bare)?.change == 33, "an empty slot: the item's own armour is the gain")
+
+        var image = RGBA(width: 400, height: 300, pixels: [UInt8](repeating: 30, count: 400 * 300 * 4))
+        func paint(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ rgb: (UInt8, UInt8, UInt8) = (250, 210, 40)) {
+            var px = image.pixels
+            for y in y0..<(y0 + h) { for x in x0..<(x0 + w) { let i = (y * 400 + x) * 4; px[i] = rgb.0; px[i + 1] = rgb.1; px[i + 2] = rgb.2 } }
+            image = RGBA(width: 400, height: 300, pixels: px)
+        }
+        paint(100, 50, 12, 20)
+        paint(70, 85, 70, 6, (60, 190, 40))  // the NPC's green name under its "?"
+        paint(300, 200, 12, 20)
+        paint(270, 235, 70, 6, (60, 190, 40))
+        paint(20, 280, 3, 3)
+        paint(150, 120, 120, 8)
+        paint(200, 20, 12, 20)  // a glowing insect: upright and yellow, no green name
+        let marks = questMarks(image, box: (0, 0, 400, 300))
+        check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1,
+              "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
+        check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
+
+        check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
+              "--turn-in takes the quest's title")
+        check((try? parseNav(["--turn-in", "--keys", "wqe"])) == nil, "--turn-in without --quest is refused")
+        check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "x; rm -rf"])) == nil, "a quest title is letters and simple punctuation")
+    }
+}

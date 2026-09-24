@@ -233,6 +233,32 @@ labelled live:
 - No hunt has run live on the current UI or with these fixes. The SimHunt checks are
   **simulation only**.
 
+## M4c — hand in a quest at its NPC
+
+`m4-nav --turn-in --keys wqe --quest NAME`, run within reach of the quest's NPC (M4a walks there).
+Every step is a script (controller RULE); there is no Jev call.
+
+1. Zoom out (F10). If the quest dialogue is not already open, find the NPC's yellow "?": an upright
+   yellow blob with a green name 8-50 px below it. Zoomed out the "?" is small and dim, so the test
+   is the hue; a neutral nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click
+   68 px below the mark: with Click-to-Move the character walks to the NPC and opens the dialogue.
+2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
+   your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
+   Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a
+   line drawn red (such as "Mail" for a Shaman) makes the item unusable.
+3. The owner's rule (24 Sept): "choose if it benefit (eg armor better than now, take and equip). or
+   take the highest value (take and sell)." Click that reward, then Complete Quest.
+4. For an upgrade, `/equip NAME` in chat, then `/run print(GetInventoryItemLink("player", SLOT))` to
+   confirm it. Letters are only typed once the chat box shows "Say:": outside it they are game keys.
+
+Calibrated on the 24 Sept live exploration of The Cirrusfly Queen (Elatrell Featherlight, Thendal
+Village): the minimap "?" tooltip named the quest when the world-map pin was hidden under the player
+arrow, M4a arrived in 4 decisions (one blocked step, two left detours), and one right-click opened
+the completion page. Offline: the three real reward tooltips parse to Exterminator's Vest (+2, taken
+and equipped), Gardening Pants (-8) and Watcher's Mail Chest (red Mail, 14 copper); on 14 saved
+frames only the two real "?" marks are found. Not yet handled: an NPC's gossip list, the "Continue"
+page of item quests, Accept for new quests and silver or gold in a sell price.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
@@ -248,7 +274,7 @@ labelled live:
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
-  experiments/002_wow_visual/m4/HuntTests.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 ```

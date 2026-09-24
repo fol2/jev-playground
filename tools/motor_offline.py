@@ -16,7 +16,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 183  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 196  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -175,11 +175,11 @@ def main():
 
         nav_tests, nav = str(Path(tmp, "nav-tests")), str(Path(tmp, "m4-nav"))
         build(nav_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift", NAV + "NavTests.swift",
-              NAV + "Hunt.swift", NAV + "HuntTests.swift")
+              NAV + "Hunt.swift", NAV + "HuntTests.swift", NAV + "Quest.swift")
         nav_checks = suite(nav_tests, "nav", MIN_NAV_CHECKS)
         build(nav, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift",
               SEEK + "SeekProbe.swift", FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
-              NAV + "Hunt.swift", NAV + "HuntProbe.swift",
+              NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift",
               CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift",
               CLICK + "NativeBackgroundClickTransport.swift",
               flags=("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"))

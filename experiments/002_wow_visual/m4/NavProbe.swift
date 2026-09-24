@@ -18,7 +18,9 @@ let navUsage = """
            m4-nav --sim-jev --scenario open|wall|pocket
            m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
-    Live keys: W, Q, E; a hunt adds Tab, Esc and M3's 1-4. Recovery: m0-probe --release --keys wqe
+           m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
+    Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
+    Recovery: m0-probe --release --keys wqe
     """
 
 /// OCR lines of one HUD box, top to bottom, after a x3 upscale: Vision misreads ~10 px text at 1x.
@@ -312,6 +314,7 @@ struct M4Nav {
             case .huntDryRun: exit(try await huntDryRun())
             case .huntSimJev: exit(try await huntSimJev())
             case .hunt: exit(try await huntExecute())
+            case .turnIn: exit(try await questExecute(command))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)
