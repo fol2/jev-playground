@@ -10,7 +10,7 @@ import Vision
 
 /// Capture-pixel boxes of the 2560x1320 layout, read by OCR after a x3 upscale.
 enum HuntHUD {
-    static let tracker = CGRect(x: 2200, y: 400, width: 360, height: 300)  // objectives, below "All Objectives"
+    static let tracker = CGRect(x: 2200, y: 400, width: 360, height: 440)  // objectives below "All Objectives"; six tracked quests reach y 700
     static let targetName = CGRect(x: 1590, y: 950, width: 330, height: 50)
     static let gameMenu = CGRect(x: 1150, y: 440, width: 260, height: 70)  // the Game Menu's title
 }
@@ -285,6 +285,11 @@ func huntExecute() async throws -> Int32 {
         throw ProbeError("Jev did not answer a warm-up question within 30 s")
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
+    let roles = try await readSkillBar(session, feed, log)
+    applyRoles(roles)
+    HuntLimits.drink = roles[.drink] ?? HuntLimits.drink
+    HuntLimits.eat = roles[.food] ?? HuntLimits.eat
+    await zoomOut(sink, log)
     let host = LiveHuntHost(session: session, feed: feed, sink: sink, directory: run.url, log: log, fightJev: LiveJev(key: key))
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })

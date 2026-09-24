@@ -198,17 +198,15 @@ final class LiveHost: FightHost {
         if code == FightLimits.forward { walkedMs += ms } else { turnedMs += ms }
     }
 
-    private func face() async -> String {
-        for _ in 0..<6 {
-            let o = look("face", plates: true)
-            guard let dx = offset(o) else { return "target nameplate not visible" }
-            if abs(dx) <= FightLimits.faceTolerance { return "target centred" }
-            guard turnedMs < FightLimits.turnBudgetMs else { return "turn budget spent" }
-            let ms = Int(min(250, max(60, abs(dx) / 2.1 * 800)))
-            await hold(dx < 0 ? FightLimits.turnLeft : FightLimits.turnRight, ms)
-            await sleep(0.35)
-        }
-        return "not centred after 6 turns"
+    /// The owner, 24 Sept: "if F9 work for behind, why can't F9 work for everything?" The game turns to
+    /// the target wherever it is; a forward tap then cancels Click-to-Move's walk so a cast can follow.
+    private func face(_ episode: inout Episode) async -> String {
+        await tap(FightLimits.interact)
+        await sleep(FightLimits.interactTurnSeconds)
+        await tap(FightLimits.forward)
+        episode.meleeOn = true
+        let o = look("face", plates: true)
+        return o.plate.map { _ in "faced the target; automatic swings on" } ?? "pressed Interact With Target; no target nameplate in view yet"
     }
 
     private func approach() async -> String {
@@ -311,7 +309,7 @@ final class LiveHost: FightHost {
             episode.meleeOn = false
             return look("tab", plates: true).plate != nil ? "a target is selected" : "no target selected"
         case .faceTarget:
-            return await face()
+            return await face(&episode)
         case .approachToRange:
             return await approach()
         case .castLightningBolt:
@@ -331,6 +329,41 @@ final class LiveHost: FightHost {
             return "stop"
         }
     }
+}
+
+/// Hover each main-bar slot in the background and read its tooltip: the keys come from what the bar
+/// holds, not from constants. Throws (a HOLD) when a role is missing or the pointer was contested.
+let tooltipBox = CGRect(x: 2240, y: 900, width: 320, height: 340)  // bottom-right; a tooltip grows upwards
+
+func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log) async throws -> [SkillRole: UInt16] {
+    let bounds = session.window.frame
+    let routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds)
+    var bar: [Skill?] = []
+    for (i, key) in SkillHUD.names.enumerated() {
+        let at = CGPoint(x: bounds.minX + bounds.width * (SkillHUD.slot1X + SkillHUD.pitch * Double(i)) / Double(HUD.width),
+                         y: bounds.minY + bounds.height * SkillHUD.slotY / Double(HUD.height))
+        try NativeBackgroundClickTransport().move(target: routed, point: at)
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        let lines = feed.latestFrame?.image.cropping(to: tooltipBox).map { crop in
+            ocr(crop).sorted { ($0.1.maxY, -$0.1.minX) > ($1.1.maxY, -$1.1.minX) }.map(\.0)
+        } ?? []
+        let skill = parseTooltip(lines)
+        bar.append(skill)
+        log.emit("skill_slot", ["key": key, "name": orNull(skill?.name), "role": orNull(skill.flatMap(role)?.rawValue),
+                                "cast_s": orNull(skill?.cast), "text": orNull(skill?.text), "t": hostNow()])
+    }
+    let (keys, problems) = assignRoles(bar)
+    guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }
+    return keys
+}
+
+/// The owner, 23-24 Sept: zoomed out to the widest view by default. Holds F10 (Camera Zoom Out).
+func zoomOut(_ sink: PidKeySink, _ log: Log) async {
+    let keys = LiveKeys(sink: sink, releaseCodes: [FightLimits.zoomOut], clock: hostNow) { event, fields in log.emit(event, fields) }
+    keys.press(FightLimits.zoomOut)
+    try? await Task.sleep(nanoseconds: UInt64(FightLimits.zoomSeconds * 1_000_000_000))
+    keys.releaseAll()
+    log.emit("zoomed_out", ["seconds": FightLimits.zoomSeconds, "t": hostNow()])
 }
 
 func fightDryRun() async throws -> Int32 {
@@ -385,6 +418,8 @@ func fightExecute() async throws -> Int32 {
     let warm = Task.detached { _ = ocr(first.image.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 100)) ?? first.image) }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     _ = await warm.value
+    applyRoles(try await readSkillBar(session, feed, log))
+    await zoomOut(sink, log)
     let host = LiveHost(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })

@@ -254,6 +254,7 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
     }
     _ = await Task.detached { coordsText(first.image) }.value  // Vision's first OCR in a process takes ~30 s
     let sink = PidKeySink(pid: session.app.processIdentifier)
+    await zoomOut(sink, log)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     body.ghost = command.ghost
     defer { body.releaseAll() }

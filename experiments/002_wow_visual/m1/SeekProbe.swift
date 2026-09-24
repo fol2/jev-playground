@@ -170,8 +170,9 @@ func wowSession(input: Bool, full: Bool = false) async throws -> Session {
         throw ProbeError("WoW is frontmost or the foreground app is unknown; M1 uses background input and never switches apps")
     }
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-    let windows = content.windows.filter {  // off screen, WoW also lists 30-pixel menu-bar strips
-        $0.owningApplication?.processID == app.processIdentifier && $0.windowLayer == 0 && $0.frame.width > 300 && $0.frame.height > 300
+    let windows = content.windows.filter {  // WoW also owns 30-pixel menu-bar strips and (24 Sept) an untitled off-screen 500x500 window
+        $0.owningApplication?.processID == app.processIdentifier && $0.windowLayer == 0 && $0.title == "World of Warcraft"
+            && $0.frame.width > 300 && $0.frame.height > 300
     }
     guard windows.count == 1, let window = windows.first, let bounds = windowBounds(window.windowID) else {
         throw ProbeError("expected exactly one WoW game window, found \(windows.count)")

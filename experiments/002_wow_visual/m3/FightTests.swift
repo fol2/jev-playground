@@ -21,6 +21,7 @@ struct FightTests {
         detectors()
         casts()
         admissibility()
+        skills()
         episode()
         choices()
         names()
@@ -167,6 +168,53 @@ struct FightTests {
               "a nameplate left of centre admits FACE_TARGET")
         check(!has(admissible(Obs(target: 1, plate: plate), Episode()), .faceTarget),
               "a centred nameplate does not admit FACE_TARGET")
+        // 24 Sept live: a second creature hit from behind; with no nameplate FACE_TARGET was never offered.
+        check(has(admissible(Obs(target: 1), Episode()), .faceTarget), "a live target with no nameplate in view admits FACE_TARGET")
+        check(!has(admissible(Obs(target: 0), Episode()), .faceTarget), "a dead target: no FACE_TARGET")
+    }
+
+    /// Tooltip lines as Vision read them live on 24 Sept (top to bottom), one per main-bar slot.
+    static let bar24Sept: [[String]] = [
+        ["Attack", "Press F6 to submit an issue for this Spell"],
+        ["Lightning Bolt", "Rank 1", "15 Mana", "30 yd range", "1.5 sec cast", "Casts a bolt of lightning at the target for",
+         "14 to 17 Nature damage.", "Press F6 to submit an issue for this Spell"],
+        ["Earth Shock", "Rank 1", "30 Mana", "20 yd range", "6 sec cooldown", "Instant", "Instantly shocks the target with",
+         "concussive force, causing 17 to 20", "Nature damage. It also interrupts", "Press F6 to submit an issue for this Spell"],
+        ["Rank 1", "Healing Wave", "25 Mana", "40 yd range", "1.5 sec cast", "Heals a friendly target for 36 to 47.",
+         "Press F6 to submit an issue for this Spell"],
+        [], [], [],
+        ["Rockbiter Weapon", "Rank 1", "15 Mana", "Instant", "Imbue the Shaman's weapon,", "increasing melee attack power by 45",
+         "Lasts for 60 minutes.", "weapon.", "Press F6 to submit an issue for this Spell"],
+        ["Racial", "Skysight", "0.5 sec cast", "2 min cooldown", "Attempt to draw power from a", "its blessing, increasing your movement",
+         "Press F6 to submit an issue for this Spell"],
+        ["Racial", "Walk on Air", "2 min cooldown", "Instant", "Glide downward through the air for 10",
+         "Press F6 to submit an issue for this Spell"],
+        ["Refreshing Spring Water", "Use: Restores 145 mana over 18 sec.", "Must remain seated while drinking.", "Sell Price: 5",
+         "Press F6 to submit an issue for this Item"],
+        ["Tough Jerky", "Use: Restores 58 health over 18 sec.", "Must remain seated while eating.", "Sell Price: 3",
+         "Press F6 to submit an issue for this Item"],
+    ]
+
+    static func skills() {
+        let bar = bar24Sept.map(parseTooltip)
+        check(bar.map { $0?.name } == ["Attack", "Lightning Bolt", "Earth Shock", "Healing Wave", nil, nil, nil, "Rockbiter Weapon",
+                                       "Skysight", "Walk on Air", "Refreshing Spring Water", "Tough Jerky"], "tooltip names, empty slots nil")
+        check(bar[1]?.cast == 1.5 && bar[2]?.cast == nil && bar[8]?.cast == 0.5, "cast times; instant is nil")
+        check(bar.map { $0.flatMap(role) } == [.melee, .bolt, nil, .heal, nil, nil, nil, .buff, nil, nil, .drink, .food],
+              "roles: Earth Shock, Skysight and Walk on Air have none")
+        let (keys, problems) = assignRoles(bar)
+        check(problems.isEmpty && keys == [.melee: 18, .bolt: 19, .heal: 21, .buff: 28, .drink: 27, .food: 24],
+              "24 Sept bar: heal is key 4 and the enchant key 8, not the 23 Sept 3 and 4")
+        check(assignRoles(bar.enumerated().map { $0.offset == 3 ? nil : $0.element }).problems == ["no heal skill on the bar"],
+              "a missing heal holds a live run")
+        check(assignRoles(bar.enumerated().map { $0.offset == 4 ? bar[1] : $0.element }).problems.first?.contains("two slots") == true,
+              "one tooltip on two slots holds a live run (the pointer was contested)")
+        check(parseTooltip(["Earth Shock", "30 Mana"]) == nil, "no tooltip footer: not a tooltip")
+        let saved = (FightLimits.bolt, HUD.rangeX0)
+        applyRoles([.bolt: 20])
+        check(FightLimits.bolt == 20 && HUD.rangeX0 == 758, "the range digit box follows the bolt's slot")
+        applyRoles([.bolt: saved.0])
+        check(HUD.rangeX0 == saved.1, "and returns with it")
     }
 
     static func episode() {
