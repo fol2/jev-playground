@@ -289,7 +289,17 @@ the title's x is an objective; "Bring X to NPC" is a delivery; a pointer left on
 tooltip that reads as pins) the order was Harvesting Windstones and The Gift of Skysight (hand-ins here),
 Call of Earth (bring the Rough Quartz to Windshaper Boros, 43.2, 22.4), then The Adventurer and The Next
 Step in Shen'dar. Three minimap "?" 14 px apart are now split by shape (a dot joins the hook above it),
-and their tooltips run over the minimap, so the reading box does too; that pass has not run live yet.
+and their tooltips run over the minimap, so the reading box does too.
+
+Two live faults under the plan. The live capture draws a minimap "?" as (239, 236, 116) where a
+screenshot shows (248, 246, 58), so yellow is a hue test calibrated on the probe's own saved frame. And
+the capture stopped whenever a caller held two frames: FrameFeed decoded CGImages that share the stream's
+buffers, and with queueDepth 3 two held by a caller stall it outright (a diagnostic counted 0 frames while
+two were held, 28-30 per second otherwise, with or without background pointer moves). That was every
+"no fresh frame" of the day, including fight 1's false safety stop after looting. `latestFrame` now
+returns a byte copy; with it, the diagnostic ran at full rate while holding two frames, and the live plan
+read all three minimap icons with no frame wait: The Gift of Skysight, Call of Earth (to Windshaper
+Boros) and Harvesting Windstones here, then The Adventurer and The Next Step in Shen'dar.
 
 ## Limits
 

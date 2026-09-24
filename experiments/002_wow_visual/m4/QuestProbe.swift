@@ -43,9 +43,25 @@ final class QuestRun {
         return frame.image
     }
 
+    /// A fresh frame, waiting up to 2.5 s: each background move or click first sends WoW a focus record,
+    /// and the capture then went quiet for 1-2 s (24 Sept: a false safety stop after looting, an empty
+    /// minimap scan). The wait is logged, and nil is reported by the caller, never skipped silently.
+    func frame() async -> CGImage? {
+        let start = hostNow()
+        while hostNow() - start < 2.5 {
+            if let image = image() {
+                if hostNow() - start > 0.05 { body.emit("frame_wait", ["seconds": hostNow() - start]) }
+                return image
+            }
+            await sleep(0.1)
+        }
+        body.emit("frame_wait", ["seconds": hostNow() - start, "fresh": false])
+        return nil
+    }
+
     /// OCR lines of a box in capture pixels, each flagged red when its text is drawn red.
-    func lines(_ box: CGRect) -> [TipLine] {
-        guard let crop = image()?.cropping(to: box) else { return [] }
+    func lines(_ box: CGRect, _ image: CGImage?) -> [TipLine] {
+        guard let crop = image?.cropping(to: box) else { return [] }
         let px = rgba(crop)
         return ocr(crop).map { text, b in
             let x0 = Int(b.minX * box.width), y0 = Int((1 - b.maxY) * box.height)
@@ -92,7 +108,7 @@ final class QuestRun {
         await sleep(1.0)
         hover(point.x, point.y)
         await sleep(0.8)
-        let read = lines(QuestHUD.paneTooltip).map(\.text)
+        let read = lines(QuestHUD.paneTooltip, await frame()).map(\.text)
         await tap(QuestHUD.characterPane)
         body.emit("pane_slot", ["slot": slot, "lines": Array(read.prefix(4))])
         return read.contains { nameKey($0) == nameKey(name) }
@@ -103,7 +119,7 @@ final class QuestRun {
     func command(_ text: String) async -> Bool {
         await tapEnter()
         await sleep(0.5)
-        guard let shown = image(), upscaledText(shown, QuestHUD.chatInput).contains(where: { $0.hasPrefix("Say") }) else {
+        guard let shown = await frame(), upscaledText(shown, QuestHUD.chatInput).contains(where: { $0.hasPrefix("Say") }) else {
             body.emit("chat_not_open", ["command": text])
             return false
         }
@@ -128,34 +144,38 @@ final class QuestRun {
     /// M4d: the quest log and the world map's pins, read-only. L opens the map; the pointer rests on each
     /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?) {
-        let player = image().flatMap { parseCoords(coordsText($0)) }
+        let player = (await frame()).flatMap { parseCoords(coordsText($0)) }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         await sleep(0.4)
-        let nearby = player == nil ? [] : image().map { minimapPins(rgba($0)) } ?? []
+        let scanned = await frame()
+        if let scanned { write(scanned, to: body.directory.appendingPathComponent("minimap-scan.png"), type: .png) }
+        let nearby = player == nil ? [] : scanned.map { minimapPins(rgba($0)) } ?? []
+        body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
         var minimapNames: [(names: [String], at: MapPoint)] = []
         for spot in nearby {
             hover(spot.x, spot.y)
             await sleep(0.7)
             let box = CGRect(x: 1850, y: max(0, spot.y - 120), width: 710, height: 160)  // the tip runs over the minimap
-            let read = lines(box).map(\.text)
+            let read = lines(box, await frame()).map(\.text)
             body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read])
             minimapNames.append((read.map(nameKey), minimapPoint(spot.x, spot.y, player: player!)))
         }
         await tap(QuestHUD.mapKey)
         await sleep(1.2)
-        var quests = parseQuestLog(lines(QuestHUD.questList))
+        var quests = parseQuestLog(lines(QuestHUD.questList, await frame()))
         for i in quests.indices {
             quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
         }
         hover(1280, 60)
         await sleep(0.4)
-        var spots = image().map { mapPins(rgba($0)) } ?? []
+        var spots = (await frame()).map { mapPins(rgba($0)) } ?? []
+        body.emit("map_scan", ["pins": spots.count])
         if let player { spots.append(mapPixel(player)) }
         for spot in spots {
             hover(spot.x, spot.y)
             await sleep(0.7)
             let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
-            let read = lines(box).map { nameKey($0.text) }
+            let read = lines(box, await frame()).map { nameKey($0.text) }
             for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
                 quests[i].pin = zonePoint(spot.x, spot.y)
             }
@@ -168,15 +188,15 @@ final class QuestRun {
     }
 
     func turnIn(_ quest: String) async -> String {
-        var dialog = lines(QuestHUD.dialog)
+        var dialog = lines(QuestHUD.dialog, await frame())
         if has(dialog, "Complete Quest") == nil {
-            guard let image = image() else { return "NO_FRESH_FRAME" }
+            guard let image = await frame() else { return "NO_FRESH_FRAME" }
             let marks = questMarks(rgba(image), box: QuestHUD.world)
             body.emit("marks", ["count": marks.count, "nearest": orNull(marks.first.map { [Int($0.x), Int($0.y)] })])
             guard let mark = marks.first else { return "NO_QUEST_MARK_IN_VIEW" }
             guard click(mark.x, mark.y + QuestHUD.belowMark, right: true) else { return "CLICK_FAILED" }
             await sleep(2.5)
-            dialog = lines(QuestHUD.dialog)
+            dialog = lines(QuestHUD.dialog, await frame())
             guard has(dialog, "Complete Quest") != nil else {
                 return has(dialog, "Continue") != nil ? "CONTINUE_PAGE_NOT_HANDLED" : "DIALOGUE_NOT_OPEN"
             }
@@ -190,7 +210,7 @@ final class QuestRun {
                 let x = QuestHUD.rewardX[i % 2], y = choose.y + QuestHUD.firstRow + QuestHUD.rowGap * Double(i / 2)
                 hover(x, y)
                 await sleep(0.8)
-                guard let reward = parseReward(lines(QuestHUD.tooltip)), !rewards.contains(where: { $0.reward.name == reward.name })
+                guard let reward = parseReward(lines(QuestHUD.tooltip, await frame())), !rewards.contains(where: { $0.reward.name == reward.name })
                 else { break }
                 rewards.append((x, y, reward))
             }
@@ -205,12 +225,12 @@ final class QuestRun {
             if pick.equip, let slot = chosen.reward.slot { equip = (chosen.reward.name, slot) }
         }
         guard let button = has(dialog, "Complete Quest") else { return "COMPLETE_BUTTON_MISSING" }
-        let before = Set(image().map(chatLines) ?? [])
+        let before = Set((await frame()).map(chatLines) ?? [])
         guard click(button.x + QuestHUD.buttonCentre, button.y + 7) else { return "CLICK_FAILED" }
         await sleep(2.0)
-        let fresh = (image().map(chatLines) ?? []).filter { !before.contains($0) }
+        let fresh = ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }
         body.emit("after_complete", ["chat": fresh])
-        guard has(lines(QuestHUD.dialog), "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
+        guard has(lines(QuestHUD.dialog, await frame()), "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
         guard let equip else { return "COMPLETED" }
 
         guard await command("/equip " + equip.name.replacingOccurrences(of: "\u{2019}", with: "'")) else { return "COMPLETED_EQUIP_NOT_TYPED" }

@@ -472,6 +472,8 @@ extension NavTests {
         stamp(10, 0); stamp(25, 7); stamp(5, 14)
         let parts = glyphs(yellowBlobs(gl, box: (0, 0, 60, 60), gap: 0))
         check(parts.count == 3 && parts.allSatisfy { $0.n > 20 }, "three touching \"?\": each hook takes its own dot")
+        check(markYellow(239, 236, 116) && markYellow(184, 155, 39) && !markYellow(135, 111, 74) && !markYellow(144, 115, 59),
+              "yellow by hue: the live minimap \"?\" and a dim NPC \"?\", not parchment or tan land")
 
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")

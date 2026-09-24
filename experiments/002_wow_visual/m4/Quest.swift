@@ -64,9 +64,10 @@ func chooseReward(_ rewards: [Reward]) -> (index: Int, equip: Bool)? {
     return rewards.indices.max { rewards[$0].sell < rewards[$1].sell }.map { ($0, false) }
 }
 
-/// The yellow "?" (quest ready) and "!" (quest offered) over an NPC's head. Zoomed out it is small and
-/// dim: (185-224, 155-192, 40-48) on 24 Sept, so the test is the hue, not a bright threshold.
-func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 175 && g > 140 && b < 80 && r - b > 110 && g - b > 90 }
+/// The yellow "?" (quest ready) and "!" (quest offered). Zoomed out an NPC's is small and dim: (185-224,
+/// 155-192, 40-48) in a screenshot on 24 Sept; the live capture drew a minimap "?" as (239, 236, 116), not
+/// the screenshot's (248, 246, 58). So the test is the hue: parchment (R-B 55) and tan land (75) stay out.
+func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 170 && g > 140 && r - b > 90 && g - b > 80 }
 
 /// The NPC's green name under its mark: (50-65, 150-198, 32-42) on 24 Sept.
 func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 150 && g > r + 60 && g > b + 60 }
@@ -245,8 +246,10 @@ func minimapPoint(_ px: Double, _ py: Double, player: MapPoint) -> MapPoint {
 /// the minimap's larger scale separates them (24 Sept).
 func minimapPins(_ image: RGBA) -> [(x: Double, y: Double)] {
     let r = MinimapHUD.radius, cx = MinimapHUD.cx, cy = MinimapHUD.cy
-    return glyphs(yellowBlobs(image, box: (cx - r, cy - r, cx + r, cy + r), gap: 0))
-        .filter { $0.n >= 8 && $0.x1 - $0.x0 <= 20 && $0.y1 - $0.y0 <= 20 }
+    let icons = glyphs(yellowBlobs(image, box: (cx - r, cy - r, cx + r, cy + r), gap: 0))
+        .filter { $0.n >= 8 && $0.x1 - $0.x0 <= 20 && $0.y1 - $0.y0 <= 20 && $0.y1 - $0.y0 >= $0.x1 - $0.x0 }  // upright: not an area's dashed edge
+    // Four or more on one baseline are the letters of a tooltip's yellow title, not icons.
+    return icons.filter { i in icons.filter { abs($0.y1 - i.y1) <= 3 }.count < 4 }
         .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
         .filter { hypot($0.x - Double(cx), $0.y - Double(cy)) <= Double(r) - 4 }
 }
