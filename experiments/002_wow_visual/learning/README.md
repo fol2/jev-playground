@@ -33,9 +33,13 @@ YouTube ID `hCXWhb2_CyQ`, approximately 30 minutes. The original pipeline sample
 
 These totals were reported from offline video replay against live Jev
 `jev-1.13.0`, not from Jev playing the game. At reviewed commit
-`e2874faf280e0fb6d4b052870d01f7a8e210f1d0`, the recursive learning tree contains
-**no `zerocks1/runs/` directory**. Complete predictions are therefore unavailable
-in that snapshot. Preserve the totals as historical reports, not reproduced proof.
+`e2874faf280e0fb6d4b052870d01f7a8e210f1d0` the mismatch files were missing: the
+repository-wide `runs/` ignore rule had silently excluded `zerocks1/runs/`. They are
+now committed unchanged as [zerocks1/replay_mismatches/](zerocks1/replay_mismatches/),
+and `--check` confirms that each table cell equals decisions minus that run's mismatch
+rows, and that every row is a real decision where Jev differed. The agreeing rows'
+probabilities were never kept, so the totals remain historical reports: reconciled,
+not re-run. The `part1_facts` run already included the regeneration fact.
 
 The reported regeneration-hint improvement was 4/5 on selected misses. The
 committed probe preserves the questions only. Selection on prior errors, missing

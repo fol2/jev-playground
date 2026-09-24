@@ -25,6 +25,9 @@ MODEL = "jev-1.13.0"
 EXPECTED_COUNTS = {"zerocks1/part1_decisions.jsonl": 93,
                    "zerocks1/part2_decisions.jsonl": 75,
                    "zerocks1/part3_decisions.jsonl": 68}
+# The historical table's agreements: decisions minus the committed mismatch rows of each run.
+HISTORY = {"part1_facts": 67, "part2_facts": 48, "part3_facts": 36,
+           "part1_kb": 65, "part2_kb": 48, "part3_kb": 40}
 
 # Historical hand-written baseline, NOT independently verified mechanics. Kept
 # verbatim so that a research change is not disguised as a mechanics correction.
@@ -178,6 +181,21 @@ def check_corpus(here: Path = HERE, expected: dict[str, int] | None = None, mini
     return total
 
 
+def check_history(here: Path = HERE) -> int:
+    """Each historical run's mismatch rows are real decisions (same time and human choice) and
+    reproduce the README table: agreement = decisions - mismatches."""
+    for run, agree in HISTORY.items():
+        part = run.split("_")[0]
+        decisions = {(r["t"], r["human"]) for r in load_decisions(here / f"zerocks1/{part}_decisions.jsonl")}
+        misses = [json.loads(line) for line in
+                  (here / f"zerocks1/replay_mismatches/{run}.mismatches.jsonl").read_text(encoding="utf-8").splitlines()]
+        total = EXPECTED_COUNTS[f"zerocks1/{part}_decisions.jsonl"]
+        if len(misses) != total - agree or any((m["t"], m["human"]) not in decisions or m["jev"] == m["human"]
+                                               for m in misses):
+            raise ValueError(f"{run}: mismatch rows do not reproduce {agree}/{total}")
+    return len(HISTORY)
+
+
 def payload(state, options, facts):
     return {"model": MODEL, "state": {**state, "goal": GOAL, "facts": facts},
             "questions": {"action": {"type": "choice",
@@ -322,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"learning regression checks: {self_test()}")
         if args.check:
             print(f"askable decision points: {check_corpus()}")
+            print(f"historical replays reconciled: {check_history()}")
         return 0
     if not args.files:
         parser.error("choose --check, --self-test, or explicit files for a live replay")

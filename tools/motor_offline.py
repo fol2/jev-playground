@@ -208,7 +208,8 @@ def main():
             raise GateError(f"tabletop --check reported {tabletop.stdout.strip() or 'nothing'}")
         video = subprocess.run([sys.executable, LEARN + "video_jev.py", "--check"], cwd=ROOT, check=True,
                                capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
-        if not re.search(r"^askable decision points: (2[3-9]\d|[3-9]\d\d)$", video.stdout, re.M):
+        if not (re.search(r"^askable decision points: 236$", video.stdout, re.M)
+                and re.search(r"^historical replays reconciled: 6$", video.stdout, re.M)):
             raise GateError(f"video_jev --check reported {video.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
