@@ -210,6 +210,12 @@ struct FightTests {
         check(assignRoles(bar.enumerated().map { $0.offset == 4 ? bar[1] : $0.element }).problems.first?.contains("two slots") == true,
               "one tooltip on two slots holds a live run (the pointer was contested)")
         check(parseTooltip(["Earth Shock", "30 Mana"]) == nil, "no tooltip footer: not a tooltip")
+        // Slot 8 live: the edge of a "Juvenile Vuldren" nameplate sat above the tooltip, inside the crop.
+        let boxes: [(text: String, x: Double, y: Double)] = [
+            ("e Vuldren", 0, 40), ("Rockbiter Weapon", 29, 74), ("Rank 1", 251, 75), ("15 Mana", 29, 91), ("Instant", 29, 107),
+            ("Imbue the Shaman's weapon,", 29, 119), ("Lasts for 60 minutes.", 93, 173), ("Press F6 to submit an issue for this Spell", 31, 203)]
+        check(parseTooltip(tooltipLines(boxes))?.name == "Rockbiter Weapon", "world text above the tooltip is not its name")
+        check(tooltipLines(boxes.filter { !$0.text.hasPrefix("Press") }).isEmpty, "no footer: no tooltip lines")
         let saved = (FightLimits.bolt, HUD.rangeX0)
         applyRoles([.bolt: 20])
         check(FightLimits.bolt == 20 && HUD.rangeX0 == 758, "the range digit box follows the bolt's slot")
@@ -386,6 +392,23 @@ struct FightTests {
         let vanished = await runFight(host: wisp, jev: ScriptedJev())
         check(vanished.outcome == "KILLED_NO_CORPSE" && vanished.episode.killed && !vanished.holdingKeys,
               "a kill that leaves no corpse label ends the fight after one loot attempt")
+
+        // 24 Sept live: after the loot click the capture went quiet and the empty frame read as 0 % health.
+        let blip = SimFight(clock: FightClock())
+        blip.stalls = 5
+        let waited = await runFight(host: blip, jev: ScriptedJev())
+        check(waited.outcome == "KILLED_AND_LOOTED",
+              "a half-second capture stall is waited out, not read as 0 % health")
+        let frozen = SimFight(clock: FightClock())
+        frozen.stalls = 1_000
+        let dark = await runFight(host: frozen, jev: ScriptedJev())
+        check(dark.outcome == "NO_FRESH_FRAME" && dark.decisions == 0 && !dark.holdingKeys,
+              "no fresh frame at all: NO_FRESH_FRAME, never a false SAFETY_STOP or HOLD_PLAYER_HEALTH")
+        let lost = SimFight(clock: FightClock())
+        var seen = 0
+        lost.emitHandler = { event, _ in if event == "decision" { seen += 1; if seen == 3 { lost.stalls = 1_000 } } }
+        let mid = await runFight(host: lost, jev: ScriptedJev())
+        check(mid.outcome == "NO_FRESH_FRAME" && mid.decisions == 3, "a capture lost mid-fight: NO_FRESH_FRAME")
 
         let clock2 = FightClock()
         let hurt = SimFight(clock: clock2)

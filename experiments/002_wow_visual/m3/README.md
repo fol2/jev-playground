@@ -69,6 +69,14 @@ walk it starts so a cast can follow. It is offered whenever the target's namepla
 including when none is in view: a creature that attacks from behind has no nameplate on screen, and
 the old nameplate-steered turn was never offered then.
 
+Two more 24 Sept live findings. The owner's new swing timer pushed the cast bar up 36 px (fill row
+1169, was 1205), so a bolt that cost mana read as "did not start". And both live fights that day
+stopped at SAFETY_STOP_PLAYER_BELOW_30 with full health, right after the background loot click: no
+frame newer than 1 s arrived for about 2 s, and the empty observation read as 0 % health. A fight
+now waits up to 2 s for a fresh frame (event `frame_wait`, with the seconds waited) and otherwise
+ends NO_FRESH_FRAME; it never turns a missing frame into a health reading. Why the capture goes
+quiet after that click is not yet measured.
+
 The owner's taught tactics, recorded as the reference Jev is not given: enchant before a
 fight; pull at the farthest range where the spell's hotkey is no longer red; cast
 continuously until first hit; then rely on automatic swings, because melee hits delay casts;

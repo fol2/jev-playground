@@ -136,7 +136,7 @@ final class LiveHost: FightHost {
     }
 
     /// Nil when there is no frame or the newest is older than `FightLimits.maxFrameAge`: a stalled capture
-    /// reads as no frame (Obs() is 0% health, a safety stop), never as the last scene seen.
+    /// reads as no frame (Obs(fresh: false): the fight waits, then NO_FRESH_FRAME), never as the last scene seen.
     func latestImage() -> CGImage? {
         guard let frame = feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
         return frame.image
@@ -169,7 +169,7 @@ final class LiveHost: FightHost {
     func observe(plates: Bool) -> Obs { look("obs", plates: plates) }
 
     func look(_ tag: String, plates: Bool) -> Obs {
-        guard let image = latestImage() else { return Obs() }
+        guard let image = latestImage() else { return Obs(fresh: false) }
         if frameNo % 2 == 0 {
             write(image, to: directory.appendingPathComponent(String(format: "f%03d-%@.jpg", frameNo, tag)), type: .jpeg)
         }
@@ -345,7 +345,7 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log) async throw
         try NativeBackgroundClickTransport().move(target: routed, point: at)
         try? await Task.sleep(nanoseconds: 600_000_000)
         let lines = feed.latestFrame?.image.cropping(to: tooltipBox).map { crop in
-            ocr(crop).sorted { ($0.1.maxY, -$0.1.minX) > ($1.1.maxY, -$1.1.minX) }.map(\.0)
+            tooltipLines(ocr(crop).map { ($0.0, $0.1.minX * tooltipBox.width, (1 - $0.1.maxY) * tooltipBox.height) })
         } ?? []
         let skill = parseTooltip(lines)
         bar.append(skill)

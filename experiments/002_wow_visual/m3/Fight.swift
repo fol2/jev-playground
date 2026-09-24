@@ -17,8 +17,8 @@ enum HUD {
     /// Combat ring: red pixels around the character portrait.
     static let combatX0 = 720, combatX1 = 810, combatY0 = 950, combatY1 = 1045, combatMin = 300
     /// Cast bar: grey/yellow track (x 1172-1388, y 1200-1210) and yellow fill on row 1205 / 216.
-    static let castX0 = 1172, castX1 = 1388, castY0 = 1200, castY1 = 1210
-    static let castFillY = 1205, castFillSpan = 216, castTrackMin = 300
+    static let castX0 = 1172, castX1 = 1388, castY0 = 1165, castY1 = 1173  // 24 Sept: the swing timer pushed it up 36 px
+    static let castFillY = 1169, castFillSpan = 216, castTrackMin = 300
     /// The bolt slot's hotkey digit: dark-red when Lightning Bolt is out of range (x for key 2; applyRoles moves it).
     static var rangeX0 = 708, rangeX1 = 734
     static let rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
@@ -47,6 +47,7 @@ enum FightLimits {
     static let startHealth = 0.9
     // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
     static let maxFrameAge = 1.0
+    static let freshWait = 2.0  // how long a fight waits for a fresh frame before NO_FRESH_FRAME
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
     static let watchdogSeconds = 4.0
@@ -222,6 +223,7 @@ struct Obs {
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
     var plate: Plate? = nil
     var ground: Int? = nil
+    var fresh = true  // false: no frame newer than maxFrameAge, so nothing above was seen
 }
 
 func hudCount(_ image: RGBA, x0: Int, x1: Int, y0: Int, y1: Int, _ pass: (Int, Int, Int) -> Bool) -> Int {
@@ -573,6 +575,19 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
     return sorted[i]
 }
 
+/// A missing frame is neither calm nor low health: on 24 Sept, twice, the capture went quiet after the
+/// background loot click and the empty observation read as 0 % health. Wait for a fresh frame; nil if none.
+func freshObservation(_ host: FightHost) async -> Obs? {
+    var o = host.observe(plates: true)
+    let start = host.now()
+    while !o.fresh && host.now() - start < FightLimits.freshWait {
+        await host.sleep(0.1)
+        o = host.observe(plates: true)
+    }
+    if host.now() > start { host.emit("frame_wait", ["seconds": host.now() - start, "fresh": o.fresh]) }
+    return o.fresh ? o : nil
+}
+
 /// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
 func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth) async -> FightResult {
     var episode = Episode()
@@ -593,13 +608,13 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     if host.refreshNotice() { return finish("HOLD_REFRESH_NOTICE") }
     if host.startCorpseVisible() { episode.killed = true; episode.oldCorpse = true }
 
-    var prev = host.observe(plates: true)
+    guard var prev = await freshObservation(host) else { return finish("NO_FRESH_FRAME") }
     if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
 
     loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
-        let o = host.observe(plates: true)
+        guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         episode.update(o)
         if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
@@ -689,6 +704,7 @@ final class FightClock {
 final class SimFight: FightHost {
     let clock: FightClock
     var emitHandler: Emit = { _, _ in }
+    var stalls = 0  // observations with no fresh frame still to come
     var player = 1.0
     var mana = 1.0
     var targetHP = 0.0
@@ -755,6 +771,7 @@ final class SimFight: FightHost {
     func errorText() -> String? { errorMessage }
 
     func observe(plates: Bool) -> Obs {
+        if stalls > 0 { stalls -= 1; return Obs(fresh: false) }
         var o = Obs()
         o.player = player
         o.mana = mana
@@ -918,6 +935,15 @@ enum SkillHUD {
     static let keys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24]  // 1-9, 0, -, =
     static let names = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="]
     static let slot1X = 660.0, pitch = 50.3, slotY = 1290.0  // slot centres, 24 Sept bar
+}
+
+/// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
+/// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
+/// nameplate read as slot 8's name, 24 Sept) is dropped.
+func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
+    guard let foot = boxes.first(where: { $0.text.hasPrefix("Press F6") }) else { return [] }
+    return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }
+        .sorted { ($0.y, $0.x) < ($1.y, $1.x) }.map(\.text)
 }
 
 /// Tooltip lines top to bottom (a rank or "Racial" sits beside the name); nil for an empty slot.
