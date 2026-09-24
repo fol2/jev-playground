@@ -66,6 +66,12 @@ struct FightTests {
         var mana = blank()
         paint(&mana, x0: HUD.manaX0, x1: HUD.manaX0 + HUD.manaSpan, y0: HUD.manaY, y1: HUD.manaY + 1, r: 20, g: 20, b: 180)
         check(abs(observe(mana, plates: false).mana - 1) < 1e-9, "mana present: a full blue row reads 1")
+        var texted = blank()
+        paint(&texted, x0: HUD.manaX0, x1: HUD.manaX0 + 78, y0: HUD.manaY, y1: HUD.manaY1, r: 30, g: 60, b: 200)
+        paint(&texted, x0: HUD.manaX0 + 40, x1: HUD.manaX0 + 90, y0: HUD.manaY, y1: HUD.manaY1, r: 235, g: 235, b: 235)
+        paint(&texted, x0: HUD.manaX0 + 90, x1: HUD.manaX0 + 97, y0: HUD.manaY, y1: HUD.manaY1, r: 30, g: 60, b: 200)
+        check(abs(observe(texted, plates: false).mana - 97.0 / 130) < 1e-9,
+              "mana under the owner's number text: the fill's right end counts, not the blue pixels")
 
         var ring = blank()
         paint(&ring, x0: HUD.combatX0, x1: HUD.combatX1, y0: HUD.combatY0, y1: HUD.combatY0 + 4, r: 200, g: 0, b: 0)
@@ -244,6 +250,8 @@ struct FightTests {
               "a known Cirrusfly name matches itself")
         check(!fuzzyNameMatch("XP: 15", ["juvenile vuldren", "pesky cirrusfly"]),
               "floating XP text is not a corpse name")
+        check(!fuzzyNameMatch("Yala Windwatcher", ["roiling wind"]) && fuzzyNameMatch("Rolling Wlnd", ["roiling wind"]),
+              "one shared run (wind) is not a Roiling Wind; a noisy Roiling Wind still is")
     }
 
     static func keyLike(_ object: Any) -> Bool {
@@ -325,12 +333,42 @@ struct FightTests {
         check(result.episode.killed && result.episode.looted, "the episode records the kill and the loot")
         check(result.jevCalls == result.decisions, "each decision is one Jev call")
 
+        let wisp = SimFight(clock: FightClock())
+        wisp.leavesCorpse = false
+        let vanished = await runFight(host: wisp, jev: ScriptedJev())
+        check(vanished.outcome == "KILLED_NO_CORPSE" && vanished.episode.killed && !vanished.holdingKeys,
+              "a kill that leaves no corpse label ends the fight after one loot attempt")
+
         let clock2 = FightClock()
         let hurt = SimFight(clock: clock2)
         hurt.player = 0.2
         let stop = await runFight(host: hurt, jev: ScriptedJev())
         check(stop.outcome == "HOLD_PLAYER_HEALTH" && stop.decisions == 0 && !stop.holdingKeys,
               "player health below 90 % at start is a HOLD with no decisions")
+
+        let attacked = SimFight(clock: FightClock())
+        attacked.player = 0.5
+        let back = await runFight(host: attacked, jev: ScriptedJev(), startHealth: 0)
+        check(back.outcome != "HOLD_PLAYER_HEALTH" && back.decisions > 0, "a lower start health lets an attacked hunt fight back")
+
+        var low = Obs()
+        low.player = 0.2
+        low.mana = 0.5
+        low.combat = true
+        low.target = 0.6
+        check(admissible(low, Episode()) == [.heal], "below 30 % in combat with mana: HEAL alone, the fight goes on")
+        low.casting = true
+        check(admissible(low, Episode()) == [.wait], "and while that cast runs, WAIT")
+        low.casting = false
+        low.mana = 0.1
+        check(admissible(low, Episode()).contains(.castLightningBolt) || admissible(low, Episode()).contains(.startMelee),
+              "without mana for a heal the fight's own actions return")
+        let bleeding = SimFight(clock: FightClock())
+        bleeding.player = 0.2
+        bleeding.combat = true
+        let kept = await runFight(host: bleeding, jev: ScriptedJev(), startHealth: 0)
+        check(kept.outcome != "SAFETY_STOP_PLAYER_BELOW_30" && bleeding.performed.first == .heal,
+              "a fight below 30 % in combat is not stopped: it heals first")
 
         let clock3 = FightClock()
         let notice = SimFight(clock: clock3)

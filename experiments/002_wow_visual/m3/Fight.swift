@@ -7,12 +7,13 @@ import Foundation
 enum HUD {
     static let width = 2560
     static let height = 1320
-    /// Player health: green fill of the character health bar, one row.
-    static let playerX0 = 801, playerX1 = 931, playerY = 997, playerSpan = 130
-    /// Target health: green fill of the target health bar, one row.
-    static let targetX0 = 1630, targetX1 = 1760, targetY = 997, targetSpan = 130
-    /// Player mana: blue fill of the mana bar, one row.
-    static let manaX0 = 801, manaX1 = 931, manaY = 1013, manaSpan = 127
+    /// Player health: green fill of the character health bar, one row above the owner's "81 / 81" text.
+    static let playerX0 = 801, playerX1 = 931, playerY = 990, playerSpan = 130
+    /// Target health: green fill of the target health bar, one row above the "55 / 55" text.
+    static let targetX0 = 1630, targetX1 = 1760, targetY = 990, targetSpan = 130
+    /// Player mana: the right end of the blue fill across the mana bar's rows. The "148 / 148" text covers
+    /// the bar's full height, so a count would read a full bar as half; the fill's end is off by at most a glyph.
+    static let manaX0 = 801, manaX1 = 931, manaY = 1010, manaY1 = 1018, manaSpan = 130
     /// Combat ring: red pixels around the character portrait.
     static let combatX0 = 720, combatX1 = 810, combatY0 = 950, combatY1 = 1045, combatMin = 300
     /// Cast bar: grey/yellow track (x 1172-1388, y 1200-1210) and yellow fill on row 1205 / 216.
@@ -26,7 +27,7 @@ enum HUD {
     static let errorX0 = 1000, errorX1 = 1560, errorY0 = 140, errorY1 = 200, errorMin = 20
 
     static func green(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 110 && g > r + 40 && g > b + 60 }
-    static func blue(_ r: Int, _ g: Int, _ b: Int) -> Bool { b > 140 && b > r + 60 }
+    static func blue(_ r: Int, _ g: Int, _ b: Int) -> Bool { b > 100 && b > r + 60 && b > g + 40 }  // incl. the dim left end
     static func combatRed(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 150 && g < 70 && b < 70 }
     static func castYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 150 && g > 120 && b < 100 }
     static func castTrack(_ r: Int, _ g: Int, _ b: Int) -> Bool {
@@ -41,7 +42,10 @@ enum FightLimits {
     static let maxDecisions = 40
     static let maxSeconds = 150.0
     static let playerSafety = 0.3
+    static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
     static let startHealth = 0.9
+    // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
+    static let maxFrameAge = 1.0
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
     static let watchdogSeconds = 4.0
@@ -236,8 +240,8 @@ func observe(_ image: RGBA, plates: Bool) -> Obs {
         / Double(HUD.playerSpan)
     o.target = Double(hudCount(image, x0: HUD.targetX0, x1: HUD.targetX1, y0: HUD.targetY, y1: HUD.targetY + 1, HUD.green))
         / Double(HUD.targetSpan)
-    o.mana = min(1, Double(hudCount(image, x0: HUD.manaX0, x1: HUD.manaX1, y0: HUD.manaY, y1: HUD.manaY + 1, HUD.blue))
-        / Double(HUD.manaSpan))
+    let manaEnd = (HUD.manaX0..<HUD.manaX1).last { hudCount(image, x0: $0, x1: $0 + 1, y0: HUD.manaY, y1: HUD.manaY1, HUD.blue) > 0 }
+    o.mana = manaEnd.map { Double($0 + 1 - HUD.manaX0) / Double(HUD.manaSpan) } ?? 0
     o.combat = hudCount(image, x0: HUD.combatX0, x1: HUD.combatX1, y0: HUD.combatY0, y1: HUD.combatY1, HUD.combatRed) > HUD.combatMin
     let yellow = hudCount(image, x0: HUD.castX0, x1: HUD.castX1, y0: HUD.castFillY, y1: HUD.castFillY + 1, HUD.castYellow)
     let track = hudCount(image, x0: HUD.castX0, x1: HUD.castX1, y0: HUD.castY0, y1: HUD.castY1, HUD.castTrack)
@@ -282,9 +286,9 @@ enum FightAction: String, JevAction {
         case .approachToRange:
             return "Walk towards the target in short steps and stop as soon as it is within Lightning Bolt range, at the farthest distance the spell can be cast from."
         case .castLightningBolt:
-            return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs mana. Being hit in melee delays or breaks a cast in progress. Choosing it while a cast is finishing queues the next cast without a gap."
+            return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
         case .startMelee:
-            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health."
+            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
         case .heal:
             return "Cast Healing Wave on the character: about a 2-second cast that restores most of its health, costs mana, and is delayed by melee hits like any cast."
         case .lootCorpse:
@@ -322,7 +326,12 @@ func offset(_ o: Obs) -> Double? {
     o.plate.map { ($0.centre - Double(HUD.width) / 2) / Double(HUD.width) }
 }
 
+/// Below playerSafety in combat the fight goes on and healing comes first (the owner, 23 Sept: a stop
+/// there handed a fight to an owner who was away, and the character died standing still).
 func admissible(_ o: Obs, _ e: Episode) -> [FightAction] {
+    if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
+        return o.casting ? [.wait] : [.heal]
+    }
     var out: [FightAction] = [.wait, .stop]
     if !o.buff { out.append(.buffWeapon) }
     let alive = Episode.alive(o)
@@ -377,7 +386,7 @@ func statePacket(obs o: Obs, episode e: Episode, lastAction: String, lastResult:
     }
     let last: [String: Any] = ["name": lastAction, "result": lastResult]
     let state: [String: Any] = [
-        "goal": "Defeat one hostile creature with this level-2 shaman, collect its loot, and stay alive. Loot any corpse already waiting first. The owner is supervising.",
+        "goal": "Defeat one hostile creature with this shaman, collect its loot, and stay alive. Loot any corpse already waiting first. The owner is supervising.",
         "character": character, "target": target, "last_action": last, "events_since_last_decision": events,
     ]
     return state
@@ -446,12 +455,16 @@ func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: St
     return JevChoice(action: action, confidence: confidence, probabilities: probabilities)
 }
 
+/// True when the text shares two 4-letter runs with a name (one for a 4-letter name). OCR read a
+/// Juvenile Vuldren corpse as "Xypenil Uuldren"; a single shared run let "Yala Windwatcher" pass for
+/// a Roiling Wind.
 func fuzzyNameMatch(_ text: String, _ names: [String]) -> Bool {
     let letters = text.lowercased().filter(\.isLetter)
     return names.contains { name in
         let n = Array(name.lowercased().filter(\.isLetter))
         guard n.count >= 4 else { return false }
-        return (0...(n.count - 4)).contains { letters.contains(String(n[$0..<$0 + 4])) }
+        let runs = (0...(n.count - 4)).filter { letters.contains(String(n[$0..<$0 + 4])) }.count
+        return runs >= min(2, n.count - 3)
     }
 }
 
@@ -554,7 +567,8 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
     return sorted[i]
 }
 
-func runFight(host: FightHost, jev: JevClient) async -> FightResult {
+/// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
+func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth) async -> FightResult {
     var episode = Episode()
     var lastAction = "none", lastResult = "episode start"
     var decisions = 0, jevCalls = 0
@@ -574,14 +588,14 @@ func runFight(host: FightHost, jev: JevClient) async -> FightResult {
     if host.startCorpseVisible() { episode.killed = true; episode.oldCorpse = true }
 
     var prev = host.observe(plates: true)
-    if prev.player < FightLimits.startHealth { return finish("HOLD_PLAYER_HEALTH") }
+    if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
 
     loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         let o = host.observe(plates: true)
         episode.update(o)
-        if o.player < FightLimits.playerSafety { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
+        if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
         let ev = events(previous: prev, current: o, errorText: o.errorRed ? host.errorText() : nil)
         let allowed = admissible(o, episode)
@@ -629,6 +643,9 @@ func runFight(host: FightHost, jev: JevClient) async -> FightResult {
                 continue
             }
             if !episode.looted && lastResult.hasPrefix("no corpse") {
+                // Our own kill with no corpse label to click (an elemental leaves none; a far corpse's
+                // name is too small to read): the kill stands. Live, Jev otherwise tried LOOT 20 times.
+                if !episode.oldCorpse { outcome = "KILLED_NO_CORPSE"; break loop }
                 episode.killed = false
                 episode.oldCorpse = false
             }
@@ -679,6 +696,7 @@ final class SimFight: FightHost {
     var plateX: Double?
     var groundRow: Int?
     var corpseLootable = false
+    var leavesCorpse = true
     var boltHeld = false
     var boltGrant: HeldKey?
     var down: Set<UInt16> = []
@@ -796,7 +814,7 @@ final class SimFight: FightHost {
             targetHP = 0
             selected = false
             plateX = nil
-            corpseLootable = true
+            corpseLootable = leavesCorpse
         }
     }
 

@@ -170,6 +170,69 @@ The quest was accepted by hand.
 Across the three walks there were 19 Jev calls, about 18.7k input and 1.4k output tokens.
 Latency p50 was 0.52–0.60 s and p95 0.58–0.98 s. Each walk ended with every key released.
 
+## M4b — Jev chooses how to hunt for quest creatures
+
+`Hunt.swift` (pure core, `SimHunt`), `HuntProbe.swift` (live shell) and `HuntTests.swift`.
+
+- **Question.** A hunt reads:
+  - the objectives tracker (upscaled OCR);
+  - the selected quest's ring on the minimap;
+  - the nameplates in view;
+  - the target frame.
+
+  It offers Jev only the admissible actions:
+  - fight the selected creature;
+  - Tab to the next target;
+  - look around;
+  - walk (towards a creature that counts, towards the area, detours, or compass headings);
+  - rest;
+  - eat and drink.
+
+  Each fight is one M3 episode. The state carries costs as facts, not rules: fight length, health
+  cost, mana per Lightning Bolt, cast pushback and the chase. Skysight's +10% run speed is given
+  with its numbers.
+- **From the owner's recorded demo (23 Sept).** Changes made after watching the owner play:
+  - no mana gate before a pull (29 fights, often started at 10-30% mana);
+  - EAT_DRINK below 80% health or 50% mana;
+  - grey (tapped) plates are skipped.
+
+  `tabletop.py` holds 13 demo situations as choices. Live Jev agreed on 13/13, re-run on 24 Sept
+  after the chase fact changed. Offline, `--check` only validates the scenarios.
+- **Missing evidence is never completion or calm** (from the peer review of 24 Sept).
+  - An objective is finished only when its own line reads done >= need, or when "Ready for turn-in"
+    appears straight under its quest title with no unfinished line of that quest. That is how the
+    demo's tracker shows a finished quest; seeing both is treated as a misread.
+  - A line that has merely vanished stays remaining. That covers an OCR miss, a title-only read and
+    a collapsed tracker.
+  - `vitals()`, `look()` and `survey()` return nil when there is no frame, or when the newest frame
+    is older than 1 s by capture PTS. REST then stops and LOOK_AROUND does not turn. M3's live frames
+    use the same bound, so a stalled capture in a fight reads as no frame (a safety stop).
+  - After each Jev reply the hunt re-reads a fresh frame, or does nothing:
+    - attacked meanwhile, a non-combat action is recorded as not done;
+    - a pull starts as a fight already in combat.
+- **UI.** The owner's UI changed on 23 Sept, and the readers were re-calibrated on live PNGs:
+  - fixed 186x15 plates;
+  - the tracker box;
+  - health read at row 990 and mana read under the new number text.
+
+**Live hunts, 23 Sept, before these fixes and the UI change.** Nine supervised hunts near Yala, all
+labelled live:
+
+| Outcome | Runs |
+|---|---|
+| NO_TARGET_FOUND | 1 |
+| JEV_FAILED (two request timeouts, one HTTP 529) | 3 |
+| Ended without a summary | 2 |
+| FIGHT_SAFETY_STOP_PLAYER_BELOW_30 | 1 |
+| FIGHT_LIMIT | 1 |
+| DEAD | 1 |
+
+- The FIGHT_LIMIT run killed a Roiling Winds and an Al'Aketh Convert.
+- The DEAD run was attacked from behind, out of Tab's reach. LOOK_AROUND now turns and Tabs for
+  the attacker.
+- No hunt has run live on the current UI or with these fixes. The SimHunt checks are
+  **simulation only**.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
@@ -184,7 +247,9 @@ Latency p50 was 0.52–0.60 s and p95 0.58–0.98 s. Each walk ended with every 
 ```sh
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
-  experiments/002_wow_visual/m4/NavTests.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
+  experiments/002_wow_visual/m4/HuntTests.swift -o /tmp/nav-tests && /tmp/nav-tests
+python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 ```
 

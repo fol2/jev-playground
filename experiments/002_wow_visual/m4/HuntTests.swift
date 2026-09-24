@@ -1,0 +1,397 @@
+// Offline M4b checks: the tracker, minimap-ring and nameplate readers, objective matching,
+// admissibility, the targeting keys, walks and looks, and hunts on SimHunt with scripted Jev replies.
+// SIMULATION ONLY: SimHunt does not fight, and nothing here shows that WoW's Tab, Esc, plates or tracker
+// behave as simulated, or that Jev would choose these actions.
+import Foundation
+
+extension NavTests {
+    static func hunts() async {
+        tracker()
+        minimapRings()
+        plateBars()
+        huntRules()
+        await targeting()
+        await attackedFromBehind()
+        await huntEpisodes()
+    }
+
+    static func tracker() {
+        let read = parseTracker(["那事場", "Agitators", "- 0/7 AI' Aketh Convert slain", "-0/6 Roiling Winds destroyed",
+                                 "Infestation Investigation", "-5/8 Pesky Cirrusfly slain"])
+        check(read == [Objective(quest: "Agitators", done: 0, need: 7, text: "AI' Aketh Convert slain"),
+                       Objective(quest: "Agitators", done: 0, need: 6, text: "Roiling Winds destroyed"),
+                       Objective(quest: "Infestation Investigation", done: 5, need: 8, text: "Pesky Cirrusfly slain")],
+              "the tracker's OCR lines parse into quests and objective counts")
+        check(parseTracker(["Agitators", "Oyo Roiling Winds destroyed"]).isEmpty, "a misread count is not an objective")
+        check(parseTracker(["- 0/6 Roiling Winds destroyed"]).isEmpty, "an objective with no quest title above is dropped")
+        check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
+        // The owner's demo tracker (23 Sept): finished quests show "Ready for turn-in" instead of objectives.
+        let demo = parseTracker(["Quests", "Aggressive Encroachment", "Ready for turn-in", "Harvesting Windstones",
+                                 "- 3/15 Windstone Cluster", "Call of Earth", "adyfor turnien"])
+        check(demo == [Objective(quest: "Aggressive Encroachment", done: 1, need: 1, text: Objective.ready),
+                       Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster"),
+                       Objective(quest: "Call of Earth", done: 1, need: 1, text: Objective.ready)],
+              "\"Ready for turn-in\" under a title, as OCR reads it, finishes that quest")
+        check(parseTracker(["Agitators", "- 2/7 Al'Aketh Convert slain", "Ready for turn-in"]).count == 1,
+              "\"Ready for turn-in\" under an objective line (its own title missed) finishes nothing")
+        check(parseTracker(["Waiting for Turnips", "- 0/5 Turnip"]).first?.quest == "Waiting for Turnips",
+              "a title containing \"for turn\" is still a title")
+    }
+
+    /// A minimap-sized frame with ring outlines: (centre offset from the character, radius, colour).
+    static func rings(_ list: [(dx: Int, dy: Int, r: Int, rgb: (UInt8, UInt8, UInt8))]) -> RGBA {
+        let w = 2560, h = 320
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        for ring in list {
+            for step in 0..<720 {
+                let a = Double(step) * .pi / 360
+                for t in 0..<3 {
+                    let x = MinimapHUD.cx + ring.dx + Int((Double(ring.r + t) * cos(a)).rounded())
+                    let y = MinimapHUD.cy + ring.dy + Int((Double(ring.r + t) * sin(a)).rounded())
+                    guard (x - MinimapHUD.cx) * (x - MinimapHUD.cx) + (y - MinimapHUD.cy) * (y - MinimapHUD.cy)
+                            <= MinimapHUD.radius * MinimapHUD.radius else { continue }
+                    let i = (y * w + x) * 4
+                    (px[i], px[i + 1], px[i + 2], px[i + 3]) = (ring.rgb.0, ring.rgb.1, ring.rgb.2, 255)
+                }
+            }
+        }
+        return RGBA(width: w, height: h, pixels: px)
+    }
+
+    /// A game-view frame with plate bars: (x0, y0, colour, outline colour).
+    static func bars(_ list: [(x: Int, y: Int, rgb: (UInt8, UInt8, UInt8), outline: (UInt8, UInt8, UInt8))], width: Int = 186,
+                     noise: Bool = false) -> RGBA {
+        let w = 2560, h = 1320
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        func put(_ x: Int, _ y: Int, _ c: (UInt8, UInt8, UInt8)) { let i = (y * w + x) * 4; (px[i], px[i + 1], px[i + 2]) = c }
+        for y in 0..<h / 2 { for x in 0..<w / 2 { put(x, y, (40, 62, 22)) } }  // forest floor, greener than red
+        for bar in list {
+            for x in bar.x - 2..<bar.x + width + 2 {
+                for y in bar.y - 2..<bar.y { put(x, y, bar.outline) }
+                for y in bar.y + 15..<bar.y + 17 { put(x, y, bar.outline) }
+            }
+            for x in bar.x..<bar.x + width { for y in bar.y..<bar.y + 15 { put(x, y, bar.rgb) } }
+        }
+        if noise {  // a red-orange creature body: patchy, no outline
+            for y in 600..<612 { for x in 1200..<1300 where (x / 3 + y) % 4 != 0 { put(x, y, (150, 60, 30)) } }
+        }
+        return RGBA(width: w, height: h, pixels: px)
+    }
+
+    static func plateBars() {
+        let dark: (UInt8, UInt8, UInt8) = (18, 18, 4)
+        let seen = nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark),
+                                    (x: 1700, y: 170, rgb: (62, 60, 20), outline: dark)], noise: true))
+        check(seen.count == 2 && seen.contains { $0.hostile && abs($0.centre - 893) < 3 }
+              && seen.contains { !$0.hostile && abs($0.centre - 1793) < 3 },
+              "a dim red and a dim yellow plate bar are found with their colours and centres; a patchy body is not")
+        check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: (230, 230, 230))])).isEmpty,
+              "the white-outlined (targeted) plate is left to findTargetPlate")
+        check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)], width: 100)).isEmpty,
+              "a bar narrower than a plate is not one")
+    }
+
+    static func minimapRings() {
+        let bright: (UInt8, UInt8, UInt8) = (165, 205, 250), dim: (UInt8, UInt8, UInt8) = (105, 125, 165)
+        let ne = questArea(rings([(dx: 40, dy: -40, r: 20, rgb: bright)]))
+        check(ne.map { abs(angleError(45, $0.bearing)) <= 3 && abs($0.distance - 56.6 / MinimapHUD.unitPx) < 0.2 && !$0.inside } ?? false,
+              "a bright ring to the north-east reads at 45° and its centre's distance, the character outside")
+        let both = questArea(rings([(dx: 40, dy: -40, r: 20, rgb: bright), (dx: -30, dy: 50, r: 25, rgb: dim)]))
+        check(both.map { abs(angleError(45, $0.bearing)) <= 3 } ?? false, "a dim ring (another quest's area) is ignored")
+        check(questArea(rings([(dx: -30, dy: 50, r: 25, rgb: dim)])) == nil, "only dim rings: no selected area on the minimap")
+        check(questArea(rings([(dx: 10, dy: -5, r: 45, rgb: bright)]))?.inside == true, "a bright ring around the character: inside")
+        check(questArea(RGBA(width: 100, height: 100, pixels: [UInt8](repeating: 0, count: 40_000))) == nil,
+              "a frame too small for the minimap reads nothing")
+    }
+
+    static func huntRules() {
+        let objectives = SimHunt.field(clock: FightClock()).objectives
+        check(objective(for: "Roiling Wind", in: objectives)?.text == "Roiling Winds destroyed", "a singular name counts for its plural")
+        check(objective(for: "Al'Aketh Convert", in: objectives)?.need == 7, "OCR's I for l still matches")
+        check(objective(for: "Yala Windwatcher", in: objectives) == nil, "a partial word does not count (Yala is not a Roiling Wind)")
+        check(objective(for: "Juvenile Vuldren", in: objectives) == nil && objective(for: nil, in: objectives) == nil,
+              "a creature no objective names does not count")
+        var done = objectives
+        done[1].done = 6
+        check(objective(for: "Roiling Wind", in: done) == nil, "a finished objective no longer counts")
+        check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
+        let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
+                     "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]
+        check(remaining(objectives, in: parseTracker(lines.filter { !$0.contains("Roiling") })).count == 3,
+              "a row lost among several stays remaining: an OCR miss is not a completion")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Infestation Investigation"])).count == 3
+              && remaining(objectives, in: parseTracker(["All Objectives"])).count == 3 && remaining(objectives, in: []).count == 3,
+              "title-only OCR, a collapsed tracker or nothing read: every objective stays remaining")
+        check(remaining(objectives, in: parseTracker(lines)).count == 3, "a line that reappears unfinished is still remaining")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Ready for turn-in", "Infestation Investigation", "- 8/8 Pesky Cirrusfly slain"])).isEmpty,
+              "completion: a quest's \"Ready for turn-in\" or a line read at 8/8")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Ready for turn-in", "- 2/7 Al'Aketh Convert slain",
+                                                       "- 2/6 Roiling Winds destroyed"])).count == 3,
+              "\"Ready for turn-in\" beside unfinished lines of the same quest is a misread: nothing finishes")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Infestation Investigation", "Ready for turn-in",
+                                                       "- 5/8 Pesky Cirrusfly slain"])).count == 3,
+              "title A, title B, Ready, B's 5/8 (A's lines missed): Ready does not finish B, and A stays remaining")
+
+        let here = NavObs(x: 40, y: 30, facing: 0)
+        let wind = HuntObs(objectives: objectives, target: "Roiling Wind", targetAlive: true, facing: 0, here: here)
+        let compassAll = HuntAction.compass
+        check(huntAdmissible(wind) == [.fight, .nextTarget, .lookAround] + compassAll,
+              "a living quest creature at full health may be fought; looks and all eight headings are open; no rest at full")
+        var hurt = wind
+        hurt.player = 0.8
+        check(!huntAdmissible(hurt).contains(.fight) && huntAdmissible(hurt).contains(.rest),
+              "below M3's start health no fight starts, and rest is offered")
+        check(!huntAdmissible(HuntObs(objectives: objectives, target: "Juvenile Vuldren", targetAlive: true, here: here)).contains(.fight),
+              "a creature that counts for nothing is not fought out of combat")
+        check(!huntAdmissible(HuntObs(objectives: objectives, target: "Roiling Wind", targetAlive: false, here: here)).contains(.fight),
+              "a dead creature is not fought")
+        var attacked = hurt
+        attacked.combat = true
+        check(huntAdmissible(attacked) == [.fight], "in combat the only action is to fight back, at any health")
+        attacked.targetAlive = false
+        check(huntAdmissible(attacked) == [.lookAround, .fight], "in combat with nothing alive selected: turn and Tab for the attacker, or fight")
+
+        let step = { (action: HuntAction) in HuntStep(action: action, result: "") }
+        check(!huntAdmissible(wind, steps: [step(.east)]).contains(.nextTarget) && !huntAdmissible(wind, steps: [step(.lookAround)]).contains(.nextTarget),
+              "NEXT_TARGET is not offered right after a walk or a look: both end with a Tab")
+        check(!huntAdmissible(wind, steps: [step(.lookAround)]).contains(.lookAround) && huntAdmissible(wind, steps: [step(.rest)]).contains(.nextTarget),
+              "a look is not repeated at once; NEXT_TARGET returns after a rest")
+        check(!huntAdmissible(wind, steps: Array(repeating: step(.east), count: HuntLimits.repeatCap)).contains(.east),
+              "one compass walk at most four times in a row")
+        check(!huntAdmissible(wind, steps: Array(repeating: step(.toArea), count: HuntLimits.maxMoves)).contains { $0.isWalk },
+              "at most 24 walks per hunt")
+        var drained = wind
+        drained.mana = 0.5
+        drained.mana = 0.2
+        check(huntAdmissible(drained).contains(.fight) && huntAdmissible(drained).contains(.eatDrink),
+              "low mana does not stop a fight (the owner's demo pulled at 10-30%); eating is offered")
+        check(!huntAdmissible(wind).contains(.eatDrink), "no eating at full health and mana")
+        var crowded = wind
+        crowded.seen = [Seen(name: "Roiling Wind", hostile: true, bearing: 0, near: true), Seen(name: "Roiling Winds", hostile: true, bearing: 90, near: true)]
+        check(!huntAdmissible(crowded).contains(.fight), "another hostile creature near: no fight starts")
+        crowded.seen.removeLast()
+        check(huntAdmissible(crowded).contains(.fight), "the target's own plate is not another creature")
+        var weak = wind
+        weak.player = 0.5
+        check(!huntAdmissible(weak).contains { $0.isWalk } && huntAdmissible(weak).contains(.rest) && huntAdmissible(weak).contains(.eatDrink),
+              "below 60% health: rest or eat, no walks")
+        var lost = wind
+        lost.here = nil
+        check(!huntAdmissible(lost).contains { $0.isWalk }, "no walk without a readable position")
+
+        var away = wind
+        away.area = QuestArea(bearing: 10, distance: 1.6, inside: false)
+        away.seen = [Seen(name: "Rolling WWinds", hostile: true, bearing: 30, near: true),
+                     Seen(name: "Juvenile Vuldren", hostile: false, bearing: 200, near: true)]
+        check(huntAdmissible(away).contains(.toArea) && huntAdmissible(away).contains(.toCreature) && questCreature(away)?.bearing == 30,
+              "GO_TO_QUEST_AREA and GO_TO_QUEST_CREATURE are offered; the creature is the one that counts")
+        check(huntAdmissible(away).filter(\.isWalk) == [.toCreature, .toArea] + HuntAction.detours,
+              "outside the area the walks are relative to it, as M4a's: towards it, detours and back, no compass")
+        let fenced = huntAdmissible(away, blocked: [0])
+        check(!fenced.contains(.toArea) && fenced.contains(.detourRight45) && fenced.contains(.detourLeft45) && fenced.contains(.toCreature),
+              "a heading blocked near here removes every walk within 25° of it, and only those")
+        var within = away
+        within.area?.inside = true
+        check(!huntAdmissible(within).contains(.toArea) && huntAdmissible(within).filter(\.isWalk) == [.toCreature] + HuntAction.compass,
+              "inside the area the walks are compass headings and the way to a creature that counts")
+
+        let state = huntStatePacket(away, recent: [], fights: [], blocked: [0])
+        let creatures = state["creatures_in_view"] as? [[String: Any]] ?? []
+        check((state["goal"] as? String ?? "").contains("blocked here") && creatures.count == 2
+              && creatures.first?["counts_for_objective"] as? String == "Roiling Winds destroyed"
+              && state["hostile_creatures_near"] as? Int == 1 && state["blocked_headings_near_here"] as? [Int] == [0],
+              "the state gives the area, the creatures in view with what they count for, hostiles near and blocked headings")
+        let question = actionQuestion(huntAdmissible(away), instructions: huntInstructions)
+        check(Set((question["criteria"] as? [String: Any] ?? [:]).keys) == Set(huntAdmissible(away).map(\.rawValue)),
+              "the question offers only the admissible actions")
+        check(!HuntAction.allCases.map(\.rawValue).contains("STOP"), "a hunt has no STOP: its ends are local")
+
+        let bar = PlateBar(hostile: true, x0: 1880, x1: 1960, y0: 600, y1: 607)
+        let right = sighting(bar, name: "Roiling Winds", facing: 350, width: 2560, height: 1320)
+        check(abs(angleError(12.5, right.bearing)) < 0.5 && right.near, "a plate three quarters across the view is 22.5° right; low in view is near")
+        let pair = merged([Seen(name: "A", hostile: true, bearing: 10, near: false)], [Seen(name: "A", hostile: true, bearing: 25, near: true)])
+        check(pair.count == 1 && pair[0].near, "two sightings of one name within 20° are one creature, the newer kept")
+    }
+
+    static func plain(_ mobs: [SimHunt.Mob], objectives: [Objective] = SimHunt.agitators) -> SimHunt {
+        SimHunt(world: SimNav(clock: FightClock(), x: 40, y: 30, facing: 0), mobs: mobs, objectives: objectives)
+    }
+
+    static func targeting() async {
+        let field = SimHunt.field(clock: FightClock())
+        field.selected = 1
+        _ = await selectNearest(field)
+        check(field.keys.codesPosted == [53, 48] && field.selected == 0 && !field.gameMenu,
+              "with something selected: Esc clears it, then Tab selects what is in front")
+        let clear = SimHunt.field(clock: FightClock())
+        let found = await selectNearest(clear)
+        check(clear.keys.codesPosted == [48] && clear.selected == 0 && found.contains("counts for no unfinished objective"),
+              "with nothing selected: Tab only, and the result says what the creature counts for")
+        let menu = SimHunt.field(clock: FightClock())
+        menu.gameMenu = true
+        _ = await selectNearest(menu)
+        check(menu.keys.codesPosted == [53, 48] && !menu.gameMenu, "an open Game Menu is closed with one Esc before Tab")
+
+        let ridge = SimHunt.field(clock: FightClock())
+        ridge.world.y = 21.6
+        ridge.world.facing = 0
+        var walks = NavEpisode()
+        let bumped = await walkOn(ridge, heading: 0, episode: &walks)
+        check(bumped.hasPrefix("blocked on heading 0°") && walks.attempts.last?.blocked == true && !ridge.keys.holding,
+              "a walk into the ridge ends blocked, with W lifted")
+        let blocked = walks.blockedHeadings(near: ridge.look()!)
+        check(!huntAdmissible(ridge.survey()!, steps: [], blocked: blocked).contains(.toArea),
+              "the way to the area, through the ridge, is not offered again from where it was blocked")
+
+        let looker = SimHunt.field(clock: FightClock())
+        let look = await lookAround(looker)
+        check(look.seen.map(\.name) == ["Juvenile Vuldren"] && abs(angleError(200, looker.world.facing)) <= 20 && !looker.keys.holding,
+              "LOOK_AROUND turns a full circle, lists the creature in view and ends facing where it began")
+
+        let hungry = SimHunt.field(clock: FightClock())
+        hungry.world.player = 0.3
+        hungry.mana = 0.1
+        let ate = await eatDrink(hungry)
+        check(ate == "ate and drank for 20 s" && hungry.world.player == 1 && hungry.mana == 1 && hungry.keys.codesPosted == [29, 27],
+              "EAT_DRINK: water (0), bread (-), 20 s seated restores both to full")
+
+        let stalled = SimHunt.field(clock: FightClock())
+        stalled.world.player = 0.5
+        stalled.frozen = true
+        let stalledRest = await rest(stalled, seconds: HuntLimits.restSeconds)
+        check(stalledRest.hasSuffix("no fresh frame") && stalled.clock.t < 1, "a rest stops at once when the capture stalls: no frame is not calm")
+        let stalledLook = await lookAround(stalled)
+        check(stalledLook.result.hasPrefix("no fresh frame") && stalled.keys.codesPosted.isEmpty && !stalled.keys.holding,
+              "a look does not turn without a fresh frame")
+
+        let resting = SimHunt.field(clock: FightClock())
+        resting.world.player = 0.5
+        let rested = await rest(resting, seconds: HuntLimits.restSeconds)
+        check(rested == "rested 20 s" && resting.world.player > 0.85 && resting.keys.codesPosted.isEmpty, "REST waits 20 s without a key")
+        let faint = SimHunt.field(clock: FightClock())
+        faint.world.player = 0.2
+        let faintRest = await rest(faint, seconds: HuntLimits.restSeconds)
+        check(faintRest == "rested 20 s" && faint.world.player > 0.55,
+              "a rest at 20% health is not cut short: low health is what it is for")
+
+        let released = SimHunt.field(clock: FightClock())
+        released.keys.releaseAll()
+        var none = NavEpisode()
+        _ = await walkOn(released, heading: 90, episode: &none)
+        _ = await lookAround(released)
+        check(released.keys.codesPosted.isEmpty && released.world.x == 47.3, "no key goes down after releaseAll")
+    }
+
+    /// Live hunt 9: a hostile creature attacks from behind, out of Tab's reach in front.
+    static func attackedFromBehind() async {
+        let behind = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)])
+        await behind.sleep(0.1)
+        check(behind.world.combat && behind.selected == nil, "an attacker behind: in combat with nothing selected")
+        let look = await lookAround(behind)
+        check(behind.selected == 0 && look.result.contains("Roiling Winds"), "LOOK_AROUND in combat turns and Tabs until it selects the attacker")
+        let hunt = await runHunt(host: plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)]), jev: huntScripted([.fight, .lookAround]))
+        check(hunt.fights.count >= 1 && hunt.steps.first?.action == .lookAround && hunt.outcome != "DEAD",
+              "a hunt attacked from behind finds the attacker and fights it (\(hunt.outcome))")
+    }
+
+    static func huntScripted(_ preference: [HuntAction]) -> ScriptedJev<HuntAction> {
+        ScriptedJev(preference: preference)
+    }
+
+    static func huntEpisodes() async {
+        let hunter: [HuntAction] = [.fight, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
+                                    .detourLeft90, .detourLeft45, .backTrack] + HuntAction.compass
+        let field = SimHunt.field(clock: FightClock())
+        let led = await runHunt(host: field, jev: huntScripted(hunter))
+        check(led.walks.attempts.contains { $0.blocked } && led.fights.count >= 1 && field.objectives[0].done + field.objectives[1].done >= 1
+              && !led.holding,
+              "the field: blocked by the ridge on the way to the area, around it and a quest creature fought (\(led.fights.count) fights, \(led.outcome))")
+
+        let last = plain([SimHunt.Mob(name: "Pesky Cirrusfly", x: 40, y: 29.5, hostile: false)],
+                         objectives: [Objective(quest: "Infestation Investigation", done: 7, need: 8, text: "Pesky Cirrusfly slain")])
+        let finished = await runHunt(host: last, jev: huntScripted([.fight, .nextTarget]))
+        check(finished.outcome == "OBJECTIVES_COMPLETE" && finished.fights.count == 1 && finished.decisions == 2,
+              "the last creature needed: select, fight, OBJECTIVES_COMPLETE")
+
+        let bystander = plain([SimHunt.Mob(name: "Juvenile Vuldren", x: 40, y: 29.5, hostile: false)])
+        let spared = await runHunt(host: bystander, jev: huntScripted([.fight, .nextTarget, .lookAround, .east, .west]))
+        check(bystander.fightsRun == 0 && spared.outcome == "NO_TARGET_FOUND" && spared.decisions == HuntLimits.searchLimit,
+              "a creature that counts for nothing is never fought; the search ends after \(HuntLimits.searchLimit) decisions")
+
+        let horde = plain((0..<8).map { SimHunt.Mob(name: "Roiling Winds", x: 40 + 0.05 * Double($0 % 3), y: 29.4 - 0.1 * Double($0)) })
+        let capped = await runHunt(host: horde, jev: huntScripted([.fight, .rest, .nextTarget, .lookAround, .north]))
+        check(capped.outcome == "FIGHT_LIMIT" && capped.fights.count == HuntLimits.maxFights, "at most four fights per hunt (\(capped.outcome))")
+
+        let hurt = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        hurt.fightOutcome = "SAFETY_STOP_PLAYER_BELOW_30"
+        let fled = await runHunt(host: hurt, jev: huntScripted([.fight, .nextTarget]))
+        check(fled.outcome == "FIGHT_SAFETY_STOP_PLAYER_BELOW_30" && fled.fights.count == 1 && !fled.holding,
+              "a fight's safety stop ends the hunt")
+
+        let blurred = plain([])
+        var reads = 0
+        blurred.readLines = { lines in reads += 1; return reads == 1 ? lines : lines.filter { !$0.hasPrefix("-") } }
+        let unsure = await runHunt(host: blurred, jev: huntScripted([.nextTarget, .lookAround, .east, .west]))
+        check(unsure.outcome == "NO_TARGET_FOUND" && reads > 2,
+              "a tracker read later as titles only does not end the hunt as OBJECTIVES_COMPLETE (\(unsure.outcome))")
+
+        let ambushed = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 31)])
+        let ambush = await runHunt(host: ambushed, jev: AmbushJev(world: ambushed, then: huntScripted([.east, .fight, .lookAround])))
+        check(ambush.steps.count >= 2 && ambush.steps[0].action == .east && ambush.steps[0].result.hasPrefix("not done")
+              && ambush.steps[1].action == .fight,
+              "attacked while Jev decided: the walk is not done, and the next decision fights back (\(ambush.outcome))")
+        let pulled = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        pulled.selected = 0
+        let pull = await runHunt(host: pulled, jev: AmbushJev(world: pulled, then: huntScripted([.fight])))
+        check(pulled.foughtInCombat.first == true && pull.steps.first?.action == .fight,
+              "attacked while Jev chose to pull: the fight starts as one already in combat, not on the stale calm")
+        let frozenPull = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        frozenPull.selected = 0
+        let noPull = await runHunt(host: frozenPull, jev: FreezingJev(world: frozenPull, then: huntScripted([.fight])))
+        check(frozenPull.fightsRun == 0 && noPull.outcome == "HUD_UNREADABLE" && !noPull.holding,
+              "the capture stalls while Jev chose to pull: no fight starts")
+
+        let frozenMid = plain([])
+        let stall = await runHunt(host: frozenMid, jev: FreezingJev(world: frozenMid, then: huntScripted([.east])))
+        check(stall.outcome == "HUD_UNREADABLE" && stall.steps.first?.result.hasPrefix("not done") == true && frozenMid.world.x == 40
+              && !stall.holding, "the capture stalls while Jev decides: nothing is done and the hunt ends unreadable")
+
+        let down = await runHunt(host: SimHunt.field(clock: FightClock()), jev: NavThrowingJev())
+        check(down.outcome == "JEV_FAILED" && down.decisions == 0, "a failed Jev call ends the hunt, no fallback")
+        let odd = await runHunt(host: SimHunt.field(clock: FightClock()), jev: NavReplyJev(choice: "STOP"))
+        check(odd.outcome == "INVALID_REPLY" && odd.decisions == 1, "STOP or any unknown reply is invalid and ends the hunt")
+
+        let stops: [(String, (SimHunt) -> Void)] = [
+            ("DEAD", { $0.world.player = 0 }), ("OWNER_TOOK_FOCUS", { $0.world.ownerFront = true }),
+            ("HUD_UNREADABLE", { $0.surveyBlind = true }), ("NO_UNFINISHED_OBJECTIVE", { $0.objectives = [] }),
+        ]
+        for (outcome, setup) in stops {
+            let world = SimHunt.field(clock: FightClock())
+            setup(world)
+            let result = await runHunt(host: world, jev: huntScripted(hunter))
+            check(result.outcome == outcome && result.decisions == 0 && !result.holding, "\(outcome) stops before any decision")
+        }
+    }
+}
+
+/// Answers as `then`, but a hostile creature reaches the character while the first question is out.
+final class AmbushJev: JevClient {
+    let world: SimHunt, then: ScriptedJev<HuntAction>
+    var asked = 0
+    init(world: SimHunt, then: ScriptedJev<HuntAction>) { self.world = world; self.then = then }
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        asked += 1
+        if asked == 1 { world.mobs[0].y = world.world.y + 0.1; world.world.combat = true; world.selected = 0 }
+        return try await then.ask(state: state, question: question)
+    }
+}
+
+/// Answers as `then`, but the capture stalls while the first question is out.
+final class FreezingJev: JevClient {
+    let world: SimHunt, then: ScriptedJev<HuntAction>
+    init(world: SimHunt, then: ScriptedJev<HuntAction>) { self.world = world; self.then = then }
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        world.frozen = true
+        return try await then.ask(state: state, question: question)
+    }
+}

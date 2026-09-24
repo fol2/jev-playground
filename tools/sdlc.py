@@ -33,10 +33,12 @@ MOTOR = VISUAL + "m0/"
 SEEK = VISUAL + "m1/"
 FIGHT = VISUAL + "m3/"
 NAV = VISUAL + "m4/"
+LEARN = VISUAL + "learning/"  # video/research evidence; video_jev.py --check proves it offline
 MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
-               {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "README.md")})
+               {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
+                                        "HuntProbe.swift", "tabletop.py", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting
 # that one line would exit 0 having run nothing; a missing module raises instead.
 VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
@@ -85,7 +87,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             full = True
         elif path in VISUAL_CODE or path == VISUAL + "README.md":
             visual = True
-        elif path in MOTOR_PATHS:
+        elif path in MOTOR_PATHS or path == LEARN + "video_jev.py" or (
+                path.startswith(LEARN) and PurePosixPath(path).suffix in {".md", ".jsonl"}):
             motor = True
         elif fishing_path(path):
             fishing = True
