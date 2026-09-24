@@ -1,0 +1,23 @@
+name: Runtime source transfer (temporary)
+on:
+  push:
+    branches: [refactor/runtime-skill-boundary]
+    paths: [.github/workflows/runtime-source-transfer.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: e5605732800c1b3e2f476b0c3df1140f34cd6780
+          persist-credentials: false
+      - name: Export public tracked source only
+        run: git archive --format=tar HEAD > "$RUNNER_TEMP/runtime-source.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-source-e560573
+          path: ${{ runner.temp }}/runtime-source.tar
+          retention-days: 1
