@@ -534,5 +534,14 @@ extension NavTests {
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
+        let thendal: MapPoint = (42.8, 23.5)
+        check(thisZone(questPlan(log24Sept, from: thendal), from: thendal).map(\.title).sorted()
+              == ["Call of Earth", "Harvesting Windstones", "The Gift of Skysight"], "this zone: the hub's quests, not Shen'dar's")
+        let onlyFar = [log24Sept[4]]
+        check(thisZone(questPlan(onlyFar, from: thendal), from: thendal).isEmpty,
+              "live 24 Sept: with only Shen'dar's quest read, nothing is in this zone (not a 20-unit walk for a cliff)")
+        check(missingFromLog(["Harvesting Windstones", "The Gift of Skysight"], onlyFar) == ["Harvesting Windstones", "The Gift of Skysight"]
+              && missingFromLog(["18 m", "The Gift of Skysight", "Call of Earth", "15m", "Call of Earth"], log24Sept).isEmpty,
+              "live 24 Sept: minimap names the log read lacks make it incomplete; distance lines are not names")
     }
 }

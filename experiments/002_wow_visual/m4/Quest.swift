@@ -215,6 +215,24 @@ func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Doub
     return plan + located.filter { $0.pin == nil }
 }
 
+/// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
+/// zone is road travel, which is not built (live, 24 Sept: with the hub's two hand-ins unread, the nearest
+/// zone was Shen'dar, 20 units south, and the walk ran for a cliff).
+func thisZone(_ plan: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
+    let me = PlannedQuest(title: "\u{0}", level: 0, ready: false, objective: "", pin: player)
+    let zone = questZones([me] + plan, within: zoneRadius).first { $0.contains { $0.title == me.title } } ?? []
+    return plan.filter { q in zone.contains { $0.title == q.title } }
+}
+
+/// Quest names the minimap's tooltips showed that the log read lacks ("18 m" distance lines are not
+/// names). Any at all means the log read is incomplete (live, 24 Sept: one quest of four): do not plan on it.
+func missingFromLog(_ tooltips: [String], _ quests: [PlannedQuest]) -> [String] {
+    let known = Set(quests.map { nameKey($0.title) })
+    var missing: [String] = []
+    for name in tooltips where nameKey(name).count >= 4 && !known.contains(nameKey(name)) && !missing.contains(name) { missing.append(name) }
+    return missing
+}
+
 /// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under
 /// them, zone headers ("Camping") to their left. Pins are added from the map afterwards.
 func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {

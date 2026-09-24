@@ -267,8 +267,8 @@ chat read "The Cirrusfly Queen completed.", 320 experience and 1 silver; `/equip
 character pane then showed the vest (33 Armor) in the chest slot. The first build's `/run` check
 raised the "Allow custom scripts?" prompt instead; I clicked No (no setting changed) and replaced the
 check with the pane. The third reward was read as "Equipped" because OCR missed "If you replace this
-item" in that frame; the equipped item's box is now bounded by its label too. Not yet handled: an NPC's gossip list, the "Continue"
-page of item quests, Accept for new quests and silver or gold in a sell price.
+item" in that frame; the equipped item's box is now bounded by its label too. An NPC's quest list and
+the "Continue" page were added in M4e. Not yet handled: Accept for new quests and silver or gold in a sell price.
 
 ## M4d — plan the quests zone by zone
 
@@ -300,6 +300,28 @@ two were held, 28-30 per second otherwise, with or without background pointer mo
 returns a byte copy; with it, the diagnostic ran at full rate while holding two frames, and the live plan
 read all three minimap icons with no frame wait: The Gift of Skysight, Call of Earth (to Windshaper
 Boros) and Harvesting Windstones here, then The Adventurer and The Next Step in Shen'dar.
+
+## M4e — deliver this zone's quests
+
+`m4-nav --quests --keys wqe` reads the plan as M4d, then works through the quests of the player's own
+zone in order: an M4a walk to the pin (each walk has its own key set, because a walk's exit sweep ends
+its keys for good), then the M4c hand-in. A delivery's progress page ("Continue") is clicked through.
+Walk-to-and-hand-in is the only kind built; a kill, collect or use-at quest ends the run as
+`NOT_BUILT_<KIND>`.
+
+Live, 24 Sept: the engine walked to Windshaper Boros and handed in Call of Earth (+360 experience,
+level 6, Stoneskin Totem learnt). The next run read one quest of four from the log (only The Adventurer,
+in Shen'dar), although the minimap's tooltips had just named Harvesting Windstones and The Gift of
+Skysight. The plan's first zone was then Shen'dar, 20 units south, and the walk ended NO_PROGRESS near a
+cliff. The frame the log was read from was not kept, so the cause of the short read is unknown. Three
+guards follow, all RULE:
+
+- The frame the log is read from is saved as `quest-log.png`.
+- A quest named by a minimap tooltip but missing from the log read stops the run as `LOG_INCOMPLETE`.
+  A quest giver's "!" (a quest not yet taken) would stop it the same way until pick-ups are built.
+- Only the player's own zone is walked: quests chained within 12 y units of the player. With none,
+  the run stops as `NEXT_ZONE_NEEDS_ROADS`; a single leg over 12 units stops as `TOO_FAR_NEEDS_ROADS`.
+  Zone-to-zone travel waits for road routing.
 
 ## Limits
 

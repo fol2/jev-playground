@@ -143,7 +143,8 @@ final class QuestRun {
 
     /// M4d: the quest log and the world map's pins, read-only. L opens the map; the pointer rests on each
     /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
-    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?) {
+    /// `missing`: names the minimap's tooltips showed that the log read lacks; the plan must not be trusted.
+    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String]) {
         let player = (await frame()).flatMap { parseCoords(coordsText($0)) }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         await sleep(0.4)
@@ -152,6 +153,7 @@ final class QuestRun {
         let nearby = player == nil ? [] : scanned.map { minimapPins(rgba($0)) } ?? []
         body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
         var minimapNames: [(names: [String], at: MapPoint)] = []
+        var tooltips: [String] = []
         for spot in nearby {
             hover(spot.x, spot.y)
             await sleep(0.7)
@@ -159,10 +161,13 @@ final class QuestRun {
             let read = lines(box, await frame()).map(\.text)
             body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read])
             minimapNames.append((read.map(nameKey), minimapPoint(spot.x, spot.y, player: player!)))
+            tooltips += read
         }
         await tap(QuestHUD.mapKey)
         await sleep(1.2)
-        var quests = parseQuestLog(lines(QuestHUD.questList, await frame()))
+        let listed = await frame()
+        if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
+        var quests = parseQuestLog(lines(QuestHUD.questList, listed))
         for i in quests.indices {
             quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
         }
@@ -181,10 +186,11 @@ final class QuestRun {
             }
         }
         await tap(QuestHUD.mapKey)
-        body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "quests": quests.map {
+        let missing = missingFromLog(tooltips, quests)
+        body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
-        return (quests, player)
+        return (quests, player, missing)
     }
 
     func turnIn(_ quest: String) async -> String {
@@ -322,15 +328,18 @@ func questsExecute() async throws -> Int32 {
                               holding: { body.holding || (walker?.holding ?? false) })
     await zoomOut(body.keys, log)
     let quester = try QuestRun(body: body)
-    let (quests, player) = await quester.readQuests()
+    let (quests, player, missing) = await quester.readQuests()
     guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
     let plan = questPlan(quests, from: player)
-    let zone = questZones(plan.map { q -> PlannedQuest in var q = q; if q.pin == nil { q.pin = player }; return q }, within: 12)
-        .first { $0.contains { $0.title == plan.first?.title } } ?? []
-    let here = plan.filter { q in zone.contains { $0.title == q.title } }
+    let here = thisZone(plan, from: player)
     body.emit("plan", ["controller": "RULE", "order": plan.map(\.title), "this_zone": here.map(\.title)])
     var outcomes: [[String: String]] = []
-    for q in here {
+    if !missing.isEmpty {
+        outcomes.append(["quest": missing.joined(separator: ", "), "outcome": "LOG_INCOMPLETE"])  // see quest-log.png
+    } else if here.isEmpty && !plan.isEmpty {
+        outcomes.append(["quest": plan[0].title, "outcome": "NEXT_ZONE_NEEDS_ROADS"])
+    }
+    for q in outcomes.isEmpty ? here : [] {
         let kind = questKind(q)
         guard kind == .handIn || kind == .travel else {
             outcomes.append(["quest": q.title, "outcome": "NOT_BUILT_" + kind.rawValue])
@@ -339,6 +348,10 @@ func questsExecute() async throws -> Int32 {
         // Walk even a short way: walking faces the NPC, so its "?" is in view (live, 24 Sept: 1.0 away and
         // behind the camera, no mark was found).
         if let pin = q.pin, let at = body.look(), distance((at.x, at.y), pin) > 0.5 {
+            guard distance((at.x, at.y), pin) <= 12 else {  // a hub is smaller: farther is road travel, not built
+                outcomes.append(["quest": q.title, "outcome": "TOO_FAR_NEEDS_ROADS"])
+                break
+            }
             let legs = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
             walker = legs
             let walk = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
@@ -380,13 +393,14 @@ func planExecute() async throws -> Int32 {
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
-    let (quests, player) = await (try QuestRun(body: body)).readQuests()
+    let (quests, player, missing) = await (try QuestRun(body: body)).readQuests()
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
     let plan = questPlan(quests, from: player)
     body.emit("plan", ["controller": "RULE", "rule": "owner, 24 Sept: finish the player's zone first, nearest first; then the next zone",
-                       "order": plan.map { "\($0.title) [\(questKind($0).rawValue)]" }])
+                       "order": plan.map { "\($0.title) [\(questKind($0).rawValue)]" }, "this_zone": thisZone(plan, from: player).map(\.title)])
+    if !missing.isEmpty { print("LOG_INCOMPLETE: the minimap shows \(missing.joined(separator: ", ")); see quest-log.png") }
     for (i, q) in plan.enumerated() {
         print("\(i + 1). [\(q.level)] \(q.title): \(questKind(q).rawValue) at \(q.pin.map { "\($0.x), \($0.y)" } ?? "no pin")")
     }
