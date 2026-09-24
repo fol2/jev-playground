@@ -1,0 +1,28 @@
+name: Temporary source snapshot
+on:
+  push:
+    branches: [refactor/runtime-boundaries]
+    paths: [.github/workflows/source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: bfff663be71efc1bc1b84e6f3b3b808e112ae2fa
+          persist-credentials: false
+      - name: Archive the immutable tracked tree, never local files or credentials
+        run: |
+          mkdir -p /tmp/jev-source
+          git archive --format=tar HEAD | gzip > /tmp/jev-source/source.tar.gz
+          git cat-file commit HEAD > /tmp/jev-source/commit.txt
+          git rev-parse HEAD HEAD^{tree} > /tmp/jev-source/identity.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-bfff663
+          path: /tmp/jev-source/
+          compression-level: 0
+          retention-days: 1
