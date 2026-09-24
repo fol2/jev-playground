@@ -125,6 +125,12 @@ extension NavTests {
         check(remaining(objectives, in: parseTracker(lines)).count == 3, "a line that reappears unfinished is still remaining")
         check(remaining(objectives, in: parseTracker(["Agitators", "Ready for turn-in", "Infestation Investigation", "- 8/8 Pesky Cirrusfly slain"])).isEmpty,
               "completion: a quest's \"Ready for turn-in\" or a line read at 8/8")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Ready for turn-in", "- 2/7 Al'Aketh Convert slain",
+                                                       "- 2/6 Roiling Winds destroyed"])).count == 3,
+              "\"Ready for turn-in\" beside unfinished lines of the same quest is a misread: nothing finishes")
+        check(remaining(objectives, in: parseTracker(["Agitators", "Infestation Investigation", "Ready for turn-in",
+                                                       "- 5/8 Pesky Cirrusfly slain"])).count == 3,
+              "title A, title B, Ready, B's 5/8 (A's lines missed): Ready does not finish B, and A stays remaining")
 
         let here = NavObs(x: 40, y: 30, facing: 0)
         let wind = HuntObs(objectives: objectives, target: "Roiling Wind", targetAlive: true, facing: 0, here: here)
@@ -334,6 +340,17 @@ extension NavTests {
         check(ambush.steps.count >= 2 && ambush.steps[0].action == .east && ambush.steps[0].result.hasPrefix("not done")
               && ambush.steps[1].action == .fight,
               "attacked while Jev decided: the walk is not done, and the next decision fights back (\(ambush.outcome))")
+        let pulled = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        pulled.selected = 0
+        let pull = await runHunt(host: pulled, jev: AmbushJev(world: pulled, then: huntScripted([.fight])))
+        check(pulled.foughtInCombat.first == true && pull.steps.first?.action == .fight,
+              "attacked while Jev chose to pull: the fight starts as one already in combat, not on the stale calm")
+        let frozenPull = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        frozenPull.selected = 0
+        let noPull = await runHunt(host: frozenPull, jev: FreezingJev(world: frozenPull, then: huntScripted([.fight])))
+        check(frozenPull.fightsRun == 0 && noPull.outcome == "HUD_UNREADABLE" && !noPull.holding,
+              "the capture stalls while Jev chose to pull: no fight starts")
+
         let frozenMid = plain([])
         let stall = await runHunt(host: frozenMid, jev: FreezingJev(world: frozenMid, then: huntScripted([.east])))
         check(stall.outcome == "HUD_UNREADABLE" && stall.steps.first?.result.hasPrefix("not done") == true && frozenMid.world.x == 40

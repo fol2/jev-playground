@@ -44,6 +44,8 @@ enum FightLimits {
     static let playerSafety = 0.3
     static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
     static let startHealth = 0.9
+    // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
+    static let maxFrameAge = 1.0
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
     static let watchdogSeconds = 4.0

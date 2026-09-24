@@ -135,7 +135,12 @@ final class LiveHost: FightHost {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
     }
 
-    func latestImage() -> CGImage? { feed.latest }
+    /// Nil when there is no frame or the newest is older than `FightLimits.maxFrameAge`: a stalled capture
+    /// reads as no frame (Obs() is 0% health, a safety stop), never as the last scene seen.
+    func latestImage() -> CGImage? {
+        guard let frame = feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
+        return frame.image
+    }
 
     func refreshNotice() -> Bool {
         guard let image = latestImage() else { return false }

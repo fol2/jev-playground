@@ -18,8 +18,6 @@ enum HuntLimits {
     static let settle = 0.5  // for the target frame to follow a key
     static let tick = 0.25
     static let unreadableLimit = 3
-    // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
-    static let maxFrameAge = 1.0
     static let recent = 6
     static let restHealth = 0.99
     static let restMana = 0.95
@@ -99,12 +97,14 @@ func objective(for name: String?, in objectives: [Objective]) -> Objective? {
 }
 
 /// The objectives in `wanted` not yet seen finished in `now`: finished is its own line read at done >= need,
-/// or its quest's "Ready for turn-in". A line that has merely gone (an OCR miss, a collapsed tracker)
-/// stays remaining: missing evidence is not a completion.
+/// or its quest's "Ready for turn-in" with no unfinished line under the same title (WoW never shows both,
+/// so both is a misread). A line that has merely gone (an OCR miss, a collapsed tracker) stays remaining:
+/// missing evidence is not a completion.
 func remaining(_ wanted: [Objective], in now: [Objective]) -> [Objective] {
     wanted.filter { w in
-        !now.contains { nameKey($0.quest) == nameKey(w.quest) && !$0.unfinished
-            && ($0.text == Objective.ready || nameKey($0.text) == nameKey(w.text)) }
+        let quest = now.filter { nameKey($0.quest) == nameKey(w.quest) }
+        let ready = quest.contains { $0.text == Objective.ready } && !quest.contains(where: \.unfinished)
+        return !ready && !quest.contains { nameKey($0.text) == nameKey(w.text) && !$0.unfinished }
     }
 }
 
@@ -574,9 +574,10 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
 
         var result: String
         sinceFight += 1
-        // A reply takes seconds, and a creature may attack meanwhile: a non-combat action runs only on a
-        // fresh frame still out of combat. Otherwise the next decision sees the new state.
-        if !o.combat && choice.action != .fight && host.vitals()?.combat != false {
+        // A reply takes seconds: re-read before acting. Without a fresh frame nothing is done; attacked
+        // meanwhile, a non-combat action is not done (the next decision sees the attack) and a pull
+        // starts as a fight already in combat.
+        guard let fresh = host.vitals(), !(fresh.combat && !o.combat && choice.action != .fight) else {
             result = "not done: attacked, or no fresh frame, while Jev decided"
             r.steps.append(HuntStep(action: choice.action, result: result))
             host.emit("acted", ["action": choice.action.rawValue, "result": result])
@@ -584,7 +585,7 @@ func runHunt(host: HuntHost, jev: JevClient) async -> HuntResult {
         }
         switch choice.action {
         case .fight:
-            let fight = await host.fight(jev: jev, inCombat: o.combat)
+            let fight = await host.fight(jev: jev, inCombat: o.combat || fresh.combat)
             r.fights.append(fight)
             sinceFight = 0
             result = "the fight ended \(fight.outcome) after \(fight.decisions) decisions"
@@ -642,6 +643,7 @@ final class SimHunt: HuntHost {
     var gameMenu = false
     var fightOutcome = "KILLED_AND_LOOTED"
     var fightsRun = 0
+    var foughtInCombat: [Bool] = []  // each fight's inCombat, as the hunt passed it
     var surveyBlind = false
     var frozen = false  // the capture has stalled: no fresh frame for vitals or a survey
     var readLines: ([String]) -> [String] = { $0 }  // what the tracker's OCR keeps of its lines
@@ -666,7 +668,7 @@ final class SimHunt: HuntHost {
     func now() -> Double { world.now() }
     func emit(_ event: String, _ fields: [String: Any]) { world.emit(event, fields) }
     func ownerTookFocus() -> Bool { world.ownerTookFocus() }
-    func look() -> NavObs? { world.look() }
+    func look() -> NavObs? { frozen ? nil : world.look() }
 
     private func inView(_ m: Mob, within reach: Double) -> Bool {
         let here: MapPoint = (world.x, world.y)
@@ -733,6 +735,7 @@ final class SimHunt: HuntHost {
 
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult {
         fightsRun += 1
+        foughtInCombat.append(inCombat)
         clock.t += 30
         if selected == nil || !mobs[selected!].alive {  // nothing to fight: time passes, the attacker keeps hitting
             if world.combat { world.player = max(0, world.player - 0.3) }

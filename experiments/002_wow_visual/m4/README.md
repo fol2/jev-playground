@@ -200,13 +200,16 @@ Latency p50 was 0.52–0.60 s and p95 0.58–0.98 s. Each walk ended with every 
   after the chase fact changed. Offline, `--check` only validates the scenarios.
 - **Missing evidence is never completion or calm** (from the peer review of 24 Sept).
   - An objective is finished only when its own line reads done >= need, or when "Ready for turn-in"
-    appears straight under its quest title. That is how the demo's tracker shows a finished quest.
+    appears straight under its quest title with no unfinished line of that quest. That is how the
+    demo's tracker shows a finished quest; seeing both is treated as a misread.
   - A line that has merely vanished stays remaining. That covers an OCR miss, a title-only read and
     a collapsed tracker.
   - `vitals()`, `look()` and `survey()` return nil when there is no frame, or when the newest frame
-    is older than 1 s by capture PTS. REST then stops and LOOK_AROUND does not turn.
-  - After each Jev reply, a non-combat action runs only on a fresh frame that is still out of
-    combat. Otherwise it is recorded as not done and the next decision sees the attack.
+    is older than 1 s by capture PTS. REST then stops and LOOK_AROUND does not turn. M3's live frames
+    use the same bound, so a stalled capture in a fight reads as no frame (a safety stop).
+  - After each Jev reply the hunt re-reads a fresh frame, or does nothing:
+    - attacked meanwhile, a non-combat action is recorded as not done;
+    - a pull starts as a fight already in combat.
 - **UI.** The owner's UI changed on 23 Sept, and the readers were re-calibrated on live PNGs:
   - fixed 186x15 plates;
   - the tracker box;

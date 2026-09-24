@@ -78,10 +78,10 @@ final class LiveHuntHost: HuntHost {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
     }
 
-    /// The newest frame, or nil when there is none or it is older than `HuntLimits.maxFrameAge`: a stalled
+    /// The newest frame, or nil when there is none or it is older than `FightLimits.maxFrameAge`: a stalled
     /// capture must not pass for a calm, healthy scene.
     private func freshImage() -> CGImage? {
-        guard let frame = feed.latestFrame, hostNow() - frame.pts <= HuntLimits.maxFrameAge else { return nil }
+        guard let frame = feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
         return frame.image
     }
 
