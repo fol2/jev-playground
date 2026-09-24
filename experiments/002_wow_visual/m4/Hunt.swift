@@ -24,7 +24,7 @@ enum HuntLimits {
     // No mana gate for starting a fight: in the owner's recorded demo (23 Sept) 29 fights often began at
     // 10-30% mana, melee doing most of the damage. Jev weighs the costs, which the state carries.
     static let eatBelowHealth = 0.8, eatBelowMana = 0.5
-    static let drink: UInt16 = 29, eat: UInt16 = 27  // the owner's bar: 0 water, - bread (demo, 23 Sept)
+    static var drink: UInt16 = 29, eat: UInt16 = 27  // 23 Sept defaults; live runs take them from the bar's tooltips
     static let eatSeconds = 20.0
     static let walkHealth = 0.6  // below this, rest before walking on
     // ponytail: an assumed horizontal field of view; calibrate from a plate's shift over a known turn.
@@ -33,7 +33,7 @@ enum HuntLimits {
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53
-    static let releaseCodes: [UInt16] = [53, 48, 12, 13, 14, 29, 27]
+    static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat, FightLimits.zoomOut] }
     static let continueAfter: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE", "JEV_STOP"]
 }
 

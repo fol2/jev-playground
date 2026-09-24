@@ -259,6 +259,7 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await zoomOut(body.keys, log)
     guard let start = body.look() else {
         try? await stream.stopCapture()
         throw ProbeError("coordinates or minimap arrow unreadable at the start")

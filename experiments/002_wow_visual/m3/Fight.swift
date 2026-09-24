@@ -17,10 +17,11 @@ enum HUD {
     /// Combat ring: red pixels around the character portrait.
     static let combatX0 = 720, combatX1 = 810, combatY0 = 950, combatY1 = 1045, combatMin = 300
     /// Cast bar: grey/yellow track (x 1172-1388, y 1200-1210) and yellow fill on row 1205 / 216.
-    static let castX0 = 1172, castX1 = 1388, castY0 = 1200, castY1 = 1210
-    static let castFillY = 1205, castFillSpan = 216, castTrackMin = 300
-    /// Slot-2 hotkey digit: dark-red when Lightning Bolt is out of range.
-    static let rangeX0 = 708, rangeX1 = 734, rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
+    static let castX0 = 1172, castX1 = 1388, castY0 = 1165, castY1 = 1173  // 24 Sept: the swing timer pushed it up 36 px
+    static let castFillY = 1169, castFillSpan = 216, castTrackMin = 300
+    /// The bolt slot's hotkey digit: dark-red when Lightning Bolt is out of range (x for key 2; applyRoles moves it).
+    static var rangeX0 = 708, rangeX1 = 734
+    static let rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
     /// Weapon-buff icon: green glow on the top-right buff row.
     static let buffX0 = 2215, buffX1 = 2300, buffY0 = 30, buffY1 = 75, buffMin = 100
     /// Red error text: the floating red game-error line.
@@ -46,6 +47,7 @@ enum FightLimits {
     static let startHealth = 0.9
     // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
     static let maxFrameAge = 1.0
+    static let freshWait = 2.0  // how long a fight waits for a fresh frame before NO_FRESH_FRAME
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
     static let watchdogSeconds = 4.0
@@ -59,14 +61,18 @@ enum FightLimits {
     static let boltFill = 0.75
     static let fillDrop = 0.3
     static let tab: UInt16 = 48
-    static let melee: UInt16 = 18
-    static let bolt: UInt16 = 19
-    static let heal: UInt16 = 20
-    static let buff: UInt16 = 21
+    // ponytail: set once from the bar's tooltips before a live run (applyRoles); sims keep these defaults.
+    static var bolt: UInt16 = 19
+    static var heal: UInt16 = 20
+    static var buff: UInt16 = 21
     static let turnLeft: UInt16 = 12
     static let forward: UInt16 = 13
     static let turnRight: UInt16 = 14
-    static let releaseCodes: [UInt16] = [48, 18, 19, 20, 21, 12, 13, 14]
+    static let interact: UInt16 = 101  // F9, Interact With Target (owner-consented bind): turns, walks, auto-attacks
+    static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
+    static let zoomOut: UInt16 = 109  // F10, Camera Zoom Out (owner-consented bind, 24 Sept)
+    static let zoomSeconds = 2.5
+    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, turnLeft, forward, turnRight, interact, zoomOut] }
 }
 
 /// Watchdog grant for one held key. Refresh while the skill still needs it; expired(now:)
@@ -216,6 +222,7 @@ struct Obs {
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
     var plate: Plate? = nil
     var ground: Int? = nil
+    var fresh = true  // false: no frame newer than maxFrameAge, so nothing above was seen
 }
 
 func hudCount(_ image: RGBA, x0: Int, x1: Int, y0: Int, y1: Int, _ pass: (Int, Int, Int) -> Bool) -> Int {
@@ -282,13 +289,13 @@ enum FightAction: String, JevAction {
         case .selectTarget:
             return "Press Tab to select the nearest enemy creature in front of the character."
         case .faceTarget:
-            return "Turn on the spot until the selected target is centred ahead. Spells need the target in front of the character."
+            return "Press Interact With Target: the game turns the character to face the selected target at once, even one behind it, and turns on automatic weapon swings; the walk it starts is cancelled, so the character stays put. Spells need the target in front of the character."
         case .approachToRange:
             return "Walk towards the target in short steps and stop as soon as it is within Lightning Bolt range, at the farthest distance the spell can be cast from."
         case .castLightningBolt:
             return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
         case .startMelee:
-            return "Turn on automatic weapon swings at the target. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
+            return "Press Interact With Target: turn on automatic weapon swings at the target, walking up to it if it is not adjacent. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
         case .heal:
             return "Cast Healing Wave on the character: about a 2-second cast that restores most of its health, costs mana, and is delayed by melee hits like any cast."
         case .lootCorpse:
@@ -337,7 +344,7 @@ func admissible(_ o: Obs, _ e: Episode) -> [FightAction] {
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
     if alive {
-        if let dx = offset(o), abs(dx) > FightLimits.faceTolerance { out.append(.faceTarget) }
+        if offset(o).map({ abs($0) > FightLimits.faceTolerance }) ?? true { out.append(.faceTarget) }  // no plate: maybe behind
         if o.rangeRed { out.append(.approachToRange) } else { out.append(.castLightningBolt) }
         if !e.meleeOn { out.append(.startMelee) }
     }
@@ -567,6 +574,19 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
     return sorted[i]
 }
 
+/// A missing frame is neither calm nor low health: on 24 Sept, twice, the capture went quiet after the
+/// background loot click and the empty observation read as 0 % health. Wait for a fresh frame; nil if none.
+func freshObservation(_ host: FightHost) async -> Obs? {
+    var o = host.observe(plates: true)
+    let start = host.now()
+    while !o.fresh && host.now() - start < FightLimits.freshWait {
+        await host.sleep(0.1)
+        o = host.observe(plates: true)
+    }
+    if host.now() > start { host.emit("frame_wait", ["seconds": host.now() - start, "fresh": o.fresh]) }
+    return o.fresh ? o : nil
+}
+
 /// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
 func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth) async -> FightResult {
     var episode = Episode()
@@ -587,13 +607,13 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     if host.refreshNotice() { return finish("HOLD_REFRESH_NOTICE") }
     if host.startCorpseVisible() { episode.killed = true; episode.oldCorpse = true }
 
-    var prev = host.observe(plates: true)
+    guard var prev = await freshObservation(host) else { return finish("NO_FRESH_FRAME") }
     if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
 
     loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
-        let o = host.observe(plates: true)
+        guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         episode.update(o)
         if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
@@ -683,6 +703,7 @@ final class FightClock {
 final class SimFight: FightHost {
     let clock: FightClock
     var emitHandler: Emit = { _, _ in }
+    var stalls = 0  // observations with no fresh frame still to come
     var player = 1.0
     var mana = 1.0
     var targetHP = 0.0
@@ -749,6 +770,7 @@ final class SimFight: FightHost {
     func errorText() -> String? { errorMessage }
 
     func observe(plates: Bool) -> Obs {
+        if stalls > 0 { stalls -= 1; return Obs(fresh: false) }
         var o = Obs()
         o.player = player
         o.mana = mana
@@ -837,10 +859,10 @@ final class SimFight: FightHost {
             groundRow = 700
             return "a target is selected"
         case .faceTarget:
-            let dx = offset(observation) ?? -0.1
-            await hold(dx < 0 ? FightLimits.turnLeft : FightLimits.turnRight, 80)
+            await tap(FightLimits.interact)
+            episode.meleeOn = true
             plateX = Double(HUD.width) / 2
-            return "target centred"
+            return "faced the target; automatic swings on"
         case .approachToRange:
             await hold(FightLimits.forward, 250)
             rangeRed = false
@@ -850,7 +872,7 @@ final class SimFight: FightHost {
             strike(1.0 / 3)
             return "Lightning Bolt cast at 75 %; the key stays held, so the next cast follows unless another action is chosen"
         case .startMelee:
-            await tap(FightLimits.melee)
+            await tap(FightLimits.interact)
             episode.meleeOn = true
             strike(0.25)
             return "automatic swings on"
@@ -896,4 +918,84 @@ struct ScriptedJev<A: JevAction>: JevClient {
 
 extension ScriptedJev where A == FightAction {
     init() { preference = FightAction.preference }
+}
+
+/// One main-bar slot, read from its tooltip. The owner, 24 Sept: the engine sees and organises the
+/// skills as a human does, never a hard-coded slot (3 was Earth Shock and 4 Healing Wave by level 5).
+struct Skill: Equatable {
+    var name: String
+    var text: String
+    var cast: Double?  // seconds; nil when instant or an item
+}
+
+enum SkillRole: String, CaseIterable { case melee, bolt, heal, buff, drink, food }
+
+enum SkillHUD {
+    static let keys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24]  // 1-9, 0, -, =
+    static let names = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="]
+    static let slot1X = 660.0, pitch = 50.3, slotY = 1290.0  // slot centres, 24 Sept bar
+}
+
+/// The owner, 24 Sept: "should detect 'you are not face the mob' to trigger F9". Zoomed out, an adjacent
+/// creature's nameplate sits mid-screen whichever way the character faces, so the game's own error is
+/// the signal. Turning is a reflex inside the cast, not one of Jev's decisions.
+func facingError(_ errorText: String?) -> Bool {
+    guard let text = errorText?.lowercased() else { return false }
+    return text.contains("in front of you") || text.contains("facing")
+}
+
+/// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
+/// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
+/// nameplate read as slot 8's name, 24 Sept) is dropped.
+func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
+    guard let foot = boxes.first(where: { $0.text.hasPrefix("Press F6") }) else { return [] }
+    return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }
+        .sorted { ($0.y, $0.x) < ($1.y, $1.x) }.map(\.text)
+}
+
+/// Tooltip lines top to bottom (a rank or "Racial" sits beside the name); nil for an empty slot.
+func parseTooltip(_ lines: [String]) -> Skill? {
+    guard lines.contains(where: { $0.hasPrefix("Press F6") }) else { return nil }
+    let body = lines.filter { !$0.hasPrefix("Press F6") && !$0.hasPrefix("Rank ") && $0 != "Racial" }
+    guard let name = body.first else { return nil }
+    let text = body.dropFirst().joined(separator: " ")
+    let cast = text.range(of: #"[0-9.]+(?= sec cast)"#, options: .regularExpression).flatMap { Double(text[$0]) }
+    return Skill(name: name, text: text, cast: cast)
+}
+
+// ponytail: Shaman level-5 keywords; other classes add theirs here.
+func role(_ s: Skill) -> SkillRole? {
+    let t = s.text.lowercased()
+    if s.name == "Attack" { return .melee }
+    if t.contains("use: restores") { return t.contains(" mana") ? .drink : t.contains(" health") ? .food : nil }
+    if s.cast != nil && t.contains("heals") { return .heal }
+    if s.cast != nil && t.contains("damage") && t.contains("yd range") { return .bolt }
+    if t.contains("imbue") { return .buff }
+    return nil
+}
+
+/// Interact With Target (F9) turns, attacks and walks, so a fight needs no Attack slot; a hunt adds food and drink.
+let fightRoles: [SkillRole] = [.bolt, .heal, .buff]
+let huntRoles = fightRoles + [.drink, .food]
+
+/// The first slot of each role; problems name what a live run must not start without.
+func assignRoles(_ bar: [Skill?], required: [SkillRole] = huntRoles) -> (keys: [SkillRole: UInt16], problems: [String]) {
+    var keys: [SkillRole: UInt16] = [:], problems: [String] = []
+    let names = bar.compactMap { $0?.name }
+    if Set(names).count != names.count { problems.append("one tooltip on two slots (was the pointer moved?)") }
+    for (i, skill) in bar.enumerated() where i < SkillHUD.keys.count {
+        if let skill, let r = role(skill), keys[r] == nil { keys[r] = SkillHUD.keys[i] }
+    }
+    problems += required.filter { keys[$0] == nil }.map { "no \($0.rawValue) skill on the bar" }
+    return (keys, problems)
+}
+
+func applyRoles(_ keys: [SkillRole: UInt16]) {
+    FightLimits.bolt = keys[.bolt] ?? FightLimits.bolt
+    FightLimits.heal = keys[.heal] ?? FightLimits.heal
+    FightLimits.buff = keys[.buff] ?? FightLimits.buff
+    if let i = SkillHUD.keys.firstIndex(of: FightLimits.bolt) {
+        HUD.rangeX0 = 708 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
+        HUD.rangeX1 = HUD.rangeX0 + 26
+    }
 }
