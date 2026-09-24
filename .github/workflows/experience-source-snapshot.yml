@@ -21,6 +21,7 @@ jobs:
           cat .github/experience-patch/[0-9][0-9] > /tmp/experience.patch
           printf '%s  %s\n' 'df4727329dfd1caa478c8c7361c70dceb4df5860ab139ab0d8fb3861338f99dc' /tmp/experience.patch | sha256sum -c -
           git apply --index /tmp/experience.patch
+          git rm -r .github/experience-patch .github/experience-loop.patch.gz.b64 .github/workflows/experience-source-snapshot.yml
           python3 -m unittest discover -s tests -p 'test_*.py'
           tmp=$(mktemp -d)
           swiftc -parse-as-library experiments/002_wow_visual/runtime/Experience.swift experiments/002_wow_visual/runtime/ExperienceTests.swift -o "$tmp/experience-tests"
@@ -28,7 +29,6 @@ jobs:
           swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift experiments/002_wow_visual/m4/Hunt.swift experiments/002_wow_visual/m4/Quest.swift experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift experiments/002_wow_visual/runtime/Experience.swift experiments/002_wow_visual/runtime/GraphTests.swift -o "$tmp/graph-tests"
           "$tmp/graph-tests"
           git diff --cached --check
-          git rm -r .github/experience-patch .github/experience-loop.patch.gz.b64 .github/workflows/experience-source-snapshot.yml
           git config user.name 'James To'
           git config user.email '105634418+fol2@users.noreply.github.com'
           git commit -m 'feat: connect episodic experience recall and review to Hunt'
