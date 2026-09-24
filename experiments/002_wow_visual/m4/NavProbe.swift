@@ -20,6 +20,8 @@ let navUsage = """
            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
                     [--graph PATH] [--experience PATH]
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
+           m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
+           m4-nav --quests --graph PATH --keys wqe    Jev chooses each hand-in within one walk (quest graph)
     Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
     """
@@ -323,6 +325,8 @@ struct M4Nav {
                 default: fatalError("unreachable")
                 }
             case .turnIn: exit(try await questExecute(command))
+            case .plan: exit(try await planExecute())
+            case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!))))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

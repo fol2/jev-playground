@@ -13,6 +13,7 @@ extension NavTests {
         await targeting()
         await attackedFromBehind()
         await huntEpisodes()
+        await questGraph()
     }
 
     static func tracker() {
@@ -456,13 +457,172 @@ extension NavTests {
         paint(150, 120, 120, 8)
         paint(200, 20, 12, 20)  // a glowing insect: upright and yellow, no green name
         let marks = questMarks(image, box: (0, 0, 400, 300))
-        check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1,
+        check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1 && marks[0].h == 20 && marks[0].body == 240 + 48,
               "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
         check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
+        // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
+        let mask = [(161, "..#####"), (162, ".######"), (163, ".##..###"), (164, ".....###"), (165, ".....##"), (166, "....###"),
+                    (167, "...###"), (168, "...##"), (171, "...##"), (172, "...##")]
+        var gl = RGBA(width: 60, height: 60, pixels: [UInt8](repeating: 30, count: 60 * 60 * 4))
+        func stamp(_ dx: Int, _ dy: Int) {
+            var px = gl.pixels
+            for (row, text) in mask { for (i, c) in text.enumerated() where c == "#" {
+                let k = ((row - 155 + dy) * 60 + i + dx) * 4; px[k] = 250; px[k + 1] = 242; px[k + 2] = 57 } }
+            gl = RGBA(width: 60, height: 60, pixels: px)
+        }
+        stamp(10, 0); stamp(25, 7); stamp(5, 14)
+        let parts = glyphs(yellowBlobs(gl, box: (0, 0, 60, 60), gap: 0))
+        check(parts.count == 3 && parts.allSatisfy { $0.n > 20 }, "three touching \"?\": each hook takes its own dot")
+        check(markYellow(239, 236, 116) && markYellow(184, 155, 39) && !markYellow(135, 111, 74) && !markYellow(144, 115, 59),
+              "yellow by hue: the live minimap \"?\" and a dim NPC \"?\", not parchment or tan land")
 
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")
         check((try? parseNav(["--turn-in", "--keys", "wqe"])) == nil, "--turn-in without --quest is refused")
+        check((try? parseNav(["--quests", "--graph", "g.json", "--keys", "wqe"]))?.graph == "g.json"
+              && (try? parseNav(["--quests", "--keys", "wqe"])) == nil && (try? parseNav(["--quests", "--graph", "g.json"])) == nil,
+              "--quests needs a quest graph and the confirmed key profile")
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "x; rm -rf"])) == nil, "a quest title is letters and simple punctuation")
+        let offered = tip([("Accept the Windstones from Boros", 30, 200), ("Accept", 40, 690), ("Decline", 280, 690)])
+        check(acceptButton(offered)?.y == 690 && acceptButton(tip([("Accept the Windstones", 30, 200), ("Goodbye", 40, 690)])) == nil,
+              "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
+        plans()
+    }
+
+    /// The quest log and world-map pins of 24 Sept, after The Cirrusfly Queen was handed in.
+    static let log24Sept = [
+        PlannedQuest(title: "Call of Earth", level: 4, ready: true, objective: "Find the Rise of Spirits and drink the Earth Sapta.", pin: (50.1, 23.8)),
+        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: false, objective: "- 12/15 Windstone Cluster", pin: (44.2, 25.6)),
+        PlannedQuest(title: "The Gift of Skysight", level: 4, ready: false, objective: "- Use Skysight near the Elemental Convergence", pin: (48.9, 20.4)),
+        PlannedQuest(title: "The Next Step", level: 5, ready: true, objective: "- Report to Constable Aonda in Shen'dar Village.", pin: (46.1, 45.2)),
+        PlannedQuest(title: "The Adventurer", level: 6, ready: true, objective: "- Speak to Raan Wildwind near Shen'dar Village.", pin: (42.0, 44.4)),
+    ]
+
+    static func plans() {
+        check(log24Sept.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel], "objective text to quest kind")
+        check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
+              && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
+              "a finished quest is a hand-in; a slain count is a kill")
+        let zones = questZones(log24Sept, within: 12)
+        check(zones.count == 2 && zones.map(\.count).sorted() == [2, 3], "Thendal's three level-4 quests and Shen'dar's two are two zones")
+        let order = questPlan(log24Sept, from: (46.8, 31.5)).map(\.title)
+        check(order == ["Harvesting Windstones", "The Gift of Skysight", "Call of Earth", "The Next Step", "The Adventurer"],
+              "owner's rule: finish the player's zone, nearest first, before the next zone (not the nearest single pin)")
+        let south = questPlan(log24Sept, from: (45.0, 43.0)).map(\.title)
+        check(Array(south.prefix(2)).sorted() == ["The Adventurer", "The Next Step"], "standing in Shen'dar, its quests come first")
+        var unpinned = log24Sept
+        unpinned[0].pin = nil
+        check(questPlan(unpinned, from: (46.8, 31.5)).last?.title == "Call of Earth", "a pinless quest that is not finished goes last")
+        var lostPin = log24Sept
+        lostPin[3].pin = nil
+        lostPin[1].objective = "- Ready for turn-in"
+        lostPin[1].pin = nil
+        let lost = questPlan(lostPin, from: (46.8, 31.5)).map(\.title)
+        check(lost.first == "Harvesting Windstones" && lost.last == "The Next Step",
+              "live: a finished pinless quest is here; a Shen'dar delivery whose pin was not read is not pulled into this zone")
+        let live2 = parseQuestLog(tip([("Zephras Isle", 790, 224), ("[4] Call of Earth", 804, 254), ("Bring the Kough Quartz to", 818, 272),
+            ("Windshaper Boros in Thendal", 818, 284), ("Grove.", 816, 296), ("[4] Harvesting Windstones", 804, 320),
+            ("- Ready for turn-in", 804, 336), ("[4] The Gift of Skysight", 804, 362), ("- Ready for turn-in", 804, 378)]))
+        check(live2.map(questKind) == [.travel, .handIn, .handIn], "live 24 Sept: a dash line at the title's x is an objective; \"Bring\" is a delivery")
+        // The log as Vision read it live (24 Sept): the "- " markers are not read; "Zephras" came out "Lephras".
+        let rows: [(String, Double, Double)] = [("Lephras Isle", 792, 226), ("[4] Call of Earth", 804, 254),
+            ("Find the Rise of Spirits and drink", 816, 270), ("the Earth Sapta.", 816, 284), ("[4] Harvesting Windstones", 804, 308),
+            ("12/15 Windstone Cluster", 816, 324), ("[4] The Gift of Skysight", 804, 348), ("Use Skysight near the Elemental", 816, 364),
+            ("Convergence", 816, 378), ("[5] The Next Step", 804, 402), ("Report to Constable Aonda in", 814, 418),
+            ("Shen' dar Village.", 816, 431), ("Camping", 792, 459), ("[6] The Adventurer", 804, 490),
+            ("Speak to Raan Wildwind near", 816, 506), ("Shen'dar Village.", 816, 517)]
+        let parsed = parseQuestLog(tip(rows).reversed())
+        check(parsed.map(\.title) == ["Call of Earth", "Harvesting Windstones", "The Gift of Skysight", "The Next Step", "The Adventurer"]
+              && parsed.map(\.level) == [4, 4, 4, 5, 6], "quest log: titles and levels, in the log's order")
+        check(parsed[0].objective == "Find the Rise of Spirits and drink the Earth Sapta." && parsed.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel],
+              "objectives join their wrapped lines, and read as the same kinds")
+        let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
+        check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
+              "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
+        let thendal: MapPoint = (42.8, 23.5)
+        check(thisZone(questPlan(log24Sept, from: thendal), from: thendal).map(\.title).sorted()
+              == ["Call of Earth", "Harvesting Windstones", "The Gift of Skysight"], "this zone: the hub's quests, not Shen'dar's")
+        let onlyFar = [log24Sept[4]]
+        check(thisZone(questPlan(onlyFar, from: thendal), from: thendal).isEmpty,
+              "live 24 Sept: with only Shen'dar's quest read, nothing is in this zone (not a 20-unit walk for a cliff)")
+        check(missingFromLog(["Harvesting Windstones", "The Gift of Skysight"], onlyFar) == ["Harvesting Windstones", "The Gift of Skysight"]
+              && missingFromLog(["18 m", "The Gift of Skysight", "Call of Earth", "15m", "Call of Earth"], log24Sept).isEmpty,
+              "live 24 Sept: minimap names the log read lacks make it incomplete; distance lines are not names")
+    }
+
+    /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed).
+    final class FakeQuests: QuestHost {
+        var reads: [QuestRead]
+        var outcomes: [String: String] = [:]
+        var handed: [String] = []
+        var clock = 0.0
+        init(_ reads: [QuestRead]) { self.reads = reads }
+        func readQuests() async -> QuestRead? { reads.isEmpty ? nil : reads.removeFirst() }
+        func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
+        func now() -> Double { clock += 0.1; return clock }
+        func ownerTookFocus() -> Bool { false }
+        func emit(_ event: String, _ fields: [String: Any]) {}
+    }
+
+    /// Graph replies in order ("READ:owner_rules", "DO:HAND_IN_2"); it keeps what each call offered and sent.
+    final class CannedGraph: JevClient {
+        var script: [String]
+        var offered: [[String]] = []
+        var sent: [[String: Any]] = []
+        init(_ script: [String]) { self.script = script }
+        func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+            let options = Array((question["criteria"] as? [String: String] ?? [:]).keys)
+            offered.append(options.sorted()); sent.append(state)
+            guard !script.isEmpty else { throw GraphError.noSkills }
+            let name = script.removeFirst()
+            return ["model": FightLimits.model, "answers": ["action": ["choice": name, "confidence": 1.0,
+                "probabilities": Dictionary(uniqueKeysWithValues: options.map { ($0, $0 == name ? 1.0 : 0.0) })]]]
+        }
+    }
+
+    /// M4f on the live Thendal values of 24 Sept: Jev chooses among the hub's hand-ins; Shen'dar's are not offered.
+    static func questGraph() async {
+        let path = "experiments/002_wow_visual/runtime/skyborne-quest.graph.json"
+        func graph() -> GraphSession? { try? GraphSession.load(URL(fileURLWithPath: path)) }
+        check((graph()?.references["owner_rules"]?["text"] as? String)?.contains("Finish every available quest") == true,
+              "the quest graph loads, with the owner's quest rules as a reference section")
+        let thendal: MapPoint = (42.8, 23.5)
+        let hub = [PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: (43.4, 23.9)),
+                   PlannedQuest(title: "The Gift of Skysight", level: 4, ready: true, objective: "- Ready for turn-in", pin: (42.7, 24.3))]
+        let south = [log24Sept[3], log24Sept[4]]
+        let jev = CannedGraph(["READ:owner_rules", "DO:HAND_IN_2", "DO:HAND_IN_1"])
+        let host = FakeQuests([QuestRead(quests: hub + south, player: thendal, missing: []),
+                               QuestRead(quests: [hub[1]] + south, player: (43.4, 23.9), missing: []),
+                               QuestRead(quests: south, player: (42.7, 24.3), missing: [])])
+        let result = await runQuests(host: host, jev: jev, graph: graph()!)
+        check(jev.offered.first == ["DO:HAND_IN_1", "DO:HAND_IN_2", "READ:owner_rules", "READ:quest_log", "READ:recent"],
+              "offered: the hub's two hand-ins and three reads; Shen'dar's quests, 20 units away, are not")
+        check(host.handed == ["Harvesting Windstones", "The Gift of Skysight"] && result.outcome == "NEXT_ZONE_NEEDS_ROADS",
+              "Jev's choice of the second slot (the owner's order puts Skysight, nearer, first) is handed in first, the log is read again, then the run stops at the zone's edge")
+        check(((jev.sent[1]["tool_memory"] as? [String: Any])?["owner_rules"] as? [String: Any])?["text"] as? String != nil
+              && jev.sent[0]["quest_log"] == nil && result.graphRecords.count == 3,
+              "a READ puts the owner's rules into the next request only; every graph call is recorded")
+
+        let blind = FakeQuests([QuestRead(quests: [log24Sept[4]], player: thendal, missing: ["Harvesting Windstones", "The Gift of Skysight"])])
+        let unasked = CannedGraph([])
+        let incomplete = await runQuests(host: blind, jev: unasked, graph: graph()!)
+        check(incomplete.outcome == "LOG_INCOMPLETE" && unasked.offered.isEmpty && blind.handed.isEmpty,
+              "live 24 Sept: the log read one quest while the minimap named two more: stop, no Jev call, no walk")
+
+        let stuck = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: [])])
+        stuck.outcomes = ["Harvesting Windstones": "WALK_NO_PROGRESS", "The Gift of Skysight": "WALK_NO_PROGRESS"]
+        let twice = CannedGraph(["DO:HAND_IN_1", "DO:HAND_IN_1"])
+        let twiceStuck = await runQuests(host: stuck, jev: twice, graph: graph()!)
+        check(twiceStuck.outcome == "NO_PROGRESS_TWICE" && twice.offered[1].filter { $0.hasPrefix("DO:") }.count == 1,
+              "a failed hand-in is not offered again, and the second NO_PROGRESS ends the run")
+        let attacked = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        attacked.outcomes = ["The Gift of Skysight": "WALK_COMBAT"]  // slot 1: nearer
+        let combat = await runQuests(host: attacked, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
+        check(combat.outcome == "WALK_COMBAT",
+              "a walk stopped by combat ends the quest run")
+        let wrong = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        let invalid = await runQuests(host: wrong, jev: CannedGraph(["DO:HAND_IN_3"]), graph: graph()!)
+        check(invalid.outcome == "GRAPH_invalidReply" && wrong.handed.isEmpty,
+              "a reply naming a step not offered runs nothing: no rules fallback")
     }
 }

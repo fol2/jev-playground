@@ -64,53 +64,346 @@ func chooseReward(_ rewards: [Reward]) -> (index: Int, equip: Bool)? {
     return rewards.indices.max { rewards[$0].sell < rewards[$1].sell }.map { ($0, false) }
 }
 
-/// The yellow "?" (quest ready) and "!" (quest offered) over an NPC's head. Zoomed out it is small and
-/// dim: (185-224, 155-192, 40-48) on 24 Sept, so the test is the hue, not a bright threshold.
-func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 175 && g > 140 && b < 80 && r - b > 110 && g - b > 90 }
+/// The yellow "?" (quest ready) and "!" (quest offered). Zoomed out an NPC's is small and dim: (185-224,
+/// 155-192, 40-48) in a screenshot on 24 Sept; the live capture drew a minimap "?" as (239, 236, 116), not
+/// the screenshot's (248, 246, 58). So the test is the hue: parchment (R-B 55) and tan land (75) stay out.
+func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 170 && g > 140 && r - b > 90 && g - b > 80 }
 
-/// The NPC's green name under its mark: (50-65, 150-198, 32-42) on 24 Sept.
-func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 150 && g > r + 60 && g > b + 60 }
+/// The NPC's green name under its mark: (50-65, 150-198, 32-42) in a screenshot, (43-104, 121-172, 26-89)
+/// in the live capture (24 Sept), which is the reference.
+func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 110 && g > r + 40 && g > b + 30 }
 
 /// Centres of yellow quest marks in a box (x0, y0, x1, y1), nearest the view's centre first. A mark is
 /// an upright blob (a "?" is about 10 x 18 px zoomed out) with a green NPC name 8-50 px below it: a
 /// neutral creature's yellow nameplate bar is a flat strip, and a glowing Cirrusfly has no green name
-/// (live frames: 305 green pixels under the real "?", 0-23 under the insects).
-func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 20) -> [(x: Double, y: Double)] {
-    typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
-    var cells: [Int: Blob] = [:]  // 12-px cells, merged into blobs below
-    for y in box.1..<min(box.3, image.height) {
-        for x in box.0..<min(box.2, image.width) {
+/// (live frames: 305 green pixels under a near "?", about 60 under a distant one, 0-23 under the insects).
+typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
+
+/// Yellow pixels of a box as connected blobs: pixels within `gap` px of each other join. (A fixed grid
+/// merged three minimap "?" 14 px apart on 24 Sept.)
+func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13) -> [Blob] {
+    let x0 = max(0, box.0), y0 = max(0, box.1), x1 = min(box.2, image.width), y1 = min(box.3, image.height)
+    let w = x1 - x0, h = y1 - y0
+    guard w > 0, h > 0 else { return [] }
+    var mask = [Bool](repeating: false, count: w * h)
+    for y in y0..<y1 {
+        for x in x0..<x1 {
             let i = (y * image.width + x) * 4
-            guard markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) else { continue }
-            let key = (y / 12) * 10_000 + x / 12
-            let c = cells[key] ?? (0, 0, 0, x, x, y, y)
-            cells[key] = (c.n + 1, c.sx + x, c.sy + y, min(c.x0, x), max(c.x1, x), min(c.y0, y), max(c.y1, y))
+            if markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { mask[(y - y0) * w + x - x0] = true }
         }
     }
+    let reach = gap + 1
     var blobs: [Blob] = []
-    for c in cells.values.sorted(by: { ($0.y0, $0.x0) < ($1.y0, $1.x0) }) {
-        if let j = blobs.firstIndex(where: { c.x0 <= $0.x1 + 13 && c.x1 >= $0.x0 - 13 && c.y0 <= $0.y1 + 13 && c.y1 >= $0.y0 - 13 }) {
-            let b = blobs[j]
-            blobs[j] = (b.n + c.n, b.sx + c.sx, b.sy + c.sy, min(b.x0, c.x0), max(b.x1, c.x1), min(b.y0, c.y0), max(b.y1, c.y1))
-        } else {
-            blobs.append(c)
+    for start in mask.indices where mask[start] {
+        mask[start] = false
+        var stack = [start], b: Blob = (0, 0, 0, .max, .min, .max, .min)
+        while let p = stack.popLast() {
+            let px = p % w, py = p / w, gx = px + x0, gy = py + y0
+            b = (b.n + 1, b.sx + gx, b.sy + gy, min(b.x0, gx), max(b.x1, gx), min(b.y0, gy), max(b.y1, gy))
+            for ny in max(0, py - reach)...min(h - 1, py + reach) {
+                for nx in max(0, px - reach)...min(w - 1, px + reach) where mask[ny * w + nx] {
+                    mask[ny * w + nx] = false
+                    stack.append(ny * w + nx)
+                }
+            }
         }
+        blobs.append(b)
     }
+    return blobs
+}
+
+/// Quest pins' glyphs on the open world map ("?", "..."), as capture pixels. Pins sit 17 px apart
+/// (Call of Earth and The Gift of Skysight, 24 Sept), and the map's corner buttons are outside the box.
+func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> [(x: Double, y: Double)] {
+    yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }
+        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+}
+
+/// `body` is where to right-click: below the green name by 2.4 mark heights (near: name bottom 577, body
+/// 608 under a 17-px "?"; a distant NPC's "?" was 4 x 6 px live, and a fixed step landed on its name).
+func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [(x: Double, y: Double, h: Double, body: Double)] {
+    let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
-    func greenBelow(_ x: Int, _ y: Int) -> Int {
-        var n = 0
+    func greenBelow(_ x: Int, _ y: Int) -> (n: Int, bottom: Int) {
+        var n = 0, bottom = y
         for yy in max(0, y + 8)..<min(image.height, y + 50) {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
-                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1 }
+                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1; bottom = yy }
             }
         }
-        return n
+        return (n, bottom)
     }
-    return blobs.filter { b in
+    return blobs.compactMap { b -> (x: Double, y: Double, h: Double, body: Double)? in
         let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
-        return b.n >= minPixels && w <= 24 && h >= 10 && Double(h) >= 0.8 * Double(w)
-            && greenBelow(b.sx / b.n, b.sy / b.n) >= 80
-    }.map { (x: Double($0.sx) / Double($0.n), y: Double($0.sy) / Double($0.n)) }
+        guard b.n >= minPixels, w <= 24, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
+        let name = greenBelow(b.sx / b.n, b.sy / b.n)
+        guard name.n >= 40 else { return nil }
+        return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h))
+    }
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
+}
+
+// MARK: - The quest plan (M4d)
+
+/// What a quest's objective asks for, read from the quest log's text.
+enum QuestKind: String {
+    case handIn = "HAND_IN"  // "Ready for turn-in", or a "?" quest: talk to its NPC
+    case kill = "KILL"  // "- 0/1 Cirrusfly Queen slain"
+    case collect = "COLLECT"  // "- 12/15 Windstone Cluster": from creatures or objects
+    case useAt = "USE_AT"  // "Use Skysight near the Elemental Convergence", "drink the Earth Sapta"
+    case travel = "TRAVEL"  // "Report to Constable Aonda in Shen'dar Village."
+}
+
+struct PlannedQuest {
+    var title: String
+    var level: Int
+    var ready: Bool  // the log shows "?" rather than "..."
+    var objective: String
+    var pin: MapPoint?  // from hovering the world map's pins
+}
+
+func questKind(_ q: PlannedQuest) -> QuestKind {
+    let text = q.objective.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "- "))
+    if text.contains("ready for turn-in") { return .handIn }
+    if text.contains(" slain") { return .kill }
+    if text.range(of: #"\d+/\d+"#, options: .regularExpression) != nil { return .collect }
+    if text.hasPrefix("use ") || text.contains(" use ") || text.contains("drink ") { return .useAt }
+    if ["report to", "speak to", "talk to", "return to", "bring "].contains(where: text.hasPrefix) {
+        return .travel
+    }
+    return q.ready ? .handIn : .useAt
+}
+
+/// Zones are clusters of quest pins that are near each other (single linkage).
+func questZones(_ quests: [PlannedQuest], within: Double) -> [[PlannedQuest]] {
+    var zones: [[PlannedQuest]] = []
+    for q in quests {
+        guard let p = q.pin else { continue }
+        let near = zones.indices.filter { z in zones[z].contains { distance($0.pin!, p) <= within } }
+        var merged = near.flatMap { zones[$0] } + [q]
+        for z in near.reversed() { zones.remove(at: z) }
+        merged.sort { $0.title < $1.title }
+        zones.append(merged)
+    }
+    return zones
+}
+
+/// The owner, 24 Sept: "finish all available quests in the same zone, accumulate all quests in next zone
+/// for the next priority." The player's zone comes first, walked nearest-first; the other zones follow,
+/// nearest first. A finished quest without a pin counts as here (its NPC is usually at this hub); any
+/// other pinless quest goes last (live, 24 Sept: an unread pin put a Shen'dar quest in Thendal's zone).
+/// A RULE, logged as such.
+// ponytail: nearest-neighbour order, not an optimal tour; a hub has a handful of quests.
+func questPlan(_ quests: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
+    let located = quests.map { q -> PlannedQuest in var q = q; if q.pin == nil && questKind(q) == .handIn { q.pin = player }; return q }
+    var zones = questZones(located, within: zoneRadius)
+    var plan: [PlannedQuest] = []
+    var here = player
+    while !zones.isEmpty {
+        let nearest = zones.indices.min { a, b in
+            zones[a].map { distance(here, $0.pin!) }.min()! < zones[b].map { distance(here, $0.pin!) }.min()!
+        }!
+        var zone = zones.remove(at: nearest)
+        while !zone.isEmpty {
+            let next = zone.indices.min { distance(here, zone[$0].pin!) < distance(here, zone[$1].pin!) }!
+            let q = zone.remove(at: next)
+            plan.append(q)
+            here = q.pin!
+        }
+    }
+    return plan + located.filter { $0.pin == nil }
+}
+
+/// The "Accept" button of a quest offered in the dialogue (a follow-up shown on completion): the whole
+/// line, never a word inside the quest's text. The owner, 24 Sept: "always accept quests" (RULE).
+func acceptButton(_ dialog: [TipLine]) -> TipLine? {
+    dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
+}
+
+/// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
+/// zone is road travel, which is not built (live, 24 Sept: with the hub's two hand-ins unread, the nearest
+/// zone was Shen'dar, 20 units south, and the walk ran for a cliff).
+func thisZone(_ plan: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
+    let me = PlannedQuest(title: "\u{0}", level: 0, ready: false, objective: "", pin: player)
+    let zone = questZones([me] + plan, within: zoneRadius).first { $0.contains { $0.title == me.title } } ?? []
+    return plan.filter { q in zone.contains { $0.title == q.title } }
+}
+
+/// Quest names the minimap's tooltips showed that the log read lacks ("18 m" distance lines are not
+/// names). Any at all means the log read is incomplete (live, 24 Sept: one quest of four): do not plan on it.
+func missingFromLog(_ tooltips: [String], _ quests: [PlannedQuest]) -> [String] {
+    let known = Set(quests.map { nameKey($0.title) })
+    var missing: [String] = []
+    for name in tooltips where nameKey(name).count >= 4 && !known.contains(nameKey(name)) && !missing.contains(name) { missing.append(name) }
+    return missing
+}
+
+/// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under
+/// them, zone headers ("Camping") to their left. Pins are added from the map afterwards.
+func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
+    var out: [PlannedQuest] = []
+    var titleX = Double.infinity
+    for line in lines.sorted(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
+        let text = line.text.trimmingCharacters(in: .whitespaces)
+        if let m = text.range(of: #"^\[(\d+)\]\s*"#, options: .regularExpression),
+           let level = Int(text[m].filter(\.isNumber)) {
+            out.append(PlannedQuest(title: String(text[m.upperBound...]), level: level, ready: false, objective: "", pin: nil))
+            titleX = line.x
+        } else if (line.x >= titleX + 6 || text.hasPrefix("-")), titleX.isFinite, !out.isEmpty {  // live: "- Ready for turn-in" starts at the title's x
+            out[out.count - 1].objective += (out[out.count - 1].objective.isEmpty ? "" : " ") + text
+            out[out.count - 1].ready = out[out.count - 1].objective.lowercased().contains("ready for turn-in")
+        } else {
+            titleX = .infinity  // a zone header ends the quest above it
+        }
+    }
+    return out
+}
+
+/// World-map pixels to zone coordinates: the Map & Quest Log at 2560x1320 (24 Sept; 7.42 px per x unit
+/// and 4.99 per y unit, as measured in M4a).
+// ponytail: one zone's map, one UI scale; read the transform from two known points when zones change.
+let mapOrigin = (x: 20.0, y: 224.3), mapScale = (x: 7.42, y: 4.99)
+func zonePoint(_ px: Double, _ py: Double) -> MapPoint { ((px - mapOrigin.x) / mapScale.x, (py - mapOrigin.y) / mapScale.y) }
+func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * mapScale.x, mapOrigin.y + p.y * mapScale.y) }
+
+/// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
+func minimapPoint(_ px: Double, _ py: Double, player: MapPoint) -> MapPoint {
+    (player.x + (px - Double(MinimapHUD.cx)) / MinimapHUD.unitPx / mapAspect, player.y + (py - Double(MinimapHUD.cy)) / MinimapHUD.unitPx)
+}
+
+/// Quest icons ("?", "!") on the minimap: a hub's hand-ins sit together under the world map's arrow, and
+/// the minimap's larger scale separates them (24 Sept).
+func minimapPins(_ image: RGBA) -> [(x: Double, y: Double)] {
+    let r = MinimapHUD.radius, cx = MinimapHUD.cx, cy = MinimapHUD.cy
+    let icons = glyphs(yellowBlobs(image, box: (cx - r, cy - r, cx + r, cy + r), gap: 0))
+        .filter { $0.n >= 8 && $0.x1 - $0.x0 <= 20 && $0.y1 - $0.y0 <= 20 && $0.y1 - $0.y0 >= $0.x1 - $0.x0 }  // upright: not an area's dashed edge
+    // Four or more on one baseline are the letters of a tooltip's yellow title, not icons.
+    return icons.filter { i in icons.filter { abs($0.y1 - i.y1) <= 3 }.count < 4 }
+        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+        .filter { hypot($0.x - Double(cx), $0.y - Double(cy)) <= Double(r) - 4 }
+}
+
+/// "?" and "!" as a hook or bar with a dot under it. Three minimap "?" sat so close on 24 Sept that one's
+/// dot was as near another's hook as its own, so a dot joins the part just above it, within its width.
+func glyphs(_ parts: [Blob]) -> [Blob] {
+    var hooks = parts.filter { $0.y1 - $0.y0 > 3 }
+    for dot in parts where dot.y1 - dot.y0 <= 3 {
+        let cx = dot.sx / dot.n
+        guard let j = hooks.indices.filter({ hooks[$0].y1 < dot.y0 && dot.y0 - hooks[$0].y1 <= 4
+                                            && cx >= hooks[$0].x0 - 2 && cx <= hooks[$0].x1 + 2 })
+            .min(by: { dot.y0 - hooks[$0].y1 < dot.y0 - hooks[$1].y1 }) else { continue }
+        let h = hooks[j]
+        hooks[j] = (h.n + dot.n, h.sx + dot.sx, h.sy + dot.sy, min(h.x0, dot.x0), max(h.x1, dot.x1), h.y0, max(h.y1, dot.y1))
+    }
+    return hooks
+}
+
+// M4f: Jev chooses each quest step through a decision graph (runtime/skyborne-quest.graph.json). Local code
+// reads the log, offers only the steps it can run here and runs the chosen one. The owner's zone-first
+// order is a reference Jev may read, not a queue the script works through.
+
+/// One read of the Map & Quest Log, the minimap's quest icons and the player's position.
+struct QuestRead {
+    var quests: [PlannedQuest]
+    var player: MapPoint
+    var missing: [String]  // named by a minimap tooltip but absent from the log read
+}
+
+protocol QuestHost: AnyObject {
+    func readQuests() async -> QuestRead?  // nil: the position was unreadable
+    func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
+    func now() -> Double
+    func ownerTookFocus() -> Bool
+    func emit(_ event: String, _ fields: [String: Any])
+}
+
+enum QuestLimits {
+    static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
+    static let maxSteps = 8
+    static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
+    static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
+}
+
+/// The hand-ins local code offers: quests a hand-in can finish (ready, or a delivery to someone), with a pin
+/// within one walk of the player, not already failed this run; one slot each, in the owner's order. Kill,
+/// collect and use-at quests have no skill in this graph yet and are not offered.
+func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, quest: PlannedQuest, criterion: String)] {
+    let open = questPlan(read.quests, from: read.player).filter { q in
+        [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
+            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } == true
+    }
+    return open.prefix(QuestLimits.slots).enumerated().map { i, q in
+        let away = String(format: "%.1f", distance(read.player, q.pin!))
+        return ("HAND_IN_\(i + 1)", q, "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away) units away) and hand it in. "
+                + "The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
+    }
+}
+
+/// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
+/// taken are READ resources, loaded only when Jev asks for them.
+func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) -> [String: Any] {
+    let plan = questPlan(read.quests, from: read.player)
+    let zone = Set(thisZone(plan, from: read.player).map(\.title))
+    return ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
+            "player": [read.player.x, read.player.y],
+            "units": "zone-map coordinates; distances in y units, about 5 s of running each",
+            "quest_log": plan.map { q -> [String: Any] in
+                ["title": q.title, "level": q.level, "kind": questKind(q).rawValue, "objective": q.objective,
+                 "in_this_zone": zone.contains(q.title),
+                 "distance": q.pin.map { roundTo(distance(read.player, $0), 10) } as Any? ?? NSNull()] },
+            "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
+}
+
+struct QuestResult {
+    var outcome = ""
+    var steps: [(quest: String, outcome: String)] = []
+    var graphRecords: [[String: Any]] = []
+}
+
+/// Read, offer, let Jev choose, run, and read again: a hand-in changes the log. A walk that stops for
+/// combat, health, the owner or the HUD ends the run; the second NO_PROGRESS ends it (the run envelope).
+/// A failed hand-in is not offered again this run. There is no rules fallback when Jev fails.
+func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
+    var r = QuestResult()
+    var failed: Set<String> = []
+    var stuck = 0
+    func finish(_ outcome: String) -> QuestResult {
+        r.outcome = outcome
+        host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
+        return r
+    }
+    while r.steps.count < QuestLimits.maxSteps {
+        if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
+        guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
+        let offers = questOffers(read, failed: failed)
+        if offers.isEmpty {
+            let deliveries = read.quests.filter { [.handIn, .travel].contains(questKind($0)) && !failed.contains($0.title) }
+            return finish(deliveries.isEmpty ? "NO_HAND_IN_LEFT" : "NEXT_ZONE_NEEDS_ROADS")
+        }
+        let decision: GraphDecision
+        do {
+            decision = try await graph.next(state: questState(read, steps: r.steps),
+                skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
+                now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
+        } catch {
+            for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+            return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+        }
+        for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+        guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
+        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "quest": offer.quest.title])
+        let outcome = await host.handIn(offer.quest)
+        r.steps.append((offer.quest.title, outcome))
+        if outcome.hasPrefix("COMPLETED") { continue }
+        failed.insert(offer.quest.title)
+        if outcome == "WALK_NO_PROGRESS" {
+            stuck += 1
+            if stuck >= 2 { return finish("NO_PROGRESS_TWICE") }
+        } else if outcome.hasPrefix("WALK_") {
+            return finish(outcome)
+        }
+    }
+    return finish("STEP_LIMIT")
 }

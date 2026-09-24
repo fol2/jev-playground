@@ -267,8 +267,84 @@ chat read "The Cirrusfly Queen completed.", 320 experience and 1 silver; `/equip
 character pane then showed the vest (33 Armor) in the chest slot. The first build's `/run` check
 raised the "Allow custom scripts?" prompt instead; I clicked No (no setting changed) and replaced the
 check with the pane. The third reward was read as "Equipped" because OCR missed "If you replace this
-item" in that frame; the equipped item's box is now bounded by its label too. Not yet handled: an NPC's gossip list, the "Continue"
-page of item quests, Accept for new quests and silver or gold in a sell price.
+item" in that frame; the equipped item's box is now bounded by its label too. An NPC's quest list and
+the "Continue" page were added in M4e. A follow-up quest offered on completion is accepted by its "Accept"
+button (the owner: always accept quests; RULE, not yet seen live). Not yet handled: taking a quest from a
+"!" giver and silver or gold in a sell price.
+
+## M4d — plan the quests zone by zone
+
+`m4-nav --plan --keys wqe` reads the Map & Quest Log and prints the order (controller RULE, read-only):
+the log's titles, levels and objectives; each quest's pin from the minimap's quest icons (their tooltips
+name the quest; a hub's hand-ins sit together under the world map's player arrow) and then from the world
+map's pins; each objective's kind (hand in, kill, collect, use at a place, travel to someone).
+
+The owner's rules, 24 Sept: "finish all available quests in the same zone, accumulate all quests in next
+zone for the next priority", and routes "first put higher priority to walk on road, especially zone to zone
+travel". Pins within 12 y units form a zone; the player's zone comes first, walked nearest-first; a quest
+without a pin counts as here (a finished quest's NPC is usually at this hub). Routing along roads is not
+built yet: a greedy walk from Thendal Village towards Shen'dar Village ended NO_PROGRESS against a ridge
+after 33 decisions, and colour alone did not separate the map's ridges, sea and flat land.
+
+Live, 24 Sept (read-only): the log read five quests; after three fixes (a "- Ready for turn-in" line at
+the title's x is an objective; "Bring X to NPC" is a delivery; a pointer left on a pin leaves a yellow
+tooltip that reads as pins) the order was Harvesting Windstones and The Gift of Skysight (hand-ins here),
+Call of Earth (bring the Rough Quartz to Windshaper Boros, 43.2, 22.4), then The Adventurer and The Next
+Step in Shen'dar. Three minimap "?" 14 px apart are now split by shape (a dot joins the hook above it),
+and their tooltips run over the minimap, so the reading box does too.
+
+Two live faults under the plan. The live capture draws a minimap "?" as (239, 236, 116) where a
+screenshot shows (248, 246, 58), so yellow is a hue test calibrated on the probe's own saved frame. And
+the capture stopped whenever a caller held two frames: FrameFeed decoded CGImages that share the stream's
+buffers, and with queueDepth 3 two held by a caller stall it outright (a diagnostic counted 0 frames while
+two were held, 28-30 per second otherwise, with or without background pointer moves). That was every
+"no fresh frame" of the day, including fight 1's false safety stop after looting. `latestFrame` now
+returns a byte copy; with it, the diagnostic ran at full rate while holding two frames, and the live plan
+read all three minimap icons with no frame wait: The Gift of Skysight, Call of Earth (to Windshaper
+Boros) and Harvesting Windstones here, then The Adventurer and The Next Step in Shen'dar.
+
+## M4e — deliver this zone's quests
+
+The first `--quests` walked the plan's quests in order: an M4a walk to the pin (each walk has its own
+key set, because a walk's exit sweep ends its keys for good), then the M4c hand-in, clicking through a
+delivery's "Continue" page. The script chose every step (RULE).
+
+Live, 24 Sept: the engine walked to Windshaper Boros and handed in Call of Earth (+360 experience,
+level 6, Stoneskin Totem learnt). The next run read one quest of four from the log (only The Adventurer,
+in Shen'dar), although the minimap's tooltips had just named Harvesting Windstones and The Gift of
+Skysight. The plan's first zone was then Shen'dar, 20 units south, and the walk ended NO_PROGRESS near a
+cliff. The frame the log was read from was not kept, so the cause of the short read is unknown. Now:
+
+- The frame the log is read from is saved as `quest-log.png`.
+- A quest named by a minimap tooltip but missing from the log read stops the run as `LOG_INCOMPLETE`.
+  A quest giver's "!" (a quest not yet taken) would stop it the same way until pick-ups are built.
+- A walk is offered only to a pin within 12 y units (a hub is smaller); farther is zone travel, which
+  waits for road routing.
+
+## M4f — Jev chooses the quest steps
+
+The owner, 24 Sept: the engine's skeleton is Jev-driven. `m4-nav --quests --graph
+experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replaces the RULE loop with
+`runQuests` in `Quest.swift`:
+
+1. Read the log, the minimap's quest icons and the position (M4d); `LOG_INCOMPLETE` stops here.
+2. Offer `HAND_IN_1` to `HAND_IN_4`: quests a hand-in can finish (ready, or a delivery to someone) with
+   a pin within one walk, not yet failed this run, in the owner's zone-first order. Each criterion names
+   the quest, its level, distance and objective.
+3. Jev walks the graph: it may `READ:quest_log` (every quest, in the owner's order, with kind, distance
+   and zone), `READ:recent` (the steps so far) or `READ:owner_rules` (the owner's rules in
+   `learning/knowledge/owner-rules.md`), then `DO` one offer. At most four calls per step within 20 s,
+   120 a run; no HTTP retry, no rules fallback.
+4. Run it: the M4a walk (Jev's moves) and the M4c hand-in (the reward is the owner's RULE). Read again,
+   because a hand-in changes the log.
+
+Stops: no offer left (`NO_HAND_IN_LEFT`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
+a walk stopped for combat, health, the owner or the HUD; a walk whose key release is unconfirmed
+(`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; eight steps.
+A failed hand-in is not offered again. Offline, 8 checks run the loop on the live Thendal values of
+24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
+reach only the request after the READ, and the one-quest log read stops before any Jev call. They do not
+show what the real Jev chooses, or live hand-ins.
 
 ## Limits
 

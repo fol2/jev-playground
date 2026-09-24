@@ -1,0 +1,18 @@
+{
+  "id": "skyborne-quest-tools-v1",
+  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins within one walk of the player only; kill, collect and use-at quests, taking quests from a \"!\" giver and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
+  "root": "quest",
+  "nodes": {
+    "quest": {
+      "question": "Choose the next quest step toward `goal`. Each offered hand-in walks to that quest's giver and completes the quest; the reward is then picked by the owner's reward rule. You may first read the quest log, the steps already taken or the owner's quest rules. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
+      "skills": ["HAND_IN_1", "HAND_IN_2", "HAND_IN_3", "HAND_IN_4"],
+      "branches": {},
+      "reads": ["quest_log", "recent", "owner_rules"]
+    }
+  },
+  "resources": {
+    "quest_log": {"summary": "Read every quest in the log in the owner's zone-first order: level, kind, objective, distance and whether it is in the player's zone. Read from this step's screen, not memory.", "keys": ["quest_log"]},
+    "recent": {"summary": "Read the quest steps already taken this run and their outcomes. History, not proof of the present.", "keys": ["recent_steps"]},
+    "owner_rules": {"summary": "Read the owner's direct instructions for questing: zone order, roads, accepting quests, rewards and survival.", "file": "../learning/knowledge/owner-rules.md", "heading": "## Quests"}
+  }
+}

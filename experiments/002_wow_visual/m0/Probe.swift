@@ -87,6 +87,17 @@ func thumbnail(_ image: CGImage) -> [UInt8] {
 }
 
 /// Fishing's latest-frame pattern plus each frame's grey change against its predecessor.
+/// A CGImage over a copy of another's bytes, free of the capture's buffer.
+func ownedCopy(_ image: CGImage) -> CGImage? {
+    // CGDataProviderCopyData alone kept the capture's buffer alive (measured): copy the bytes themselves.
+    guard let source = image.dataProvider?.data, let base = CFDataGetBytePtr(source),
+          let provider = CGDataProvider(data: Data(bytes: base, count: CFDataGetLength(source)) as CFData) else { return nil }
+    return CGImage(width: image.width, height: image.height, bitsPerComponent: image.bitsPerComponent,
+                   bitsPerPixel: image.bitsPerPixel, bytesPerRow: image.bytesPerRow,
+                   space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: image.bitmapInfo,
+                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+}
+
 final class FrameFeed: NSObject, SCStreamOutput {
     let streamID = "sc-" + UUID().uuidString
     private let lock = NSLock()
@@ -125,11 +136,15 @@ final class FrameFeed: NSObject, SCStreamOutput {
         return image
     }
 
-    /// The newest complete frame with its capture PTS, for M1's tracker.
+    /// The newest complete frame with its capture PTS, for M1's tracker, as a copy of its bytes. A CGImage
+    /// decoded from the capture shares the stream's buffer: with queueDepth 3, two held by a caller stopped
+    /// the stream outright (24 Sept, measured: 0 frames while they were held). That was a false safety stop
+    /// after looting and a blind quest plan. The copy is byte for byte, so calibrated colours are unchanged.
     var latestFrame: (pts: Double, image: CGImage)? {
         lock.lock()
-        defer { lock.unlock() }
-        return image.map { (imagePTS, $0) }
+        let current = image.map { (imagePTS, $0) }
+        lock.unlock()
+        return current.flatMap { pts, image in ownedCopy(image).map { (pts, $0) } }
     }
 }
 

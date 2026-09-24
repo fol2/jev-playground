@@ -16,7 +16,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 197  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 223  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -96,6 +96,15 @@ def nav_trap() -> None:
         raise GateError("huntExecute does not trap signals and defer onto host.releaseAll and host.holding")
     if "keys.releaseAll()\n        lock.withLock { fighting }?.releaseAll()" not in hunt:
         raise GateError("the hunt's release does not sweep both its own keys and the current fight's")
+    quest = Path(ROOT, NAV + "QuestProbe.swift").read_text()
+    execute = quest.split("func questsExecute", 1)[-1]
+    if ("also: { body.releaseAll(); host.walker?.releaseAll() }," not in execute
+            or "holding: { body.holding || (host.walker?.holding ?? false) }" not in execute
+            or "defer { body.releaseAll(); host.walker?.releaseAll() }" not in execute):
+        raise GateError("questsExecute does not trap signals and defer onto its body's and current walk's keys")
+    if ('if walker?.holding == true { return "WALK_KEYS_HELD" }' not in quest
+            or 'guard !legs.holding else { return "WALK_KEYS_HELD" }' not in quest):
+        raise GateError("a quest walk whose key release is unconfirmed does not end the run")
 
 
 def fight_trap() -> None:
@@ -207,7 +216,9 @@ def main():
                       ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "5"], ["--hunt"],
                       ["--hunt", "--keys", "arrows"], ["--hunt", "--keys", "wqe", "extra"], ["--hunt-dry-run", "x"],
                       ["--hunt-sim-jev", "x"], ["--hunt-dry-run", "--experience"],
-                      ["--dry-run", "--experience", "/tmp/x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"]))
+                      ["--dry-run", "--experience", "/tmp/x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"],
+                      ["--plan"], ["--quests", "--keys", "wqe"], ["--quests", "--graph", "g.json"],
+                      ["--quests", "--graph", "g.json", "--keys", "arrows"]))
         nav_dry = subprocess.run([nav, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         nav_rows = [json.loads(line) for line in nav_dry.stdout.splitlines() if line.strip()]
         nav_summary = nav_rows[-1] if nav_rows else {}
