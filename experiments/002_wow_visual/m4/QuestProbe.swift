@@ -1,0 +1,218 @@
+// M4c native shell for issue #5: `--turn-in --keys wqe --quest NAME`, run at the quest's NPC. Scripts
+// find the "?", right-click the NPC, read each reward's tooltip, apply the owner's reward rule, click the
+// reward and Complete Quest, then equip an upgrade with /equip. No Jev call: every step is a RULE.
+// Layout measured on 24 Sept PNG captures at 2560x1320, zoomed fully out.
+import AppKit
+import Vision
+
+enum QuestHUD {
+    static let dialog = CGRect(x: 0, y: 140, width: 400, height: 580)  // the quest dialogue, left edge
+    static let tooltip = CGRect(x: 150, y: 100, width: 850, height: 560)  // a reward's tooltip and the equipped one
+    static let chatInput = CGRect(x: 30, y: 1160, width: 700, height: 44)  // "Say:" once Enter opens it
+    static let world = (300, 100, 2100, 950)  // where quest marks are looked for
+    static let belowMark = 68.0  // from a "?" to the NPC's body
+    static let rewardX = [130.0, 274.0], firstRow = 37.0, rowGap = 44.0  // reward names below "Choose your reward:"
+    static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
+    static let enter: UInt16 = 36
+    static let characterPane: UInt16 = 8  // C
+    /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
+    static let paneSlots: [String: (x: Double, y: Double)] = [
+        "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
+        "Tabard": (62, 536), "Wrist": (62, 584), "Hands": (404, 258), "Waist": (404, 304), "Legs": (404, 350), "Feet": (404, 398),
+        "Finger": (404, 444), "Trinket": (404, 536), "Main Hand": (166, 620), "One-Hand": (166, 620), "Two-Hand": (166, 620),
+        "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
+    static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
+}
+
+final class QuestRun {
+    let body: LiveNavBody
+    let routed: RoutedClickTarget
+    let bounds: CGRect
+
+    init(body: LiveNavBody) throws {
+        self.body = body
+        bounds = body.session.window.frame
+        routed = try routedTarget(pid: body.session.app.processIdentifier, window: body.session.window.windowID, bounds: bounds)
+    }
+
+    func image() -> CGImage? {
+        guard let frame = body.feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
+        return frame.image
+    }
+
+    /// OCR lines of a box in capture pixels, each flagged red when its text is drawn red.
+    func lines(_ box: CGRect) -> [TipLine] {
+        guard let crop = image()?.cropping(to: box) else { return [] }
+        let px = rgba(crop)
+        return ocr(crop).map { text, b in
+            let x0 = Int(b.minX * box.width), y0 = Int((1 - b.maxY) * box.height)
+            let x1 = Int(b.maxX * box.width), y1 = Int((1 - b.minY) * box.height)
+            var red = 0
+            for y in max(0, y0)..<min(px.height, y1) {
+                for x in max(0, x0)..<min(px.width, x1) {
+                    let i = (y * px.width + x) * 4
+                    if px.pixels[i] > 170 && px.pixels[i + 1] < 90 && px.pixels[i + 2] < 90 { red += 1 }
+                }
+            }
+            return TipLine(text: text, x: box.minX + Double(x0), y: box.minY + Double(y0), red: red > 15)
+        }
+    }
+
+    func at(_ x: Double, _ y: Double) -> CGPoint {
+        CGPoint(x: bounds.minX + bounds.width * x / Double(HUD.width), y: bounds.minY + bounds.height * y / Double(HUD.height))
+    }
+
+    func hover(_ x: Double, _ y: Double) { try? NativeBackgroundClickTransport().move(target: routed, point: at(x, y)) }
+
+    func click(_ x: Double, _ y: Double, right: Bool = false) -> Bool {
+        let request = NativeBackgroundClickDispatchRequest(target: routed, eventTapPointTopLeft: at(x, y), appKitPoint: at(x, y),
+                                                           clickCount: 1, mouseButton: right ? .right : .left)
+        return (try? NativeBackgroundClickTransport().dispatch(request).dispatchSuccess) ?? false
+    }
+
+    func sleep(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+
+    func tap(_ code: UInt16) async {
+        body.keys.press(code)
+        await sleep(0.06)
+        body.keys.lift(code)
+    }
+
+    func tapEnter() async { await tap(QuestHUD.enter) }
+
+    /// As a human checks: open the character pane, rest the pointer on the slot, read its name, close it.
+    /// (/run print(...) raised the client's "Allow custom scripts?" prompt on 24 Sept: that is the
+    /// owner's security choice, so the engine uses no /run.)
+    func wearing(_ name: String, slot: String) async -> Bool? {
+        guard let point = QuestHUD.paneSlots[slot] else { return nil }
+        await tap(QuestHUD.characterPane)
+        await sleep(1.0)
+        hover(point.x, point.y)
+        await sleep(0.8)
+        let read = lines(QuestHUD.paneTooltip).map(\.text)
+        await tap(QuestHUD.characterPane)
+        body.emit("pane_slot", ["slot": slot, "lines": Array(read.prefix(4))])
+        return read.contains { nameKey($0) == nameKey(name) }
+    }
+
+    /// A chat command: Enter, and only once the edit box shows, the text and Enter. Typed letters are
+    /// never sent without the box: outside it they are game keys.
+    func command(_ text: String) async -> Bool {
+        await tapEnter()
+        await sleep(0.5)
+        guard let shown = image(), upscaledText(shown, QuestHUD.chatInput).contains(where: { $0.hasPrefix("Say") }) else {
+            body.emit("chat_not_open", ["command": text])
+            return false
+        }
+        let source = CGEventSource(stateID: .privateState)
+        for unit in text.utf16 {
+            for down in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0x31, keyDown: down) else { continue }
+                var c = unit
+                event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c)
+                event.postToPid(body.session.app.processIdentifier)
+                await sleep(0.015)
+            }
+        }
+        await sleep(0.2)
+        await tapEnter()
+        body.emit("chat_command", ["command": text])
+        return true
+    }
+
+    func has(_ lines: [TipLine], _ text: String) -> TipLine? { lines.first { $0.text.contains(text) } }
+
+    func turnIn(_ quest: String) async -> String {
+        var dialog = lines(QuestHUD.dialog)
+        if has(dialog, "Complete Quest") == nil {
+            guard let image = image() else { return "NO_FRESH_FRAME" }
+            let marks = questMarks(rgba(image), box: QuestHUD.world)
+            body.emit("marks", ["count": marks.count, "nearest": orNull(marks.first.map { [Int($0.x), Int($0.y)] })])
+            guard let mark = marks.first else { return "NO_QUEST_MARK_IN_VIEW" }
+            guard click(mark.x, mark.y + QuestHUD.belowMark, right: true) else { return "CLICK_FAILED" }
+            await sleep(2.5)
+            dialog = lines(QuestHUD.dialog)
+            guard has(dialog, "Complete Quest") != nil else {
+                return has(dialog, "Continue") != nil ? "CONTINUE_PAGE_NOT_HANDLED" : "DIALOGUE_NOT_OPEN"
+            }
+        }
+        guard dialog.contains(where: { nameKey($0.text) == nameKey(quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
+
+        var equip: (name: String, slot: String)? = nil
+        if let choose = has(dialog, "Choose your reward") {
+            var rewards: [(x: Double, y: Double, reward: Reward)] = []
+            for i in 0..<6 {
+                let x = QuestHUD.rewardX[i % 2], y = choose.y + QuestHUD.firstRow + QuestHUD.rowGap * Double(i / 2)
+                hover(x, y)
+                await sleep(0.8)
+                guard let reward = parseReward(lines(QuestHUD.tooltip)), !rewards.contains(where: { $0.reward.name == reward.name })
+                else { break }
+                rewards.append((x, y, reward))
+            }
+            body.emit("rewards", ["rewards": rewards.map { ["name": $0.reward.name, "slot": orNull($0.reward.slot), "usable": $0.reward.usable,
+                                                            "change": $0.reward.change, "sell_copper": $0.reward.sell] }])
+            guard let pick = chooseReward(rewards.map(\.reward)) else { return "REWARDS_UNREADABLE" }
+            let chosen = rewards[pick.index]
+            body.emit("reward_choice", ["controller": "RULE", "name": chosen.reward.name, "equip": pick.equip,
+                                        "rule": "owner, 24 Sept: an upgrade is taken and equipped, otherwise the highest sell price"])
+            guard click(chosen.x, chosen.y) else { return "CLICK_FAILED" }
+            await sleep(0.6)
+            if pick.equip, let slot = chosen.reward.slot { equip = (chosen.reward.name, slot) }
+        }
+        guard let button = has(dialog, "Complete Quest") else { return "COMPLETE_BUTTON_MISSING" }
+        let before = Set(image().map(chatLines) ?? [])
+        guard click(button.x + QuestHUD.buttonCentre, button.y + 7) else { return "CLICK_FAILED" }
+        await sleep(2.0)
+        let fresh = (image().map(chatLines) ?? []).filter { !before.contains($0) }
+        body.emit("after_complete", ["chat": fresh])
+        guard has(lines(QuestHUD.dialog), "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
+        guard let equip else { return "COMPLETED" }
+
+        guard await command("/equip " + equip.name.replacingOccurrences(of: "\u{2019}", with: "'")) else { return "COMPLETED_EQUIP_NOT_TYPED" }
+        await sleep(1.0)
+        switch await wearing(equip.name, slot: equip.slot) {
+        case true?: return "COMPLETED_AND_EQUIPPED"
+        case false?: return "COMPLETED_EQUIP_UNCONFIRMED"
+        case nil: return "COMPLETED_EQUIP_SLOT_UNKNOWN"
+        }
+    }
+}
+
+@MainActor
+func questExecute(_ command: NavCommand) async throws -> Int32 {
+    guard let quest = command.quest else { throw ProbeError("--quest missing") }
+    let session = try await wowSession(input: true, full: true)
+    guard session.config.width == HUD.width, session.config.height == HUD.height else {
+        throw ProbeError("capture is \(session.config.width)x\(session.config.height); M4 is calibrated for \(HUD.width)x\(HUD.height)")
+    }
+    let run = try runDirectory("m4_quest")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    guard let first = await firstFrame(feed), first.image.width == HUD.width else {
+        try? await stream.stopCapture()
+        throw ProbeError("no \(HUD.width)-wide frame within \(Limits.firstFrameWait) s")
+    }
+    _ = await Task.detached { first.image.cropping(to: QuestHUD.dialog).map(ocr) }.value  // Vision's first OCR takes ~30 s
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await zoomOut(body.keys, log)
+    body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
+    let outcome = await (try QuestRun(body: body)).turnIn(quest)
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    let manifest: [String: Any] = [
+        "schema": "m4-quest-run/v1", "run_id": run.id, "mode": "turn-in", "quest": quest, "outcome": outcome,
+        "started_utc": ISO8601DateFormatter().string(from: Date()), "machine": machineFacts(),
+        "source": ["git_head": orNull(git("rev-parse", "HEAD")), "git_dirty": orNull(git("status", "--porcelain").map { !$0.isEmpty })],
+        "controller": "RULE: no Jev call", "holding": body.holding,
+    ]
+    try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        .write(to: run.url.appendingPathComponent("manifest.json"))
+    body.emit("summary", ["outcome": outcome, "run_directory": run.url.path])
+    return body.holding ? 3 : (outcome.hasPrefix("COMPLETED") ? 0 : 2)
+}

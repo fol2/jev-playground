@@ -28,6 +28,7 @@ struct NavTests {
         await skill()
         await episodes()
         await hunts()
+        quests()
         print("nav checks passed: \(checks)")
     }
 

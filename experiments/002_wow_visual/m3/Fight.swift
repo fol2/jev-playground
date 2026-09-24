@@ -944,19 +944,22 @@ func facingError(_ errorText: String?) -> Bool {
     return text.contains("in front of you") || text.contains("facing")
 }
 
+/// The beta client's tooltip footer ("Press F6 to submit an issue for this Item"); OCR once read "Press Forto".
+func isTooltipFooter(_ text: String) -> Bool { text.contains("submit an issue") }
+
 /// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
 /// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
 /// nameplate read as slot 8's name, 24 Sept) is dropped.
 func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
-    guard let foot = boxes.first(where: { $0.text.hasPrefix("Press F6") }) else { return [] }
+    guard let foot = boxes.first(where: { isTooltipFooter($0.text) }) else { return [] }
     return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }
         .sorted { ($0.y, $0.x) < ($1.y, $1.x) }.map(\.text)
 }
 
 /// Tooltip lines top to bottom (a rank or "Racial" sits beside the name); nil for an empty slot.
 func parseTooltip(_ lines: [String]) -> Skill? {
-    guard lines.contains(where: { $0.hasPrefix("Press F6") }) else { return nil }
-    let body = lines.filter { !$0.hasPrefix("Press F6") && !$0.hasPrefix("Rank ") && $0 != "Racial" }
+    guard lines.contains(where: isTooltipFooter) else { return nil }
+    let body = lines.filter { !isTooltipFooter($0) && !$0.hasPrefix("Rank ") && $0 != "Racial" }
     guard let name = body.first else { return nil }
     let text = body.dropFirst().joined(separator: " ")
     let cast = text.range(of: #"[0-9.]+(?= sec cast)"#, options: .regularExpression).flatMap { Double(text[$0]) }
