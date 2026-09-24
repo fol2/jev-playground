@@ -375,6 +375,50 @@ struct HuntStep {
     var json: [String: Any] { ["action": action.rawValue, "result": result] }
 }
 
+private struct PendingHuntExperience {
+    let id: String
+    let action: String
+    let before: ExperienceFrame
+    let reported: String
+    let blocked: Bool?
+    let elapsed: Double
+}
+
+private func experienceBand(_ value: Double, _ cuts: (Double, Double, Double)) -> String {
+    value < cuts.0 ? "critical" : (value < cuts.1 ? "low" : (value < cuts.2 ? "medium" : "high"))
+}
+
+/// Small, observable situation buckets for retrieval. This is deliberately not a world model.
+func huntExperienceFrame(_ o: HuntObs, blocked: [Double]) -> ExperienceFrame? {
+    guard let stamp = o.stamp else { return nil }
+    let targetKind: String
+    if let target = o.target, o.targetAlive {
+        targetKind = objective(for: target, in: o.objectives) == nil ? "other_alive" : "objective_alive"
+    } else { targetKind = o.target == nil ? "none" : "not_alive" }
+    let place = o.here.map { "\(Int(floor($0.x / 2))):\(Int(floor($0.y / 2)))" } ?? "unknown"
+    let near = o.seen.filter { $0.hostile && $0.near }.count
+    let objectives = o.objectives.filter(\.unfinished).map { nameKey($0.text) }.sorted().joined(separator: "|")
+    let context: [String: String] = [
+        "phase": o.combat ? "combat" : (o.player < HuntLimits.walkHealth ? "recover" : "hunt"),
+        "health": experienceBand(o.player, (0.35, 0.60, 0.90)),
+        "mana": experienceBand(o.mana, (0.20, 0.50, 0.80)),
+        "target": targetKind,
+        "target_name": o.target.map(nameKey) ?? "none",
+        "quest_area": o.area.map { $0.inside ? "inside" : "outside" } ?? "unknown",
+        "near_hostiles": near == 0 ? "0" : (near == 1 ? "1" : "many"),
+        "blocked_near": blocked.isEmpty ? "0" : "some",
+        "place_cell_2": place,
+        "unfinished_objectives": objectives.isEmpty ? "none" : objectives,
+    ]
+    var progress: [String: Int] = [:]
+    for item in o.objectives where item.text != Objective.ready {
+        let key = nameKey(item.quest) + "::" + nameKey(item.text)
+        progress[key] = max(progress[key] ?? 0, item.done)
+    }
+    return ExperienceFrame(context: context, progress: progress, capturedAt: stamp.capturedAt,
+                           stream: stamp.stream, geometry: stamp.geometry)
+}
+
 let huntInstructions = "Which action most safely advances the unfinished `objectives`, given `selected_quest_area`, `creatures_in_view`, `blocked_headings_near_here`, `character`, `target` and `recent_actions`?"
 
 func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked: [Double]) -> [String: Any] {
@@ -523,19 +567,46 @@ struct HuntResult {
     var memory: TaskMemory? = nil
     var graphID: String? = nil
     var graphRecords: [[String: Any]] = []
+    var experience: [String: Any]? = nil
+    var experienceRecords: [[String: Any]] = []
+    var experienceReviews: [[String: Any]] = []
 }
 
-func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -> HuntResult {
+func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
+             experience: ExperienceStore? = nil, experienceRun: String = UUID().uuidString) async -> HuntResult {
     var r = HuntResult()
     r.graphID = graph?.graph.id
+    r.experience = experience?.summary
     var executive = RuntimeExecutive(goal: "complete the initial unfinished objectives")
     executive.begin("hunt")
     var lastStamp: ObservationStamp?
     let began = host.now()
-    var misses = 0, sinceFight = 0
+    var misses = 0, sinceFight = 0, experienceSerial = 0
     var panorama: (at: NavObs, seen: [Seen])?
+    var pendingExperience: PendingHuntExperience?
+
+    func persistPending(after: HuntObs?, blocked: [Double] = []) {
+        guard let store = experience, let pending = pendingExperience else { return }
+        let afterFrame = after.flatMap { huntExperienceFrame($0, blocked: blocked) }.flatMap {
+            $0.capturedAt > pending.before.capturedAt ? $0 : nil
+        }
+        let item = ExperienceCase(id: pending.id, run: experienceRun, action: pending.action,
+            before: pending.before, after: afterFrame, reported: pending.reported,
+            blocked: pending.blocked, elapsed: pending.elapsed)
+        do {
+            if try store.record(item) {
+                r.experienceRecords.append(item.json)
+                host.emit("experience_recorded", item.json)
+            }
+        } catch {
+            host.emit("experience_error", ["id": pending.id, "error": "\(error)"])
+        }
+        pendingExperience = nil
+        r.experience = store.summary
+    }
 
     func finish(_ outcome: String) -> HuntResult {
+        persistPending(after: nil)
         host.keys.releaseAll()
         r.outcome = outcome
         r.holding = host.keys.holding
@@ -543,7 +614,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
         let skill = SkillResult(skill: "hunt", status: skillStatus(outcome), code: outcome,
                                 evidence: lastStamp, holdingInput: r.holding)
         executive.finish(skill)
-        r.runtime = skill; r.memory = executive.memory
+        r.runtime = skill; r.memory = executive.memory; r.experience = experience?.summary
         host.emit("skill_result", skill.json)
         return r
     }
@@ -565,42 +636,50 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
         misses = 0
         lastStamp = o.stamp
         r.end = o.objectives
-        if o.player < 0.01 && !o.combat { return finish("DEAD") }  // an empty health bar out of combat
-        if remaining(wanted, in: o.objectives).isEmpty { return finish("OBJECTIVES_COMPLETE") }
-        if !o.combat && r.fights.count >= HuntLimits.maxFights { return finish("FIGHT_LIMIT") }
-        if !o.combat && sinceFight >= HuntLimits.searchLimit { return finish("NO_TARGET_FOUND") }
         if let p = panorama, let here = o.here, distance(p.at.point, here.point) <= HuntLimits.panoramaFor {
             o.seen = merged(p.seen, o.seen)
         }
         let blocked = o.here.map { r.walks.blockedHeadings(near: $0) } ?? []
+        persistPending(after: o, blocked: blocked)
+        if o.player < 0.01 && !o.combat { return finish("DEAD") }  // an empty health bar out of combat
+        if remaining(wanted, in: o.objectives).isEmpty { return finish("OBJECTIVES_COMPLETE") }
+        if !o.combat && r.fights.count >= HuntLimits.maxFights { return finish("FIGHT_LIMIT") }
+        if !o.combat && sinceFight >= HuntLimits.searchLimit { return finish("NO_TARGET_FOUND") }
 
         let allowed = huntAdmissible(o, steps: r.steps, blocked: blocked)
         var state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
+        let experienceFrame = huntExperienceFrame(o, blocked: blocked)
+        let experienceContext = experienceFrame?.context ?? [:]
+        let reviewTools = graph == nil ? [:] : (experience?.availableReviewTools(experienceContext) ?? [:])
+        let graphSkills = Dictionary(uniqueKeysWithValues: allowed.map { ($0.rawValue, $0.facts) }).merging(reviewTools) { old, _ in old }
+        state["experience_index"] = experience.map { $0.hint(experienceContext) }
+            ?? ["enabled": false, "matching_cases": 0, "stored_cases": 0]
+        state["experience_recall"] = experience.map { $0.recall(experienceContext) } as Any? ?? NSNull()
         if graph != nil {
             state["task_memory"] = ["goal": executive.memory.goal, "revision": executive.memory.revision,
                 "active_skill": executive.memory.activeSkill ?? "none", "recent": executive.memory.recent.map(\.json)]
         }
         var question = actionQuestion(allowed, instructions: huntInstructions)
         let asked = host.now()
-        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
+        let candidates = allowed.map(\.rawValue) + reviewTools.keys.sorted()
+        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: candidates,
                 policy: graph?.graph.id ?? "hunt-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
                 deadline: min(asked + HuntLimits.jevTimeout, began + HuntLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
-        let selected: HuntAction?
+        let selectedName: String?
         func recordGraphCalls() {
             for call in graph?.lastTrace ?? [] { r.graphRecords.append(call); host.emit("graph_call", call) }
         }
         do {
             if let graph {
-                let decision = try await graph.next(state: state,
-                    skills: Dictionary(uniqueKeysWithValues: allowed.map { ($0.rawValue, $0.facts) }),
+                let decision = try await graph.next(state: state, skills: graphSkills,
                     jev: jev, now: host.now, deadline: context.deadline, stopped: host.ownerTookFocus)
                 reply = decision.response; state = decision.state; question = decision.question
-                selected = HuntAction(rawValue: decision.action)
+                selectedName = decision.action
                 recordGraphCalls()
             } else {
                 reply = try await jev.ask(state: state, question: question)
-                selected = parseChoice(reply, admissible: allowed, model: FightLimits.model)?.action
+                selectedName = parseChoice(reply, admissible: allowed, model: FightLimits.model)?.action.rawValue
             }
         } catch {
             recordGraphCalls()
@@ -610,10 +689,22 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
         r.latencies.append(host.now() - asked)
         r.decisions += 1
         let record: [String: Any] = ["decision": r.decisions, "t": asked, "state": state, "question": question,
-                                     "admissible": allowed.map(\.rawValue), "response": reply, "context": context.json]
+                                     "admissible": candidates, "response": reply, "context": context.json]
         r.records.append(record)
         host.emit("decision", record)
-        guard let action = selected, allowed.contains(action) else { return finish("INVALID_REPLY") }
+        guard let selectedName else { return finish("INVALID_REPLY") }
+
+        if let topic = ExperienceReview.topic(for: selectedName) {
+            guard let store = experience, reviewTools[selectedName] != nil,
+                  let review = store.reviewLatest(topic, context: experienceContext) else { return finish("INVALID_REPLY") }
+            executive.invalidate()
+            graph?.returnToRoot()
+            r.experienceReviews.append(review.json)
+            r.experience = store.summary
+            host.emit("experience_review", review.json)
+            continue
+        }
+        guard let action = HuntAction(rawValue: selectedName), allowed.contains(action) else { return finish("INVALID_REPLY") }
 
         var result: String
         sinceFight += 1
@@ -639,6 +730,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
         }
         o = latest!
         lastStamp = o.stamp
+        let actionBegan = host.now()
+        let walksBefore = r.walks.attempts.count
+        var terminal: String?
         switch action {
         case .fight:
             executive.begin("combat")
@@ -651,10 +745,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
             r.fights.append(fight)
             sinceFight = 0
             result = "the fight ended \(fight.outcome) after \(fight.decisions) decisions"
-            if !HuntLimits.continueAfter.contains(fight.outcome) {
-                r.steps.append(HuntStep(action: .fight, result: result))
-                return finish("FIGHT_" + fight.outcome)
-            }
+            if !HuntLimits.continueAfter.contains(fight.outcome) { terminal = "FIGHT_" + fight.outcome }
         case .nextTarget:
             result = await selectNearest(host)
         case .lookAround:
@@ -676,6 +767,13 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
         }
         r.steps.append(HuntStep(action: action, result: result))
         host.emit("acted", ["action": action.rawValue, "result": result])
+        if let before = experienceFrame, experience != nil {
+            experienceSerial += 1
+            let blockedResult = action.isWalk && r.walks.attempts.count > walksBefore ? r.walks.attempts.last?.blocked : nil
+            pendingExperience = PendingHuntExperience(id: "\(experienceRun)-\(experienceSerial)", action: action.rawValue,
+                before: before, reported: result, blocked: blockedResult, elapsed: max(0, host.now() - actionBegan))
+        }
+        if let terminal { return finish(terminal) }
     }
     return finish("DECISION_LIMIT")
 }

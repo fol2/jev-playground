@@ -2,7 +2,7 @@
 import Foundation
 
 struct ExperienceFrame: Codable {
-    let context: [String: String]  // Exact buckets, not a learned similarity metric.
+    let context: [String: String]  // Coarse exact buckets; no hidden learned similarity.
     let progress: [String: Int]
     let capturedAt: Double
     let stream: String
@@ -48,6 +48,17 @@ struct ExperienceReview: Codable {
         "retain_example": "Bookmark this useful episode for later evaluation, not as a universal rule.",
         "unclear": "Record that the available evidence does not identify what should be improved."
     ]
+    static let toolTopics: [String: String] = [
+        "REVIEW_PERCEPTION": "perception",
+        "REVIEW_MOVEMENT": "movement",
+        "REVIEW_TACTICS": "tactics",
+        "RETAIN_EXAMPLE": "retain_example",
+        "REVIEW_UNCLEAR": "unclear"
+    ]
+    static var tools: [String: String] {
+        Dictionary(uniqueKeysWithValues: toolTopics.map { ($0.key, topics[$0.value]!) })
+    }
+    static func topic(for tool: String) -> String? { toolTopics[tool] }
 }
 
 enum ExperienceError: Error { case incompatibleStore, invalidRecord }
@@ -111,13 +122,16 @@ final class ExperienceStore {
     }
     func hint(_ context: [String: String]) -> [String: Any] {
         let found = matches(context)
-        return ["matching_cases": found.count, "stored_cases": cases.count,
+        return ["enabled": true, "scope": scope, "matching_cases": found.count, "stored_cases": cases.count,
                 "blocked_cases": found.filter { $0.blocked == true }.count,
-                "review_requests": reviews.count, "persistence_error": persistenceError as Any? ?? NSNull()]
+                "counter_increased_cases": found.filter { ($0.progressDelta ?? 0) > 0 }.count,
+                "counter_unknown_cases": found.filter { $0.progressDelta == nil }.count,
+                "review_requests": reviews.filter { r in found.contains { $0.id == r.caseID } }.count,
+                "persistence_error": persistenceError as Any? ?? NSNull()]
     }
     func recall(_ context: [String: String]) -> [String: Any] {
         let found = matches(context)
-        // Include opposite outcomes rather than selecting only the best recent run.
+        // Include contrasting outcomes rather than selecting only the best recent run.
         var chosen: [ExperienceCase] = []
         for candidate in [found.last, found.last(where: { $0.blocked == true }),
                           found.last(where: { ($0.progressDelta ?? 0) > 0 })].compactMap({ $0 }) {
@@ -130,13 +144,23 @@ final class ExperienceStore {
                     "counter_increased": rows.filter { ($0.progressDelta ?? 0) > 0 }.count,
                     "counter_unknown": rows.filter { $0.progressDelta == nil }.count]
         }
-        return ["scope": scope, "matching": "exact pre-action buckets; not causal or calibrated success probabilities",
+        return ["scope": scope, "matching": "exact coarse pre-action buckets; not causal or calibrated success probabilities",
                 "cases": chosen.map(\.json), "counts": stats,
                 "reviews": reviews.filter { r in chosen.contains { $0.id == r.caseID } }.map(\.json)]
     }
 
-    @discardableResult func reviewLatest(_ topic: String) -> ExperienceReview? {
-        guard ExperienceReview.topics[topic] != nil, let last = cases.last else { return nil }
+    func availableReviewTools(_ context: [String: String]) -> [String: String] {
+        guard let last = matches(context).last else { return [:] }
+        return ExperienceReview.tools.filter { tool, _ in
+            guard let topic = ExperienceReview.topic(for: tool) else { return false }
+            return !reviews.contains { $0.caseID == last.id && $0.topic == topic }
+        }
+    }
+
+    @discardableResult func reviewLatest(_ topic: String, context: [String: String]? = nil) -> ExperienceReview? {
+        guard ExperienceReview.topics[topic] != nil else { return nil }
+        let last = context.map { matches($0).last } ?? cases.last
+        guard let last else { return nil }
         let note = ExperienceReview(caseID: last.id, topic: topic)
         if !reviews.contains(where: { $0.caseID == note.caseID && $0.topic == topic }) {
             reviews.append(note)
@@ -144,6 +168,11 @@ final class ExperienceStore {
             save()
         }
         return note
+    }
+
+    var summary: [String: Any] {
+        ["scope": scope, "cases": cases.count, "reviews": reviews.count,
+         "persistence_error": persistenceError as Any? ?? NSNull()]
     }
 
     private func save() {

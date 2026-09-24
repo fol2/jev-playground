@@ -67,12 +67,15 @@ class VisualRouteTests(unittest.TestCase):
                 motor_offline.counted(f"{name} checks passed: {minimum - 1}", name, minimum)
 
     def test_graph_definition_and_code_select_actual_native_consumer_proof(self):
-        for name in ("DecisionGraph.swift", "GraphTests.swift", "skyborne-hunt.graph.json", "README.md"):
+        for name in ("DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
+                     "skyborne-hunt.graph.json", "README.md"):
             self.assertIn("motor-offline", route([("M", RUNTIME + name)])["checks"])
         with patch.object(motor_offline.subprocess, "run") as run:
             motor_offline.build("unused", FIGHT + "Fight.swift")
         self.assertIn(RUNTIME + "DecisionGraph.swift", run.call_args.args[0])
-        self.assertEqual(motor_offline.counted("decision graph checks passed: 42", "decision graph", 42), 42)
+        self.assertIn(RUNTIME + "Experience.swift", run.call_args.args[0])
+        self.assertEqual(motor_offline.counted("decision graph checks passed: 53", "decision graph", 53), 53)
+        self.assertEqual(motor_offline.counted("experience checks passed: 34", "experience", 34), 34)
         # Compilation inputs must not turn the existing single-file checks into nested paths.
         motor_offline.fight_trap()
         motor_offline.nav_trap()

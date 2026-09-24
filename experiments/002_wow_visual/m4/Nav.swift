@@ -624,6 +624,7 @@ struct NavCommand: Equatable {
     var scenario: String?
     var quest: String?
     var graph: String?
+    var experience: String?
 }
 
 let navScenarios: Set<String> = ["open", "wall", "pocket"]
@@ -655,6 +656,8 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         switch (mode, option) {
         case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"):
             command.graph = value
+        case (.hunt, "--experience"), (.huntDryRun, "--experience"), (.huntSimJev, "--experience"):
+            command.experience = value
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value

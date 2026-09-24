@@ -18,6 +18,7 @@ let navUsage = """
            m4-nav --sim-jev --scenario open|wall|pocket
            m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
+                    [--graph PATH] [--experience PATH]
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
     Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
@@ -312,9 +313,15 @@ struct M4Nav {
             case .replay: exit(try navReplay(command.directory ?? "."))
             case .simJev: exit(try await navSimJev(command))
             case .execute: exit(try await navExecute(command))
-            case .huntDryRun: exit(try await huntDryRun(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
-            case .huntSimJev: exit(try await huntSimJev(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
-            case .hunt: exit(try await huntExecute(graph: command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }))
+            case .huntDryRun, .huntSimJev, .hunt:
+                let graph = try command.graph.map { try GraphSession.load(URL(fileURLWithPath: $0)) }
+                let experience = try huntExperience(command.experience, graph: graph)
+                switch command.mode {
+                case .huntDryRun: exit(try await huntDryRun(graph: graph, experience: experience))
+                case .huntSimJev: exit(try await huntSimJev(graph: graph, experience: experience))
+                case .hunt: exit(try await huntExecute(graph: graph, experience: experience))
+                default: fatalError("unreachable")
+                }
             case .turnIn: exit(try await questExecute(command))
             }
         } catch {

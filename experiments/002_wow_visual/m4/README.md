@@ -293,11 +293,14 @@ swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
   $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
   -o /tmp/m4-nav
-/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json"
+/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json" \
+  --experience /tmp/skyborne-hunt-experience.json
 ```
 
-The opt-in [tool graph](../runtime/README.md) organises Jev's information and skill
-choices. The command above uses canned replies and SimHunt, not live Jev or WoW.
+The opt-in [tool graph](../runtime/README.md) organises Jev's information, retained
+experience and skill choices. The command above records local synthetic episodes; a
+later run can choose `READ:experience`. It uses canned replies and SimHunt, not live
+Jev or WoW, and it does not prove that retrieval improves gameplay.
 Omit `--graph` for the existing flat-policy rehearsal. No current or historical
 live result below/above certifies the new graph policy.
 

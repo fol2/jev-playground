@@ -1,43 +1,139 @@
 {
-  "id": "skyborne-hunt-tools-v1",
-  "profile": "WoW Forever / Skyborne Shaman. Candidate hierarchy for the existing calibrated Hunt skills; NOT level 1-20 or general quest qualification. Existing runtime action restrictions and legacy cost estimates still apply.",
+  "id": "skyborne-hunt-tools-v2",
+  "profile": "WoW Forever / Skyborne Shaman. Candidate hierarchy with bounded episodic recall for the existing calibrated Hunt skills; NOT level 1-20 or general quest qualification. Existing runtime action restrictions and legacy cost estimates still apply.",
   "root": "hunt",
   "nodes": {
     "hunt": {
-      "question": "Choose the next useful step toward `goal`. You may read task memory or a reference, enter a more specific decision, or use a currently offered skill. READ returns information, not an in-game action. Treat reference source conflicts as unresolved, not current observations. The remaining model-call budget is in `decision_graph`.",
-      "skills": ["FIGHT_TARGET", "REST", "EAT_DRINK"],
-      "branches": {"search": "Find/select an objective creature or choose how to travel toward one."},
-      "reads": ["recent", "progress", "class_conflicts"]
+      "question": "Choose the next useful step toward `goal`. You may read task memory or a reference, enter a more specific decision, or use a currently offered skill. READ returns information, not an in-game action. Treat reference source conflicts as unresolved, not current observations. The remaining model-call budget is in `decision_graph`. `experience_index` says whether comparable retained episodes exist; READ:experience retrieves them. Enter improve only to label the latest matching episode for later offline study, never to claim a cause or edit live policy.",
+      "skills": [
+        "FIGHT_TARGET",
+        "REST",
+        "EAT_DRINK"
+      ],
+      "branches": {
+        "search": "Find/select an objective creature or choose how to travel toward one.",
+        "improve": "Classify one retained matching episode for later offline investigation; this does not change current skills or policy."
+      },
+      "reads": [
+        "recent",
+        "progress",
+        "class_conflicts",
+        "experience"
+      ]
     },
     "search": {
       "question": "Choose how to find or select an objective creature using current visual cues and any loaded memory. Enter travel to select a direction or detour. Return to hunt when combat or recovery is the useful next step.",
-      "skills": ["NEXT_TARGET", "LOOK_AROUND", "GO_TO_QUEST_CREATURE"],
-      "branches": {"travel": "Choose local travel toward the quest area, a visible creature or a different heading."},
-      "reads": ["recent", "navigation"]
+      "skills": [
+        "NEXT_TARGET",
+        "LOOK_AROUND",
+        "GO_TO_QUEST_CREATURE"
+      ],
+      "branches": {
+        "travel": "Choose local travel toward the quest area, a visible creature or a different heading."
+      },
+      "reads": [
+        "recent",
+        "navigation",
+        "experience"
+      ]
     },
     "travel": {
       "question": "Choose a local travel step using the current position/quest area and any loaded navigation memory. These are short existing skills, not proof of a traversable path or safe terrain. Use a more specific heading decision if needed, or return to search.",
-      "skills": ["GO_TO_QUEST_AREA", "GO_TO_QUEST_CREATURE"],
-      "branches": {"detour": "Choose a detour relative to the quest-area bearing.", "compass": "Choose a compass heading rather than an area-relative detour."},
-      "reads": ["navigation", "recent"]
+      "skills": [
+        "GO_TO_QUEST_AREA",
+        "GO_TO_QUEST_CREATURE"
+      ],
+      "branches": {
+        "detour": "Choose a detour relative to the quest-area bearing.",
+        "compass": "Choose a compass heading rather than an area-relative detour."
+      },
+      "reads": [
+        "navigation",
+        "recent",
+        "experience"
+      ]
     },
     "detour": {
       "question": "Choose one currently offered area-relative detour, using observed obstacles and remembered blocked headings when available. A detour proposal is not a known path. Return to travel if none fits.",
-      "skills": ["DETOUR_LEFT_45", "DETOUR_RIGHT_45", "DETOUR_LEFT_90", "DETOUR_RIGHT_90", "BACK_TRACK"],
+      "skills": [
+        "DETOUR_LEFT_45",
+        "DETOUR_RIGHT_45",
+        "DETOUR_LEFT_90",
+        "DETOUR_RIGHT_90",
+        "BACK_TRACK"
+      ],
       "branches": {},
-      "reads": ["navigation"]
+      "reads": [
+        "navigation",
+        "experience"
+      ]
     },
     "compass": {
       "question": "Choose one currently offered compass walk using current observations and loaded navigation memory. Return to travel if a compass walk is not the useful next step.",
-      "skills": ["GO_N", "GO_NE", "GO_E", "GO_SE", "GO_S", "GO_SW", "GO_W", "GO_NW"],
+      "skills": [
+        "GO_N",
+        "GO_NE",
+        "GO_E",
+        "GO_SE",
+        "GO_S",
+        "GO_SW",
+        "GO_W",
+        "GO_NW"
+      ],
       "branches": {},
-      "reads": ["navigation"]
+      "reads": [
+        "navigation",
+        "experience"
+      ]
+    },
+    "improve": {
+      "question": "Choose one bounded follow-up for the latest matching retained episode. These outputs create a hypothesis/bookmark only; they do not diagnose a cause, rewrite code, change strategy or perform an in-game action. Return to hunt when no review is useful.",
+      "skills": [
+        "REVIEW_PERCEPTION",
+        "REVIEW_MOVEMENT",
+        "REVIEW_TACTICS",
+        "RETAIN_EXAMPLE",
+        "REVIEW_UNCLEAR"
+      ],
+      "branches": {},
+      "reads": [
+        "experience",
+        "recent"
+      ]
     }
   },
   "resources": {
-    "recent": {"summary": "Read recent actions and their recorded outcomes, previous fight results and parent task memory. This is history, not proof of current world state.", "keys": ["recent_actions", "fights_so_far", "task_memory"]},
-    "progress": {"summary": "Read the current objective list and progress from this input snapshot.", "keys": ["objectives"]},
-    "navigation": {"summary": "Read recently blocked headings, units and calibration assumptions from this input snapshot. Missing map information remains unknown.", "keys": ["blocked_headings_near_here", "units"]},
-    "class_conflicts": {"summary": "Read the repository's unresolved combat-pattern conflicts for the early-level Shaman. These are source-qualified references, not an executable rotation or newly learned ability.", "file": "../learning/knowledge/conflicts.md", "heading": "## Combat pattern"}
+    "recent": {
+      "summary": "Read recent actions and their recorded outcomes, previous fight results and parent task memory. This is history, not proof of current world state.",
+      "keys": [
+        "recent_actions",
+        "fights_so_far",
+        "task_memory"
+      ]
+    },
+    "progress": {
+      "summary": "Read the current objective list and progress from this input snapshot.",
+      "keys": [
+        "objectives"
+      ]
+    },
+    "navigation": {
+      "summary": "Read recently blocked headings, units and calibration assumptions from this input snapshot. Missing map information remains unknown.",
+      "keys": [
+        "blocked_headings_near_here",
+        "units"
+      ]
+    },
+    "class_conflicts": {
+      "summary": "Read the repository's unresolved combat-pattern conflicts for the early-level Shaman. These are source-qualified references, not an executable rotation or newly learned ability.",
+      "file": "../learning/knowledge/conflicts.md",
+      "heading": "## Combat pattern"
+    },
+    "experience": {
+      "summary": "Read a bounded set of comparable retained episodes, including contrasting blocked/progress outcomes and per-action counts. They are observations from exact coarse context buckets, not causal rules or calibrated success probabilities.",
+      "keys": [
+        "experience_recall"
+      ]
+    }
   }
 }

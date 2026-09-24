@@ -95,6 +95,10 @@ final class GraphSession {
         path = [graph.root]
     }
 
+    // A meta-tool can finish its bounded review and return control to the root goal.
+    // Loaded references stay available; no model-written graph mutation occurs.
+    func returnToRoot() { path = [graph.root] }
+
     // Snapshot local reference sections once per episode. Preserve source text and its qualifications.
     // No memory dump, vector search, background retrieval or model call. Paths are trusted repo config.
     static func load(_ url: URL) throws -> GraphSession {
