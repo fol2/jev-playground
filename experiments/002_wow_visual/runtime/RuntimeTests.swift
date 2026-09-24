@@ -65,6 +65,9 @@ import Foundation
             check(engine.request(stamp: stamp, candidates: actions, policy: "v1", now: 10.1,
                                  maximumAge: 1, deadline: 11) == nil, "invalid candidates")
         }
+        context = request(&engine)
+        var otherClock = stamp; otherClock.clockOrigin = 100
+        check(reject(&engine, context, current: otherClock) == "observation_identity_changed", "clock domains must agree")
         check(engine.request(stamp: stamp, candidates: ["WALK"], policy: "v1", now: 10.1,
                              maximumAge: 1, deadline: .infinity) == nil, "unbounded deadline")
         print("runtime checks passed: \(count)")

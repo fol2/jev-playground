@@ -33,10 +33,12 @@ MOTOR = VISUAL + "m0/"
 SEEK = VISUAL + "m1/"
 FIGHT = VISUAL + "m3/"
 NAV = VISUAL + "m4/"
+RUNTIME = VISUAL + "runtime/"
 LEARN = VISUAL + "learning/"  # video/research evidence; video_jev.py --check proves it offline
 MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
+               {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift")} |
                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
                                         "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "tabletop.py", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting

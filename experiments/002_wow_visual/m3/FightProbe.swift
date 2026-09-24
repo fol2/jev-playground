@@ -88,6 +88,18 @@ struct LiveJev: JevClient {
 }
 
 /// Live skills: pid-targeted taps/holds, a held Lightning Bolt with a 4 s watchdog, OCR, loot click.
+// Actual frame provenance in one monotonic domain; geometry is checked against the
+// original session, not inferred from a moving crop. This performs no input.
+func runtimeFrame(_ session: Session, _ feed: FrameFeed, origin: Double = 0) -> (image: CGImage, stamp: ObservationStamp)? {
+    guard !session.app.isTerminated, let frame = feed.latestFrame,
+          windowBounds(session.window.windowID) == session.bounds,
+          frame.image.width == HUD.width, frame.image.height == HUD.height else { return nil }
+    let geometry = "\(session.window.windowID):\(session.bounds):\(HUD.width)x\(HUD.height)"
+    let stamp = ObservationStamp(stream: feed.streamID, geometry: geometry, capturedAt: frame.pts - origin, clockOrigin: origin)
+    guard stamp.isFresh(at: hostNow() - origin, maximumAge: FightLimits.maxFrameAge) else { return nil }
+    return (frame.image, stamp)
+}
+
 final class LiveHost: FightHost {
     let origin: Double
     let session: Session
@@ -101,13 +113,13 @@ final class LiveHost: FightHost {
     var corpseNames = fightNames  // M4b adds the creature a hunt fights
     var turnedMs = 0
 
-    init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log) {
+    init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log, input: LiveKeys? = nil) {
         self.origin = hostNow()
         self.session = session
         self.feed = feed
         self.directory = directory
         self.log = log
-        let keys = LiveKeys(sink: sink, releaseCodes: FightLimits.releaseCodes, clock: hostNow) { event, fields in
+        let keys = input ?? LiveKeys(sink: sink, releaseCodes: FightLimits.releaseCodes, clock: hostNow) { event, fields in
             var row = fields
             row["t"] = hostNow()
             log.emit(event, row)
@@ -138,8 +150,7 @@ final class LiveHost: FightHost {
     /// Nil when there is no frame or the newest is older than `FightLimits.maxFrameAge`: a stalled capture
     /// reads as no frame (Obs(fresh: false): the fight waits, then NO_FRESH_FRAME), never as the last scene seen.
     func latestImage() -> CGImage? {
-        guard let frame = feed.latestFrame, hostNow() - frame.pts <= FightLimits.maxFrameAge else { return nil }
-        return frame.image
+        runtimeFrame(session, feed, origin: origin)?.image
     }
 
     func refreshNotice() -> Bool {
@@ -166,15 +177,22 @@ final class LiveHost: FightHost {
         return text.isEmpty ? nil : text
     }
 
-    func observe(plates: Bool) -> Obs { look("obs", plates: plates) }
+    func observe(plates: Bool) -> Obs { look("obs", plates: plates, identifyTarget: true) }
 
-    func look(_ tag: String, plates: Bool) -> Obs {
-        guard let image = latestImage() else { return Obs(fresh: false) }
+    func look(_ tag: String, plates: Bool, identifyTarget: Bool = false) -> Obs {
+        guard let frame = runtimeFrame(session, feed, origin: origin) else { return Obs(fresh: false) }
+        let image = frame.image
         if frameNo % 2 == 0 {
             write(image, to: directory.appendingPathComponent(String(format: "f%03d-%@.jpg", frameNo, tag)), type: .jpeg)
         }
         frameNo += 1
-        return main.observe(rgba(image), plates: plates)
+        var o = main.observe(rgba(image), plates: plates)
+        o.stamp = frame.stamp
+        if identifyTarget, let nameBox = image.cropping(to: CGRect(x: 1590, y: 950, width: 330, height: 50)) {
+            let name = ocr(nameBox).map(\.0).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            o.stamp?.target = name.isEmpty ? nil : name
+        }
+        return o
     }
 
     func releaseBolt() { keys.lift(FightLimits.bolt) }
@@ -282,7 +300,9 @@ final class LiveHost: FightHost {
             let at = CGPoint(x: bounds.minX + bounds.width * fx, y: bounds.minY + bounds.height * fy)
             let request = NativeBackgroundClickDispatchRequest(
                 target: routed, eventTapPointTopLeft: at, appKitPoint: at, clickCount: 1, mouseButton: .right)
-            _ = try NativeBackgroundClickTransport().dispatch(request)
+            let dispatched = keys.withControl { Result { try NativeBackgroundClickTransport().dispatch(request) } }
+            guard let dispatched else { return "loot cancelled: input ownership revoked" }
+            _ = try dispatched.get()
         } catch {
             return "loot click failed: \(error)"
         }

@@ -7,10 +7,12 @@ struct ObservationStamp: Equatable {
     let capturedAt: Double
     // A visual selection cue, NOT a unique game-entity ID. Nil means unavailable.
     var target: String? = nil
+    // Absolute host-clock origin of the caller's relative clock (zero for host time).
+    var clockOrigin: Double = 0
 
     func isFresh(at now: Double, maximumAge: Double) -> Bool {
         !stream.isEmpty && !geometry.isEmpty && capturedAt.isFinite && now.isFinite
-            && maximumAge.isFinite && maximumAge > 0 && now >= capturedAt && now - capturedAt < maximumAge
+            && clockOrigin.isFinite && maximumAge.isFinite && maximumAge > 0 && now >= capturedAt && now - capturedAt < maximumAge
     }
 }
 
@@ -35,7 +37,8 @@ struct SkillResult {
     // An observed UI outcome is not engine truth, arrival or player safety.
     var json: [String: Any] {
         ["skill": skill, "status": status.rawValue, "code": code, "holding_input": holdingInput,
-         "evidence_time": evidence.map { $0.capturedAt as Any } ?? NSNull()]
+         "evidence": evidence.map { ["stream": $0.stream, "geometry": $0.geometry,
+             "captured_at": $0.capturedAt, "clock_origin": $0.clockOrigin] as [String: Any] } as Any? ?? NSNull()]
     }
 }
 
@@ -72,7 +75,7 @@ struct DecisionContext: Equatable {
 
     var json: [String: Any] {
         ["request": request, "task_revision": revision, "stream": observation.stream,
-         "geometry": observation.geometry, "captured_at": observation.capturedAt,
+         "geometry": observation.geometry, "captured_at": observation.capturedAt, "clock_origin": observation.clockOrigin,
          "target_cue": observation.target as Any? ?? NSNull(), "policy": policy, "deadline": deadline]
     }
 }
@@ -127,11 +130,22 @@ struct RuntimeExecutive {
             return "action_no_longer_admissible"
         }
         guard let current, current.isFresh(at: now, maximumAge: maximumAge) else { return "observation_unavailable" }
-        guard current.stream == pending.observation.stream, current.geometry == pending.observation.geometry else {
+        guard current.stream == pending.observation.stream, current.geometry == pending.observation.geometry,
+              current.clockOrigin == pending.observation.clockOrigin else {
             return "observation_identity_changed"
         }
         guard current.capturedAt >= pending.observation.capturedAt else { return "reordered_observation" }
         guard current.target == pending.observation.target else { return "target_cue_changed" }
         return nil
     }
+}
+
+// Compatibility mapping: preserve the original code and its qualification limits.
+func skillStatus(_ code: String) -> SkillStatus {
+    if ["ARRIVED", "OBJECTIVES_COMPLETE", "KILLED_AND_LOOTED", "KILLED_NO_CORPSE"].contains(code) { return .completed }
+    if ["NO_FRESH_FRAME", "HUD_UNREADABLE"].contains(code) { return .observationLost }
+    if ["OWNER_TOOK_FOCUS", "OWNER_STOP"].contains(code) { return .cancelled }
+    if ["COMBAT", "NO_PROGRESS", "NO_ADMISSIBLE_MOVE", "NO_TARGET_FOUND"].contains(code) { return .blocked }
+    if code.contains("FAILED") || code.contains("ERROR") || code == "INVALID_REPLY" { return .failed }
+    return .stopped
 }
