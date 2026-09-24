@@ -38,7 +38,9 @@ LEARN = VISUAL + "learning/"  # video/research evidence; video_jev.py --check pr
 MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
-               {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift", "DecisionGraph.swift", "GraphTests.swift", "skyborne-hunt.graph.json", "README.md")} |
+               {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift",
+                                            "DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
+                                            "skyborne-hunt.graph.json", "README.md")} |
                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
                                         "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "tabletop.py", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting

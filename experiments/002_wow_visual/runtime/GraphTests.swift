@@ -61,6 +61,19 @@ final class GraphReplies: JevClient {
         check(graph.lastTrace.count == 1, "references don't force another call on every turn")
 
         graph = try load()
+        var experienceState = state
+        experienceState["experience_index"] = ["enabled": true, "matching_cases": 2]
+        experienceState["experience_recall"] = ["scope": "fixture", "counts": [["action": "GO_N", "attempts": 2]]]
+        let recallProvider = GraphReplies(["READ:experience", "DO:REST"])
+        _ = try await graph.next(state: experienceState, skills: all, jev: recallProvider, now: { 0 }, deadline: 10)
+        check(recallProvider.states[0]["experience_recall"] == nil, "experience detail is progressive disclosure")
+        let recalledMemory = recallProvider.states[1]["tool_memory"] as! [String: [String: Any]]
+        check(recalledMemory["experience"] != nil, "Jev can explicitly retrieve accumulated experience")
+        let recalledValues = recalledMemory["experience"]!["values"] as! [String: Any]
+        check((recalledValues["experience_recall"] as! [String: Any])["scope"] as? String == "fixture",
+              "retrieved evidence enters the next Jev request")
+
+        graph = try load()
         let deep = GraphReplies(["ENTER:search", "ENTER:travel", "ENTER:detour", "DO:DETOUR_LEFT_45"])
         let moved = try await graph.next(state: state, skills: all, jev: deep, now: { 0 }, deadline: 10)
         check(moved.action == "DETOUR_LEFT_45", "arbitrarily deeper data-defined branch uses existing skill")
@@ -105,14 +118,27 @@ final class GraphReplies: JevClient {
         let world = SimHunt.field(clock: FightClock())
         graph = try load()
         let steps = GraphReplies(["READ:recent", "ENTER:search", "DO:LOOK_AROUND"])
-        let result = await runHunt(host: world, jev: steps, graph: graph)
+        let memory = try ExperienceStore(scope: graph.graph.id)
+        let result = await runHunt(host: world, jev: steps, graph: graph, experience: memory, experienceRun: "graph-test")
         check(result.steps.contains(where: { $0.action == .lookAround }), "real runHunt executes selected composite skill")
+        check(memory.cases.count == 1 && memory.cases[0].action == "LOOK_AROUND", "actual Hunt records an executed episode")
+        check(result.experienceRecords.count == 1, "recorded experience is exposed in run evidence")
+        let repeatWorld = SimHunt.field(clock: FightClock())
+        graph = try load()
+        let repeatProvider = GraphReplies(["READ:experience", "ENTER:search", "DO:LOOK_AROUND"])
+        _ = await runHunt(host: repeatWorld, jev: repeatProvider, graph: graph,
+                          experience: memory, experienceRun: "graph-test-repeat")
+        let repeatMemory = repeatProvider.states[1]["tool_memory"] as! [String: [String: Any]]
+        let repeatValues = repeatMemory["experience"]!["values"] as! [String: Any]
+        let repeatRecall = repeatValues["experience_recall"] as! [String: Any]
+        check((repeatRecall["cases"] as! [[String: Any]]).count == 1,
+              "actual Hunt graph recalls a previous comparable episode")
         check(!result.codesPosted.isEmpty && !result.holding, "existing simulated key skill, released at end")
         check(result.graphRecords.count == 4, "including failed follow-up request in Hunt accounting")
         let terminal = result.records.first?["question"] as! [String: Any]
         check((terminal["criteria"] as! [String: String])["DO:LOOK_AROUND"] != nil, "record actual terminal tool menu")
         check(result.memory?.goal == "complete the initial unfinished objectives", "task survives graph tool calls")
-        check(result.graphID == "skyborne-hunt-tools-v1", "actual policy identity in result")
+        check(result.graphID == "skyborne-hunt-tools-v2", "actual policy identity in result")
         let frozenWorld = SimHunt.field(clock: FightClock())
         graph = try load()
         let freeze = GraphReplies(["ENTER:search", "DO:LOOK_AROUND"])
@@ -120,6 +146,26 @@ final class GraphReplies: JevClient {
         let frozen = await runHunt(host: frozenWorld, jev: freeze, graph: graph)
         check(frozen.codesPosted.isEmpty, "lost vision after graph reply still uses existing executive check")
         check(!frozen.holding, "graph introduces no second input owner")
+
+        // Jev can call the learning branch while hunting; it labels evidence, then returns to normal tools.
+        let reviewWorld = SimHunt.field(clock: FightClock())
+        let reviewMemory = try ExperienceStore(scope: "skyborne-hunt-tools-v2")
+        let reviewFrame = huntExperienceFrame(reviewWorld.survey()!, blocked: [])!
+        try reviewMemory.record(ExperienceCase(id: "seed", run: "prior", action: "GO_N", before: reviewFrame,
+            after: nil, reported: "blocked in prior fixture", blocked: true, elapsed: 1))
+        graph = try load()
+        let reviewer = GraphReplies(["ENTER:improve", "DO:REVIEW_MOVEMENT", "ENTER:search", "DO:LOOK_AROUND"])
+        var cleanBeforeGameSkill = false
+        reviewer.after = { if reviewer.states.count == 2 { cleanBeforeGameSkill = reviewWorld.world.keys.codesPosted.isEmpty } }
+        let reviewed = await runHunt(host: reviewWorld, jev: reviewer, graph: graph,
+                                     experience: reviewMemory, experienceRun: "review-test")
+        check(cleanBeforeGameSkill, "review branch itself posts no game input")
+        check(reviewMemory.reviews.contains { $0.caseID == "seed" && $0.topic == "movement" },
+              "Jev review remains tied to the exact retained case")
+        check(reviewed.experienceReviews.count == 1, "run evidence records the improvement request")
+        check(reviewer.questions.count >= 3 && (reviewer.questions[2]["criteria"] as! [String: String])["ENTER:search"] != nil,
+              "after review the graph returns to the root decision")
+        check(reviewed.steps.contains { $0.action == .lookAround }, "ordinary Hunt continues after the learning branch")
 
         // New class/skill and extra depth are data, not a change to graph traversal code.
         let extensionJSON = """
@@ -139,9 +185,14 @@ final class GraphReplies: JevClient {
             check(false, "missing skill must not be silently dropped")
         } catch { check(error as? GraphError == .definition, "catalogue must cover the actual supplied skill menu") }
 
-        let command = try parseNav(["--hunt-dry-run", "--graph", path])
-        check(command.graph == path && command.mode == .huntDryRun, "catalogue selected explicitly in native CLI")
+        let command = try parseNav(["--hunt-dry-run", "--graph", path, "--experience", "/tmp/episodes.json"])
+        check(command.graph == path && command.experience == "/tmp/episodes.json" && command.mode == .huntDryRun,
+              "catalogue and persistent experience selected explicitly in native CLI")
         check(try parseNav(["--hunt", "--keys", "wqe"]).graph == nil, "legacy mode still default")
+        do {
+            _ = try parseNav(["--hunt-dry-run", "--experience", "/tmp/episodes.json"])
+            preconditionFailure("experience without graph must not bypass explicit READ")
+        } catch { /* expected: persistent experience requires the Jev decision graph */ }
         if CommandLine.arguments.contains("--graph") { print(try load().graph.mermaid()) }
         print("decision graph checks passed: \(n)")
     }

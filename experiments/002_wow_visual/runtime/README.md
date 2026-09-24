@@ -2,8 +2,9 @@
 
 This is the runtime entry point, not another agent framework. Languages do not
 own architectural roles. `Runtime.swift` keeps task/evidence contracts, `Input.swift`
-keeps input ownership, and `DecisionGraph.swift` lets Jev choose **information,
-branching, or skills**. The existing Fight/Nav/Hunt implementations remain tools.
+keeps input ownership, `DecisionGraph.swift` lets Jev choose **information,
+branching, or skills**, and `Experience.swift` retains bounded pre/post outcomes for
+optional later recall. The existing Fight/Nav/Hunt implementations remain tools.
 
 ## Implemented slice
 
@@ -38,8 +39,11 @@ This gives a sequence of adaptive skill choices, **not a blind queued combo**.
 
 ```mermaid
 flowchart TD
-    H[Jev: hunt] --> R[READ task history / progress / class conflicts]
+    H[Jev: hunt] --> R[READ task history / progress / references / experience]
     R --> H
+    H --> I[Jev: improve one retained episode]
+    I --> IR[perception / movement / tactics / retain / unclear hypothesis]
+    IR --> H
     H --> S[Jev: search]
     H --> F[DO FIGHT_TARGET]
     H --> E[DO REST / EAT_DRINK]
@@ -57,13 +61,70 @@ flowchart TD
     DS --> N
     CS --> N
     E --> N
-    N --> H
+    N --> X[deterministic pre/post episode record]
+    X --> H
 ```
 
 `BACK` edges and local READ edges are omitted above. The session actually retains
 its selected node after a skill; new observations can prompt BACK. `ToolGraph.mermaid()`
 renders the exact catalogue, including all skills, reads and child edges. The test
 binary's `--graph` option prints it. There is no independent graph database or editor.
+
+## Experience loop: self-improvement without model weight updates
+
+`Experience.swift` adds one bounded, local episodic cache. After an existing Hunt
+skill actually executes, native code records the coarse pre-action situation, the
+selected skill, its reported result, whether a walk was observed blocked, elapsed
+time and a later observation when one is available. Missing post-action vision or
+a missing objective line remains unknown. Recording an outcome performs no model
+call and does not turn one success/failure into a rule.
+
+On the next decision the compact `experience_index` is always visible. It reports
+whether comparable retained cases exist, but not all episode detail. Jev may then
+choose `READ:experience`; only the following request receives up to three contrasting
+cases (latest, blocked and objective-progress examples) plus per-action counts. The
+matching key uses explicit coarse screen-derived buckets such as combat/recovery
+phase, health/mana band, selected-target kind, quest-area relation, nearby hostiles,
+blocked-heading presence and a coarse zone-map cell. It is deliberately not semantic
+similarity, causal attribution or a calibrated success probability.
+
+Jev may also enter the `improve` node. Its outputs are deliberately narrow:
+`REVIEW_PERCEPTION`, `REVIEW_MOVEMENT`, `REVIEW_TACTICS`, `RETAIN_EXAMPLE` or
+`REVIEW_UNCLEAR`. This stores a hypothesis/bookmark tied to the exact episode, posts
+no game input, then returns the graph to the Hunt root. It cannot write Swift, create
+new skills, edit the graph or promote a tactic. A later human/LLM development pass
+can use these queued cases to propose code, decoder, reference or policy changes;
+those changes still need ordinary source review and evidence before becoming runtime
+inputs. This separates immediate non-parametric adaptation from slower software
+improvement.
+
+The store is opt-in and local:
+
+```sh
+# First run accumulates episodes; later runs can choose READ:experience.
+/tmp/m4-nav --hunt-dry-run \
+  --graph experiments/002_wow_visual/runtime/skyborne-hunt.graph.json \
+  --experience /tmp/skyborne-hunt-experience.json
+```
+
+The file is scoped to the graph/profile ID. A differently scoped runtime does not
+silently import it. It holds at most 256 retrieval cases; full run evidence remains
+in each run's event log. This slice does not demonstrate that retrieval improves
+win rate, latency or token use. That requires comparable episodes with and without
+retrieval. It also does not yet feed experience into the nested M3 combat choices,
+create new motor skills, or consolidate cases into a promoted strategy.
+
+The design borrows mechanisms, not code, from several lifelong-agent lines of work:
+Voyager stores reusable executable skills and improves them from execution feedback;
+Reflexion retains trial feedback in episodic memory; ExpeL gathers experience and
+recalls extracted insights; MemRL separates a stable reasoner from plastic episodic
+memory with feedback-derived utility; and ProactAgent treats retrieval itself as an
+explicit action. Our first slice keeps only the cheapest testable pieces: structured
+episodes, optional retrieval, contrasting outcomes and a typed request for later
+analysis. References: https://arxiv.org/abs/2305.16291,
+https://arxiv.org/abs/2303.11366, https://arxiv.org/abs/2308.10144,
+https://arxiv.org/abs/2601.03192 and https://arxiv.org/abs/2604.20572.
+No implementation from those projects is copied and no dependency is added.
 
 ## Run and compare
 
@@ -72,7 +133,8 @@ From the repo root:
 
 ```sh
 # Pure simulation, canned choices, no key, game, capture or provider:
-/tmp/m4-nav --hunt-dry-run --graph experiments/002_wow_visual/runtime/skyborne-hunt.graph.json
+/tmp/m4-nav --hunt-dry-run --graph experiments/002_wow_visual/runtime/skyborne-hunt.graph.json \
+  --experience /tmp/skyborne-hunt-experience.json
 # Existing flat baseline remains unchanged:
 /tmp/m4-nav --hunt-dry-run
 ```
@@ -119,8 +181,9 @@ actual tool and meaningful task observation exist:
 - Professions: fishing, skinning, mining, crafting. Fishing exists separately; none
   is made a selectable graph tool merely by listing it in this roadmap.
 - Memory/tools: last observed inventory/equipment, visited map, skill/reference index,
-  task history. Only history/progress/navigation snapshot and one qualified reference
-  section are connected here. No hidden game-state source or generic LLM is involved.
+  task history. History/progress/navigation, one qualified reference section and the
+  bounded Hunt experience cache are connected here. Inventory/equipment/map memory
+  remain future tools. No hidden game-state source or generic LLM is involved.
 
 The catalogue profile names Skyborne Shaman, but this is NOT qualification of all
 level 1-20 spells, races, quest types or environments. Adding another profile means

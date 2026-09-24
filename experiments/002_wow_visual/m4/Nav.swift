@@ -624,6 +624,7 @@ struct NavCommand: Equatable {
     var scenario: String?
     var quest: String?
     var graph: String?
+    var experience: String?
 }
 
 let navScenarios: Set<String> = ["open", "wall", "pocket"]
@@ -655,6 +656,8 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         switch (mode, option) {
         case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"):
             command.graph = value
+        case (.hunt, "--experience"), (.huntDryRun, "--experience"), (.huntSimJev, "--experience"):
+            command.experience = value
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value
@@ -688,6 +691,9 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         default:
             throw ProbeError("unexpected option '\(option.prefix(40))'")
         }
+    }
+    if command.experience != nil && command.graph == nil {
+        throw ProbeError("--experience requires --graph PATH so Jev explicitly chooses READ:experience")
     }
     if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
     if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }

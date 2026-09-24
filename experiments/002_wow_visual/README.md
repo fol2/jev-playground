@@ -106,4 +106,7 @@ owner's taught tactics as the reference, and Jev never sees them.
 See [the runtime entry point](runtime/README.md) for the opt-in, data-defined
 read / branch / skill decision graph and its native Hunt consumer. The existing
 flat policy remains available for comparison. The graph changes policy structure,
-not decoder accuracy or the qualification of any skill.
+not decoder accuracy or the qualification of any skill. The same entry point now
+contains an opt-in Hunt experience loop: deterministic episode recording, Jev-selected
+`READ:experience`, and a bounded review branch that queues hypotheses for later
+human/LLM development rather than editing live policy.

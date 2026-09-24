@@ -38,7 +38,8 @@ def released(rows: list, pulses: int | None = None) -> None:
 
 def build(output: str, *sources: str, flags: tuple = ()) -> None:
     if FIGHT + "Fight.swift" in sources:
-        sources = (*sources, "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift", "experiments/002_wow_visual/runtime/DecisionGraph.swift")
+        sources = (*sources, "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift",
+                   "experiments/002_wow_visual/runtime/DecisionGraph.swift", "experiments/002_wow_visual/runtime/Experience.swift")
     subprocess.run(["swiftc", "-parse-as-library", *flags, *sources, "-o", output], cwd=ROOT, check=True, timeout=300)
 
 
@@ -137,6 +138,9 @@ def main():
         core_tests = str(Path(tmp, "runtime-tests"))
         build(core_tests, runtime + "Runtime.swift", runtime + "RuntimeTests.swift")
         suite(core_tests, "runtime", 33)
+        experience_tests = str(Path(tmp, "experience-tests"))
+        build(experience_tests, runtime + "Experience.swift", runtime + "ExperienceTests.swift")
+        experience_checks = suite(experience_tests, "experience", 34)
         integration = str(Path(tmp, "integration-tests"))
         build(integration, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift",
               NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "IntegrationTests.swift")
@@ -144,7 +148,7 @@ def main():
         graph_tests = str(Path(tmp, "graph-tests"))
         build(graph_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift",
               NAV + "Nav.swift", NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "GraphTests.swift")
-        graph_checks = suite(graph_tests, "decision graph", 42)
+        graph_checks = suite(graph_tests, "decision graph", 53)
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
         seek_tests, seek = str(Path(tmp, "seek-tests")), str(Path(tmp, "m1-seek"))
         build(tests, MOTOR + "Motor.swift", MOTOR + "MotorTests.swift")
@@ -202,7 +206,8 @@ def main():
                       ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],
                       ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "5"], ["--hunt"],
                       ["--hunt", "--keys", "arrows"], ["--hunt", "--keys", "wqe", "extra"], ["--hunt-dry-run", "x"],
-                      ["--hunt-sim-jev", "x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"]))
+                      ["--hunt-sim-jev", "x"], ["--hunt-dry-run", "--experience"],
+                      ["--dry-run", "--experience", "/tmp/x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"]))
         nav_dry = subprocess.run([nav, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         nav_rows = [json.loads(line) for line in nav_dry.stdout.splitlines() if line.strip()]
         nav_summary = nav_rows[-1] if nav_rows else {}
@@ -215,13 +220,23 @@ def main():
         if (hunt_summary.get("event") != "summary" or not hunt_summary.get("fights")
                 or hunt_summary.get("holding") is not False or hunt_summary.get("provider_calls") != 0):
             raise GateError("M4 hunt dry-run did not fight with keys released and no provider call")
-        graph_dry = subprocess.run([nav, "--hunt-dry-run", "--graph", runtime + "skyborne-hunt.graph.json"],
+        memory_file = str(Path(tmp, "hunt-experience.json"))
+        graph_dry = subprocess.run([nav, "--hunt-dry-run", "--graph", runtime + "skyborne-hunt.graph.json",
+                                    "--experience", memory_file],
                                    cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         graph_rows = [json.loads(line) for line in graph_dry.stdout.splitlines() if line.strip()]
         graph_summary = graph_rows[-1]
         if (not graph_summary.get("graph_calls") or not graph_summary.get("fights")
-                or graph_summary.get("holding") is not False or graph_summary.get("provider_calls") != 0):
-            raise GateError("graph dry-run did not exercise tools and real Hunt skills without provider calls")
+                or graph_summary.get("holding") is not False or graph_summary.get("provider_calls") != 0
+                or not graph_summary.get("experience_cases")):
+            raise GateError("graph dry-run did not exercise tools, experience recording and real Hunt skills")
+        recalled = subprocess.run([nav, "--hunt-dry-run", "--graph", runtime + "skyborne-hunt.graph.json",
+                                   "--experience", memory_file],
+                                  cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
+        recalled_rows = [json.loads(line) for line in recalled.stdout.splitlines() if line.strip()]
+        if not any(row.get("event") == "graph_call" and "READ:experience" in str(row.get("question"))
+                   for row in recalled_rows):
+            raise GateError("second graph run did not proactively retrieve retained experience")
         nav_trap()
         tabletop = subprocess.run([sys.executable, NAV + "tabletop.py", "--check"], cwd=ROOT, check=True,
                                   capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
@@ -234,7 +249,7 @@ def main():
             raise GateError(f"video_jev --check reported {video.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
-    print(f"Decision graph: {graph_checks} checks and native tool/skill dry-run passed. M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
+    print(f"Experience: {experience_checks} checks. Decision graph: {graph_checks} checks and native tool/skill/recall dry-run passed. M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses), the simulated M3 fight ({fight_summary.get('decisions')} "
           f"decisions) and the simulated M4 walk ({nav_summary.get('decisions')} decisions); M3/M4 dry-run SIGINT stops the "
