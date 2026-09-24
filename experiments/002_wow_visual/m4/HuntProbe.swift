@@ -188,7 +188,7 @@ final class LiveHuntHost: HuntHost {
 func recordHunt(_ result: HuntResult, into run: URL, manifest base: [String: Any]) throws {
     var lines = Data()
     var prompt = 0, completion = 0
-    let rows = result.records + result.fights.flatMap(\.jevRecords)
+    let rows = (result.graphID == nil ? result.records : result.graphRecords) + result.fights.flatMap(\.jevRecords)
     for record in rows where JSONSerialization.isValidJSONObject(record) {
         lines += try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) + Data([10])
         if let response = record["response"] as? [String: Any] {
@@ -202,6 +202,14 @@ func recordHunt(_ result: HuntResult, into run: URL, manifest base: [String: Any
     var manifest = base
     manifest["outcome"] = result.outcome
     manifest["hunt_decisions"] = result.decisions
+    manifest["decision_graph"] = result.graphID as Any? ?? NSNull()
+    if result.graphID != nil {
+        manifest["graph_requests"] = result.graphRecords.count
+        manifest["graph_usage_missing"] = result.graphRecords.filter {
+            ($0["response"] as? [String: Any])?["usage"] == nil
+        }.count
+        manifest["graph_budget_scope"] = "Hunt tool-choice requests only, no HTTP retry; warm-up and nested Fight are separate. Token totals sum returned usage, not unknown failed-call usage."
+    }
     manifest["steps"] = result.steps.map(\.json)
     manifest["fights"] = result.fights.map { ["outcome": $0.outcome, "decisions": $0.decisions] }
     manifest["objectives_start"] = objectives(result.start)
@@ -234,7 +242,7 @@ func huntLimits() -> [String: Any] {
      "hunt_jev_timeout_s": HuntLimits.jevTimeout, "fight_jev_timeout_s": FightLimits.jevTimeout]
 }
 
-func huntDryRun() async throws -> Int32 {
+func huntDryRun(graph: GraphSession? = nil) async throws -> Int32 {
     let log = try Log(file: nil)
     let clock = FightClock(pace: 0.005)
     let world = SimHunt.field(clock: clock)
@@ -247,16 +255,17 @@ func huntDryRun() async throws -> Int32 {
     let signals = trapSignals(dummy, log, also: { world.keys.releaseAll() }, holding: { world.keys.holding })
     log.emit("start", ["mode": "hunt-dry-run", "effects": "none: SimHunt field + ScriptedJev; no capture, OS input or network"])
     usleep(400_000)  // as the walk's dry-run: a SIGINT sent on "start" lands inside the loop
-    let result = await runHunt(host: world, jev: ScriptedJev(preference: hunterPreference))
+    let client: JevClient = graph == nil ? ScriptedJev(preference: hunterPreference) : HuntGraphDemo()
+    let result = await runHunt(host: world, jev: client, graph: graph)
     withExtendedLifetime(signals) {}
     log.emit("summary", ["outcome": result.outcome, "decisions": result.decisions, "fights": result.fights.count,
-                         "holding": result.holding, "actions": result.steps.map(\.action.rawValue), "provider_calls": 0,
+                         "holding": result.holding, "actions": result.steps.map(\.action.rawValue), "provider_calls": 0, "graph_calls": result.graphRecords.count,
                          "meaning": "proves the hunt loop, targeting keys and stops against a simulated field, not WoW"])
     return !result.fights.isEmpty && !result.holding ? 0 : 2
 }
 
 /// Rehearsal: the real Jev against the simulated field, before any live hunt.
-func huntSimJev() async throws -> Int32 {
+func huntSimJev(graph: GraphSession? = nil) async throws -> Int32 {
     let key = try apiKey()
     let world = SimHunt.field(clock: FightClock())
     let run = try runDirectory("m4_hunt_sim")
@@ -269,7 +278,7 @@ func huntSimJev() async throws -> Int32 {
     guard let warm = await warmJev(key) else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
     log.emit("start", ["run_id": run.id, "mode": "hunt-sim-jev", "effects": "SimHunt + Jev via TypeSafe; no capture or OS input",
                        "jev_warm_up_s": roundTo(warm)])
-    let result = await runHunt(host: world, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout))
+    let result = await runHunt(host: world, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0), graph: graph)
     try recordHunt(result, into: run.url, manifest: [
         "schema": "m4-hunt-run/v1", "run_id": run.id, "mode": "hunt-sim-jev", "scenario": "field",
         "started_utc": ISO8601DateFormatter().string(from: Date()),
@@ -282,7 +291,7 @@ func huntSimJev() async throws -> Int32 {
 }
 
 @MainActor
-func huntExecute() async throws -> Int32 {
+func huntExecute(graph: GraphSession? = nil) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -325,11 +334,31 @@ func huntExecute() async throws -> Int32 {
         "capture": "window-only ScreenCaptureKit at \(HUD.width)x\(HUD.height), audio off, cursor hidden",
     ]
     host.emit("start", ["run_id": run.id, "mode": "hunt", "objectives": start.objectives.count, "jev_warm_up_s": roundTo(warm)])
-    let result = await runHunt(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout))
+    let result = await runHunt(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0), graph: graph)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     try recordHunt(result, into: run.url, manifest: manifest)
     host.emit("summary", ["outcome": result.outcome, "run_directory": run.url.path, "decisions": result.decisions,
                           "fights": result.fights.map(\.outcome), "actions": result.steps.map(\.action.rawValue)])
     return host.holding ? 3 : (result.fights.contains { $0.outcome.hasPrefix("KILLED") } ? 0 : 2)
+}
+
+// Demonstration fixture only: prefer existing hunting skills; navigate the sample catalogue to find them.
+// It proves graph plumbing, not Jev quality. Real modes always use LiveJev with no fallback.
+final class HuntGraphDemo: JevClient {
+    private var read = false
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        let options = question["criteria"] as? [String: String] ?? [:]
+        var preference = hunterPreference.map { "DO:" + $0.rawValue }
+        let target = state["target"] as? [String: Any] ?? [:]
+        if target["alive"] as? Bool == true && target["counts_for_objective"] as? String != "none" {
+            preference = ["DO:FIGHT_TARGET", "BACK"] + preference
+        }
+        if !read { preference.insert("READ:recent", at: 0) }
+        preference += ["ENTER:search", "ENTER:travel", "ENTER:compass", "BACK"]
+        guard let name = preference.first(where: { options[$0] != nil }) else { throw GraphError.noSkills }
+        if name == "READ:recent" { read = true }
+        return ["model": FightLimits.model, "answers": ["action": ["choice": name, "confidence": 1.0,
+            "probabilities": Dictionary(uniqueKeysWithValues: options.keys.map { ($0, $0 == name ? 1.0 : 0.0) })]]]
+    }
 }

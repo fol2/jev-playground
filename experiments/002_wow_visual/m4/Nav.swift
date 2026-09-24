@@ -623,6 +623,7 @@ struct NavCommand: Equatable {
     var directory: String?
     var scenario: String?
     var quest: String?
+    var graph: String?
 }
 
 let navScenarios: Set<String> = ["open", "wall", "pocket"]
@@ -642,7 +643,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     }
     var seen: Set<String> = []
     while let option = rest.popFirst() {
-        guard [.execute, .simJev, .hunt, .turnIn].contains(mode) else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        guard [.execute, .simJev, .hunt, .turnIn, .huntDryRun, .huntSimJev].contains(mode) else { throw ProbeError("\(mode.rawValue) takes no arguments") }
         if mode == .execute && option == "--ghost" {
             guard !command.ghost else { throw ProbeError("'--ghost' is repeated") }
             command.ghost = true
@@ -652,6 +653,8 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
             throw ProbeError("'\(option.prefix(40))' is repeated or has no value")
         }
         switch (mode, option) {
+        case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"):
+            command.graph = value
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value

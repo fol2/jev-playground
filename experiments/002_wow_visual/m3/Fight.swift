@@ -300,16 +300,22 @@ func jsonMap(_ value: Any?) -> [String: Any]? {
     return nil
 }
 
-func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: String) -> JevChoice<A>? {
+struct NamedJevChoice {
+    let name: String
+    let confidence: Double
+    let probabilities: [String: Double]
+}
+
+func parseNamedChoice(_ body: [String: Any], candidates: [String], model: String) -> NamedJevChoice? {
     guard let got = body["model"] as? String, got == model else { return nil }
     guard let answers = body["answers"] as? [String: Any],
           let a = answers["action"] as? [String: Any],
           let name = a["choice"] as? String else { return nil }
-    guard let action = A(rawValue: name), admissible.contains(action) else { return nil }
+    guard candidates.contains(name) else { return nil }
     guard let rawConfidence = a["confidence"], let confidence = jsonDouble(rawConfidence),
           (0...1).contains(confidence) else { return nil }
     guard let raw = jsonMap(a["probabilities"]) else { return nil }
-    let allowed = Set(admissible.map(\.rawValue))
+    let allowed = Set(candidates)
     guard Set(raw.keys) == allowed else { return nil }
     var probabilities: [String: Double] = [:]
     var sum = 0.0
@@ -319,7 +325,13 @@ func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: St
         sum += p
     }
     guard abs(sum - 1) <= FightLimits.probabilitySlack else { return nil }
-    return JevChoice(action: action, confidence: confidence, probabilities: probabilities)
+    return NamedJevChoice(name: name, confidence: confidence, probabilities: probabilities)
+}
+
+func parseChoice<A: JevAction>(_ body: [String: Any], admissible: [A], model: String) -> JevChoice<A>? {
+    guard let parsed = parseNamedChoice(body, candidates: admissible.map(\.rawValue), model: model),
+          let action = A(rawValue: parsed.name) else { return nil }
+    return JevChoice(action: action, confidence: parsed.confidence, probabilities: parsed.probabilities)
 }
 
 /// True when the text shares two 4-letter runs with a name (one for a 4-letter name). OCR read a
