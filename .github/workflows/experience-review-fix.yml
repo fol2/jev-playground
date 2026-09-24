@@ -1,0 +1,61 @@
+name: Apply experience review fix
+on:
+  push:
+    branches: [feat/jev-experience-loop]
+    paths: [.github/workflows/experience-review-fix.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Keep persistent experience on the explicit Jev graph path
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/review.patch <<'PATCH'
+          diff --git a/experiments/002_wow_visual/m4/Nav.swift b/experiments/002_wow_visual/m4/Nav.swift
+          --- a/experiments/002_wow_visual/m4/Nav.swift
+          +++ b/experiments/002_wow_visual/m4/Nav.swift
+          @@ -694,6 +694,9 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
+                   throw ProbeError("unexpected option '\(option.prefix(40))'")
+               }
+           }
+          +    if command.experience != nil && command.graph == nil {
+          +        throw ProbeError("--experience requires --graph PATH so Jev explicitly chooses READ:experience")
+          +    }
+               if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
+               if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }
+               if mode == .turnIn && (command.profile == nil || command.quest == nil) {
+          diff --git a/experiments/002_wow_visual/runtime/GraphTests.swift b/experiments/002_wow_visual/runtime/GraphTests.swift
+          --- a/experiments/002_wow_visual/runtime/GraphTests.swift
+          +++ b/experiments/002_wow_visual/runtime/GraphTests.swift
+          @@ -188,6 +188,11 @@ final class GraphReplies: JevClient {
+                   check(command.graph == path && command.experience == "/tmp/episodes.json" && command.mode == .huntDryRun,
+                         "catalogue and persistent experience selected explicitly in native CLI")
+                   check(try parseNav(["--hunt", "--keys", "wqe"]).graph == nil, "legacy mode still default")
+          +        do {
+          +            _ = try parseNav(["--hunt-dry-run", "--experience", "/tmp/episodes.json"])
+          +            preconditionFailure("experience without graph must not bypass explicit READ")
+          +        } catch { /* expected: persistent experience requires the Jev decision graph */ }
+          +
+                   if CommandLine.arguments.contains("--graph") { print(try load().graph.mermaid()) }
+                   print("decision graph checks passed: \(n)")
+               }
+          PATCH
+          git apply --index /tmp/review.patch
+          git rm .github/workflows/experience-review-fix.yml
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          tmp=$(mktemp -d)
+          swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift experiments/002_wow_visual/m4/Hunt.swift experiments/002_wow_visual/m4/Quest.swift experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift experiments/002_wow_visual/runtime/Experience.swift experiments/002_wow_visual/runtime/GraphTests.swift -o "$tmp/graph-tests"
+          "$tmp/graph-tests"
+          git diff --cached --check
+          git config user.name 'James To'
+          git config user.email '105634418+fol2@users.noreply.github.com'
+          git commit -m 'fix: require the Jev graph for persistent experience recall'
+          git push origin HEAD:feat/jev-experience-loop
