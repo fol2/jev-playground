@@ -303,25 +303,45 @@ Boros) and Harvesting Windstones here, then The Adventurer and The Next Step in 
 
 ## M4e — deliver this zone's quests
 
-`m4-nav --quests --keys wqe` reads the plan as M4d, then works through the quests of the player's own
-zone in order: an M4a walk to the pin (each walk has its own key set, because a walk's exit sweep ends
-its keys for good), then the M4c hand-in. A delivery's progress page ("Continue") is clicked through.
-Walk-to-and-hand-in is the only kind built; a kill, collect or use-at quest ends the run as
-`NOT_BUILT_<KIND>`.
+The first `--quests` walked the plan's quests in order: an M4a walk to the pin (each walk has its own
+key set, because a walk's exit sweep ends its keys for good), then the M4c hand-in, clicking through a
+delivery's "Continue" page. The script chose every step (RULE).
 
 Live, 24 Sept: the engine walked to Windshaper Boros and handed in Call of Earth (+360 experience,
 level 6, Stoneskin Totem learnt). The next run read one quest of four from the log (only The Adventurer,
 in Shen'dar), although the minimap's tooltips had just named Harvesting Windstones and The Gift of
 Skysight. The plan's first zone was then Shen'dar, 20 units south, and the walk ended NO_PROGRESS near a
-cliff. The frame the log was read from was not kept, so the cause of the short read is unknown. Three
-guards follow, all RULE:
+cliff. The frame the log was read from was not kept, so the cause of the short read is unknown. Now:
 
 - The frame the log is read from is saved as `quest-log.png`.
 - A quest named by a minimap tooltip but missing from the log read stops the run as `LOG_INCOMPLETE`.
   A quest giver's "!" (a quest not yet taken) would stop it the same way until pick-ups are built.
-- Only the player's own zone is walked: quests chained within 12 y units of the player. With none,
-  the run stops as `NEXT_ZONE_NEEDS_ROADS`; a single leg over 12 units stops as `TOO_FAR_NEEDS_ROADS`.
-  Zone-to-zone travel waits for road routing.
+- A walk is offered only to a pin within 12 y units (a hub is smaller); farther is zone travel, which
+  waits for road routing.
+
+## M4f — Jev chooses the quest steps
+
+The owner, 24 Sept: the engine's skeleton is Jev-driven. `m4-nav --quests --graph
+experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replaces the RULE loop with
+`runQuests` in `Quest.swift`:
+
+1. Read the log, the minimap's quest icons and the position (M4d); `LOG_INCOMPLETE` stops here.
+2. Offer `HAND_IN_1` to `HAND_IN_4`: quests a hand-in can finish (ready, or a delivery to someone) with
+   a pin within one walk, not yet failed this run, in the owner's zone-first order. Each criterion names
+   the quest, its level, distance and objective.
+3. Jev walks the graph: it may `READ:quest_log` (every quest, in the owner's order, with kind, distance
+   and zone), `READ:recent` (the steps so far) or `READ:owner_rules` (the owner's rules in
+   `learning/knowledge/owner-rules.md`), then `DO` one offer. At most four calls per step within 20 s,
+   120 a run; no HTTP retry, no rules fallback.
+4. Run it: the M4a walk (Jev's moves) and the M4c hand-in (the reward is the owner's RULE). Read again,
+   because a hand-in changes the log.
+
+Stops: no offer left (`NO_HAND_IN_LEFT`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
+a walk stopped for combat, health, the owner or the HUD; the second `WALK_NO_PROGRESS`; eight steps.
+A failed hand-in is not offered again. Offline, 8 checks run the loop on the live Thendal values of
+24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
+reach only the request after the READ, and the one-quest log read stops before any Jev call. They do not
+show what the real Jev chooses, or live hand-ins.
 
 ## Limits
 

@@ -68,7 +68,7 @@ class VisualRouteTests(unittest.TestCase):
 
     def test_graph_definition_and_code_select_actual_native_consumer_proof(self):
         for name in ("DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
-                     "skyborne-hunt.graph.json", "README.md"):
+                     "skyborne-hunt.graph.json", "skyborne-quest.graph.json", "README.md"):
             self.assertIn("motor-offline", route([("M", RUNTIME + name)])["checks"])
         with patch.object(motor_offline.subprocess, "run") as run:
             motor_offline.build("unused", FIGHT + "Fight.swift")

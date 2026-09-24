@@ -293,11 +293,46 @@ final class QuestRun {
     }
 }
 
-/// `--quests --keys wqe`: plan, then deliver and hand in the player's zone's quests in order: M4a walks to
-/// each NPC (Jev's moves), M4c completes it (RULE). Stops at the zone's edge (roads are not built) and at
-/// any quest kind with no skill yet.
+/// The live side of `runQuests`: the log read of M4d, an M4a walk to the pin (Jev's moves) and M4c's
+/// hand-in (RULE). Each walk gets its own keys: runNav's exit sweep ends a key set for good (live,
+/// 24 Sept: the second walk of a run pressed nothing for ten decisions).
+final class LiveQuestHost: QuestHost {
+    let quester: QuestRun
+    let key: String
+    let walk: () -> LiveNavBody
+    var walker: LiveNavBody?
+    init(quester: QuestRun, key: String, walk: @escaping () -> LiveNavBody) { self.quester = quester; self.key = key; self.walk = walk }
+
+    func readQuests() async -> QuestRead? {
+        let (quests, player, missing) = await quester.readQuests()
+        return player.map { QuestRead(quests: quests, player: $0, missing: missing) }
+    }
+
+    func handIn(_ quest: PlannedQuest) async -> String {
+        // Walk even a short way: walking faces the NPC, so its "?" is in view (live, 24 Sept: 1.0 away and
+        // behind the camera, no mark was found).
+        if let pin = quest.pin, let at = quester.body.look(), distance((at.x, at.y), pin) > 0.5 {
+            guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
+            let legs = walk()
+            walker = legs
+            let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
+                                      destination: NavDestination(label: String(quest.title.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
+            guard walked.outcome == "ARRIVED" else { return "WALK_" + walked.outcome }
+        }
+        let outcome = await quester.turnIn(quest.title)
+        emit("quest_done", ["quest": quest.title, "outcome": outcome])
+        return outcome
+    }
+
+    func now() -> Double { hostNow() }
+    func ownerTookFocus() -> Bool { quester.body.ownerTookFocus() }
+    func emit(_ event: String, _ fields: [String: Any]) { quester.body.emit(event, fields) }
+}
+
+/// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
+/// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
 @MainActor
-func questsExecute() async throws -> Int32 {
+func questsExecute(graph: GraphSession) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -319,59 +354,23 @@ func questsExecute() async throws -> Int32 {
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
-    // Each walk gets its own keys: runNav's exit sweep ends a key set for good (live, 24 Sept: the second
-    // walk of a run pressed nothing for ten decisions).
-    var walker: LiveNavBody?
-    defer { body.releaseAll(); walker?.releaseAll() }
+    let host = LiveQuestHost(quester: try QuestRun(body: body), key: key) {
+        LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    }
+    defer { body.releaseAll(); host.walker?.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
-    let signals = trapSignals(dummy, log, also: { body.releaseAll(); walker?.releaseAll() },
-                              holding: { body.holding || (walker?.holding ?? false) })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.walker?.releaseAll() },
+                              holding: { body.holding || (host.walker?.holding ?? false) })
     await zoomOut(body.keys, log)
-    let quester = try QuestRun(body: body)
-    let (quests, player, missing) = await quester.readQuests()
-    guard let player else { throw ProbeError("the minimap's coordinates were unreadable") }
-    let plan = questPlan(quests, from: player)
-    let here = thisZone(plan, from: player)
-    body.emit("plan", ["controller": "RULE", "order": plan.map(\.title), "this_zone": here.map(\.title)])
-    var outcomes: [[String: String]] = []
-    if !missing.isEmpty {
-        outcomes.append(["quest": missing.joined(separator: ", "), "outcome": "LOG_INCOMPLETE"])  // see quest-log.png
-    } else if here.isEmpty && !plan.isEmpty {
-        outcomes.append(["quest": plan[0].title, "outcome": "NEXT_ZONE_NEEDS_ROADS"])
-    }
-    for q in outcomes.isEmpty ? here : [] {
-        let kind = questKind(q)
-        guard kind == .handIn || kind == .travel else {
-            outcomes.append(["quest": q.title, "outcome": "NOT_BUILT_" + kind.rawValue])
-            break
-        }
-        // Walk even a short way: walking faces the NPC, so its "?" is in view (live, 24 Sept: 1.0 away and
-        // behind the camera, no mark was found).
-        if let pin = q.pin, let at = body.look(), distance((at.x, at.y), pin) > 0.5 {
-            guard distance((at.x, at.y), pin) <= 12 else {  // a hub is smaller: farther is road travel, not built
-                outcomes.append(["quest": q.title, "outcome": "TOO_FAR_NEEDS_ROADS"])
-                break
-            }
-            let legs = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
-            walker = legs
-            let walk = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                    destination: NavDestination(label: String(q.title.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
-            guard walk.outcome == "ARRIVED" else {
-                outcomes.append(["quest": q.title, "outcome": "WALK_" + walk.outcome])
-                break
-            }
-        }
-        let outcome = await quester.turnIn(q.title)
-        outcomes.append(["quest": q.title, "outcome": outcome])
-        body.emit("quest_done", ["quest": q.title, "outcome": outcome])
-        guard outcome.hasPrefix("COMPLETED") else { break }
-    }
+    body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
+    let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
-    body.emit("summary", ["outcomes": outcomes, "next_zone": plan.filter { q in !here.contains { $0.title == q.title } }.map(\.title),
-                          "run_directory": run.url.path])
-    for o in outcomes { print("\(o["quest"]!): \(o["outcome"]!)") }
-    return body.holding ? 3 : 0
+    body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },
+                          "graph_requests": result.graphRecords.count, "run_directory": run.url.path])
+    for s in result.steps { print("\(s.quest): \(s.outcome)") }
+    print("run: \(result.outcome)")
+    return body.holding || (host.walker?.holding ?? false) ? 3 : 0
 }
 
 /// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.

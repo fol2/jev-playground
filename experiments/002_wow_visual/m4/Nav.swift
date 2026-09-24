@@ -655,7 +655,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
             throw ProbeError("'\(option.prefix(40))' is repeated or has no value")
         }
         switch (mode, option) {
-        case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"):
+        case (.hunt, "--graph"), (.huntDryRun, "--graph"), (.huntSimJev, "--graph"), (.quests, "--graph"):
             command.graph = value
         case (.hunt, "--experience"), (.huntDryRun, "--experience"), (.huntSimJev, "--experience"):
             command.experience = value
@@ -699,6 +699,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
     if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }
     if [.plan, .quests].contains(mode) && command.profile == nil { throw ProbeError("\(mode.rawValue) requires --keys wqe, confirmed in-game") }
+    if mode == .quests && command.graph == nil { throw ProbeError("--quests requires --graph PATH: Jev chooses each quest step") }
     if mode == .turnIn && (command.profile == nil || command.quest == nil) {
         throw ProbeError("--turn-in requires --keys wqe and --quest NAME")
     }

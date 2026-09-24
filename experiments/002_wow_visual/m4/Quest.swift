@@ -292,3 +292,112 @@ func glyphs(_ parts: [Blob]) -> [Blob] {
     }
     return hooks
 }
+
+// M4f: Jev chooses each quest step through a decision graph (runtime/skyborne-quest.graph.json). Local code
+// reads the log, offers only the steps it can run here and runs the chosen one. The owner's zone-first
+// order is a reference Jev may read, not a queue the script works through.
+
+/// One read of the Map & Quest Log, the minimap's quest icons and the player's position.
+struct QuestRead {
+    var quests: [PlannedQuest]
+    var player: MapPoint
+    var missing: [String]  // named by a minimap tooltip but absent from the log read
+}
+
+protocol QuestHost: AnyObject {
+    func readQuests() async -> QuestRead?  // nil: the position was unreadable
+    func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
+    func now() -> Double
+    func ownerTookFocus() -> Bool
+    func emit(_ event: String, _ fields: [String: Any])
+}
+
+enum QuestLimits {
+    static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
+    static let maxSteps = 8
+    static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
+    static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
+}
+
+/// The hand-ins local code offers: quests a hand-in can finish (ready, or a delivery to someone), with a pin
+/// within one walk of the player, not already failed this run; one slot each, in the owner's order. Kill,
+/// collect and use-at quests have no skill in this graph yet and are not offered.
+func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, quest: PlannedQuest, criterion: String)] {
+    let open = questPlan(read.quests, from: read.player).filter { q in
+        [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
+            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } == true
+    }
+    return open.prefix(QuestLimits.slots).enumerated().map { i, q in
+        let away = String(format: "%.1f", distance(read.player, q.pin!))
+        return ("HAND_IN_\(i + 1)", q, "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away) units away) and hand it in. "
+                + "The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
+    }
+}
+
+/// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
+/// taken are READ resources, loaded only when Jev asks for them.
+func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) -> [String: Any] {
+    let plan = questPlan(read.quests, from: read.player)
+    let zone = Set(thisZone(plan, from: read.player).map(\.title))
+    return ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
+            "player": [read.player.x, read.player.y],
+            "units": "zone-map coordinates; distances in y units, about 5 s of running each",
+            "quest_log": plan.map { q -> [String: Any] in
+                ["title": q.title, "level": q.level, "kind": questKind(q).rawValue, "objective": q.objective,
+                 "in_this_zone": zone.contains(q.title),
+                 "distance": q.pin.map { roundTo(distance(read.player, $0), 10) } as Any? ?? NSNull()] },
+            "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
+}
+
+struct QuestResult {
+    var outcome = ""
+    var steps: [(quest: String, outcome: String)] = []
+    var graphRecords: [[String: Any]] = []
+}
+
+/// Read, offer, let Jev choose, run, and read again: a hand-in changes the log. A walk that stops for
+/// combat, health, the owner or the HUD ends the run; the second NO_PROGRESS ends it (the run envelope).
+/// A failed hand-in is not offered again this run. There is no rules fallback when Jev fails.
+func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
+    var r = QuestResult()
+    var failed: Set<String> = []
+    var stuck = 0
+    func finish(_ outcome: String) -> QuestResult {
+        r.outcome = outcome
+        host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
+        return r
+    }
+    while r.steps.count < QuestLimits.maxSteps {
+        if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
+        guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
+        let offers = questOffers(read, failed: failed)
+        if offers.isEmpty {
+            let deliveries = read.quests.filter { [.handIn, .travel].contains(questKind($0)) && !failed.contains($0.title) }
+            return finish(deliveries.isEmpty ? "NO_HAND_IN_LEFT" : "NEXT_ZONE_NEEDS_ROADS")
+        }
+        let decision: GraphDecision
+        do {
+            decision = try await graph.next(state: questState(read, steps: r.steps),
+                skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
+                now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
+        } catch {
+            for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+            return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+        }
+        for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+        guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
+        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "quest": offer.quest.title])
+        let outcome = await host.handIn(offer.quest)
+        r.steps.append((offer.quest.title, outcome))
+        if outcome.hasPrefix("COMPLETED") { continue }
+        failed.insert(offer.quest.title)
+        if outcome == "WALK_NO_PROGRESS" {
+            stuck += 1
+            if stuck >= 2 { return finish("NO_PROGRESS_TWICE") }
+        } else if outcome.hasPrefix("WALK_") {
+            return finish(outcome)
+        }
+    }
+    return finish("STEP_LIMIT")
+}

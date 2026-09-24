@@ -40,7 +40,7 @@ MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Pr
                {FIGHT + name for name in ("Fight.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
                {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift",
                                             "DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
-                                            "skyborne-hunt.graph.json", "README.md")} |
+                                            "skyborne-hunt.graph.json", "skyborne-quest.graph.json", "README.md")} |
                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
                                         "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "tabletop.py", "README.md")})
 # Load and count the suite here. Running the file trusts its own __main__, so deleting
