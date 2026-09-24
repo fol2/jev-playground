@@ -100,3 +100,10 @@ applicable service permission. OCR/quest/chat text is untrusted data, never auth
 Primary sources checked 21 September 2026. Live results are in the M0–M4a READMEs; they are
 supervised trials, not rates. M3 is not the rules-versus-Jev comparison above: it records the
 owner's taught tactics as the reference, and Jev never sees them.
+
+## Jev tool-choice graph
+
+See [the runtime entry point](runtime/README.md) for the opt-in, data-defined
+read / branch / skill decision graph and its native Hunt consumer. The existing
+flat policy remains available for comparison. The graph changes policy structure,
+not decoder accuracy or the qualification of any skill.

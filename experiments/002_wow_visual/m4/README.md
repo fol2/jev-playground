@@ -141,7 +141,7 @@ All boxes are capture pixels of the 2560×1320 window.
 final code, with STOP not offered:
 
 | Scenario | Outcomes | Jev's pattern |
-|---|---|---|
+| --- | --- | --- |
 | A fence across the direct line | Arrived twice (12 and 16 decisions) | Straight until blocked; both 45° detours were blocked; 90° along the fence until clear, then straight |
 | A U-shaped pocket open behind | `NO_PROGRESS` twice (12 decisions) | 45°, then 90° left and right along the closed end; never `BACK_TRACK` |
 
@@ -151,7 +151,7 @@ Windwatcher, the Elemental Unrest turn-in. The runs are kept locally under
 
 | Run | Start → target (radius) | Jev's moves | Outcome |
 |---|---|---|---|
-| 1 | 43.2, 23.8 → 47.1, 21.8 (1.0) | Go ×2; detour right 45°, left 45°, right 90°, left 90° ×2; back ×2 | `NO_ADMISSIBLE_MOVE` at 43.4, 23.4 after 9 decisions |
+| 1 | 43.2, 23.8 → 47.1, 21.8 (1.0) | Go ×2; detour right 45°, left 45°, right 90° ×2; back ×2 | `NO_ADMISSIBLE_MOVE` at 43.4, 23.4 after 9 decisions |
 | 2 | 43.4, 23.4 → 47.1, 21.8 (1.0) | Go ×8 | **Arrived** at 46.5, 21.7: 8 decisions, about 26 s, 84 looks, none unreadable |
 | 3 | 46.5, 21.7 → 47.2, 21.7 (0.4) | Go ×2 | **Arrived** at 47.0, 21.7 |
 
@@ -281,12 +281,32 @@ page of item quests, Accept for new quests and silver or gold in a sell price.
 
 ## Reproduce
 
+Native build and no-effect graph rehearsal (macOS, from the repo root):
+
+```sh
+V=experiments/002_wow_visual
+C=experiments/001_wow_fishing/probes/background-click
+swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
+  $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift $V/m1/Plate.swift $V/m1/SeekProbe.swift \
+  $V/m3/Fight.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
+  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift \
+  $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
+  $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
+  -o /tmp/m4-nav
+/tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json"
+```
+
+The opt-in [tool graph](../runtime/README.md) organises Jev's information and skill
+choices. The command above uses canned replies and SimHunt, not live Jev or WoW.
+Omit `--graph` for the existing flat-policy rehearsal. No current or historical
+live result below/above certifies the new graph policy.
+
 ```sh
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
   experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
-  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 ```
