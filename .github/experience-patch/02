@@ -1,0 +1,113 @@
+-                let decision = try await graph.next(state: state,
+-                    skills: Dictionary(uniqueKeysWithValues: allowed.map { ($0.rawValue, $0.facts) }),
++                let decision = try await graph.next(state: state, skills: graphSkills,
+                     jev: jev, now: host.now, deadline: context.deadline, stopped: host.ownerTookFocus)
+                 reply = decision.response; state = decision.state; question = decision.question
+-                selected = HuntAction(rawValue: decision.action)
++                selectedName = decision.action
+                 recordGraphCalls()
+             } else {
+                 reply = try await jev.ask(state: state, question: question)
+-                selected = parseChoice(reply, admissible: allowed, model: FightLimits.model)?.action
++                selectedName = parseChoice(reply, admissible: allowed, model: FightLimits.model)?.action.rawValue
+             }
+         } catch {
+             recordGraphCalls()
+@@ -610,10 +689,22 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
+         r.latencies.append(host.now() - asked)
+         r.decisions += 1
+         let record: [String: Any] = ["decision": r.decisions, "t": asked, "state": state, "question": question,
+-                                     "admissible": allowed.map(\.rawValue), "response": reply, "context": context.json]
++                                     "admissible": candidates, "response": reply, "context": context.json]
+         r.records.append(record)
+         host.emit("decision", record)
+-        guard let action = selected, allowed.contains(action) else { return finish("INVALID_REPLY") }
++        guard let selectedName else { return finish("INVALID_REPLY") }
++
++        if let topic = ExperienceReview.topic(for: selectedName) {
++            guard let store = experience, reviewTools[selectedName] != nil,
++                  let review = store.reviewLatest(topic, context: experienceContext) else { return finish("INVALID_REPLY") }
++            executive.invalidate()
++            graph?.returnToRoot()
++            r.experienceReviews.append(review.json)
++            r.experience = store.summary
++            host.emit("experience_review", review.json)
++            continue
++        }
++        guard let action = HuntAction(rawValue: selectedName), allowed.contains(action) else { return finish("INVALID_REPLY") }
+ 
+         var result: String
+         sinceFight += 1
+@@ -639,6 +730,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
+         }
+         o = latest!
+         lastStamp = o.stamp
++        let actionBegan = host.now()
++        let walksBefore = r.walks.attempts.count
++        var terminal: String?
+         switch action {
+         case .fight:
+             executive.begin("combat")
+@@ -651,10 +745,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
+             r.fights.append(fight)
+             sinceFight = 0
+             result = "the fight ended \(fight.outcome) after \(fight.decisions) decisions"
+-            if !HuntLimits.continueAfter.contains(fight.outcome) {
+-                r.steps.append(HuntStep(action: .fight, result: result))
+-                return finish("FIGHT_" + fight.outcome)
+-            }
++            if !HuntLimits.continueAfter.contains(fight.outcome) { terminal = "FIGHT_" + fight.outcome }
+         case .nextTarget:
+             result = await selectNearest(host)
+         case .lookAround:
+@@ -676,6 +767,13 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil) async -
+         }
+         r.steps.append(HuntStep(action: action, result: result))
+         host.emit("acted", ["action": action.rawValue, "result": result])
++        if let before = experienceFrame, experience != nil {
++            experienceSerial += 1
++            let blockedResult = action.isWalk && r.walks.attempts.count > walksBefore ? r.walks.attempts.last?.blocked : nil
++            pendingExperience = PendingHuntExperience(id: "\(experienceRun)-\(experienceSerial)", action: action.rawValue,
++                before: before, reported: result, blocked: blockedResult, elapsed: max(0, host.now() - actionBegan))
++        }
++        if let terminal { return finish(terminal) }
+     }
+     return finish("DECISION_LIMIT")
+ }
+diff --git a/experiments/002_wow_visual/m4/HuntProbe.swift b/experiments/002_wow_visual/m4/HuntProbe.swift
+index eb4f044fb594944bff307d57af366942ee78f868..69dc93f4f55f084925b77f53c4b06d2903d8acb0 100644
+--- a/experiments/002_wow_visual/m4/HuntProbe.swift
++++ b/experiments/002_wow_visual/m4/HuntProbe.swift
+@@ -219,6 +219,9 @@ func recordHunt(_ result: HuntResult, into run: URL, manifest base: [String: Any
+     let latencies = result.latencies + result.fights.flatMap(\.latencies)
+     manifest["latency_s"] = ["p50": latencyPercentile(latencies, 0.5), "p95": latencyPercentile(latencies, 0.95)]
+     manifest["keys_used"] = Array(Set((result.codesPosted + result.fights.flatMap(\.codesPosted)).map { Int($0) })).sorted()
++    manifest["experience"] = result.experience as Any? ?? NSNull()
++    manifest["experience_records_this_run"] = result.experienceRecords.count
++    manifest["experience_reviews_this_run"] = result.experienceReviews.count
+     manifest["holding_at_end"] = result.holding
+     try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+         .write(to: run.appendingPathComponent("manifest.json"))
+@@ -242,7 +245,13 @@ func huntLimits() -> [String: Any] {
+      "hunt_jev_timeout_s": HuntLimits.jevTimeout, "fight_jev_timeout_s": FightLimits.jevTimeout]
+ }
+ 
+-func huntDryRun(graph: GraphSession? = nil) async throws -> Int32 {
++func huntExperience(_ path: String?, graph: GraphSession?) throws -> ExperienceStore? {
++    guard let path else { return nil }
++    let scope = graph?.graph.id ?? "hunt-legacy-v1"
++    return try ExperienceStore(scope: scope, url: URL(fileURLWithPath: path))
++}
++
++func huntDryRun(graph: GraphSession? = nil, experience: ExperienceStore? = nil) async throws -> Int32 {
+     let log = try Log(file: nil)
+     let clock = FightClock(pace: 0.005)
+     let world = SimHunt.field(clock: clock)
+@@ -256,16 +265,17 @@ func huntDryRun(graph: GraphSession? = nil) async throws -> Int32 {
+     log.emit("start", ["mode": "hunt-dry-run", "effects": "none: SimHunt field + ScriptedJev; no capture, OS input or network"])
+     usleep(400_000)  // as the walk's dry-run: a SIGINT sent on "start" lands inside the loop
+     let client: JevClient = graph == nil ? ScriptedJev(preference: hunterPreference) : HuntGraphDemo()
+-    let result = await runHunt(host: world, jev: client, graph: graph)
++    let result = await runHunt(host: world, jev: client, graph: graph, experience: experience)
+     withExtendedLifetime(signals) {}
+     log.emit("summary", ["outcome": result.outcome, "decisions": result.decisions, "fights": result.fights.count,
