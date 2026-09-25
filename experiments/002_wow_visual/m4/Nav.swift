@@ -622,7 +622,8 @@ final class SimNav: NavBody {
 
 struct NavCommand: Equatable {
     enum Mode: String {
-        case preflight = "--preflight", dryRun = "--dry-run", replay = "--replay", simJev = "--sim-jev", execute = "--execute"
+        case preflight = "--preflight", dryRun = "--dry-run", replay = "--replay", pixels = "--pixels", simJev = "--sim-jev"
+        case execute = "--execute"
         case huntDryRun = "--hunt-dry-run", huntSimJev = "--hunt-sim-jev", hunt = "--hunt", turnIn = "--turn-in", plan = "--plan"
         case quests = "--quests"
     }
@@ -648,9 +649,9 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     guard let mode = NavCommand.Mode(rawValue: first) else { throw ProbeError("unknown mode '\(first.prefix(40))'") }
     var command = NavCommand(mode: mode)
     var rest = arguments.dropFirst()
-    if mode == .replay {
+    if mode == .replay || mode == .pixels {
         guard rest.count == 1, let directory = rest.first, !directory.hasPrefix("-") else {
-            throw ProbeError("--replay takes one frame directory")
+            throw ProbeError("\(mode.rawValue) takes one frame directory")
         }
         command.directory = directory
         return command

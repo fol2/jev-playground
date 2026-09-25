@@ -135,6 +135,42 @@ All boxes are capture pixels of the 2560×1320 window.
   - On the minimap, one y unit is about 19 px, so its 97 px radius covers about 5 units.
   - Hovering a pin names its quest.
 
+## Perception regression set
+
+Each reader above was calibrated once, on its own frames. Nothing re-ran them afterwards, so a later
+change to one threshold could shift readings elsewhere without anyone seeing it. `m4-nav --pixels DIR`
+now runs every pixel reader on every saved frame at this layout: the M3 bars and flags, the target
+plate and the ground under it, the facing, the quest area, nameplates, red names, minimap icons, world
+map pins and quest marks. It writes one line per frame. [perception.jsonl](perception.jsonl) holds the
+accepted readings: the frame's path under `runs/002_wow_visual/`, the SHA-256 of its bytes, and numbers
+only.
+
+- **The set.** 2397 frames at 2560×1320 from 83 saved runs, 22–24 Sept. The half-size demo frames are
+  skipped. Hits on these frames:
+  - facing on 2286 frames; target plate on 1080;
+  - quest area on 815; minimap icons 1162 on 794 frames;
+  - red names 711 on 555 frames; nameplates 684 on 376 frames;
+  - map pins 652 on 186 frames; quest marks 90 on 79 frames.
+
+  The replay takes about 8 s here and printed identical bytes on two runs.
+- **The gate.** In the local gate, the motor proof replays the set from the clone's `runs/`, from any
+  worktree. It holds on any reader that reads a frame differently, and on a missing or changed frame.
+  Each hold names the reader and up to three example frames. After reviewing those frames, accept the new
+  readings with `python3 -m tools.motor_offline --update-perception`, and commit the file with the change.
+  The file's diff is then the review record: it shows which frames each reader now reads differently.
+- **Proof.** Loosening the red-name cell threshold from 4 to 3 pixels held on 122 frames' red names.
+- **What CI can check.** The frames are private captures and stay local, so a hosted runner checks less:
+  - that the accepted file is well formed and still has at least 2397 frames;
+  - that a black frame reads nothing, and that a frame of the wrong size is skipped;
+  - that the comparer finds a changed reading, changed frame bytes and a missing frame planted in the
+    accepted set.
+- **Not in the set, and why:**
+  - These are the readings that were accepted, not labels. A fix and a regression both show up as a
+    change, and a reviewer decides which one it is.
+  - The OCR readers (coordinates, tracker, target, names and tooltips) are left out. Their text can
+    carry names, and a macOS Vision update can change them. Add them when an OCR change lands.
+  - Saved JPEGs are not live frames (see facing above). The set catches code changes, not calibration.
+
 ## Rehearsals and live walks, 23 September 2026
 
 **Rehearsals** (`--sim-jev`): the real Jev against a simulated map, before any live walk. On the
@@ -455,6 +491,7 @@ swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/0
   experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
+python3 -m tools.motor_offline --update-perception   # accept the pixel readers' new readings on the saved frames
 ```
 
 `--replay DIR` needs saved frames. `--sim-jev` and `--execute` need `TYPESAFE_API_KEY` in the

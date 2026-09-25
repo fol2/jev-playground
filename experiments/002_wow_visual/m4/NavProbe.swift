@@ -4,17 +4,20 @@
 //   (none) | --preflight            M0's read-only facts; no capture, input, network or files
 //   --dry-run                       SimNav "wall" + ScriptedJev; no capture, OS input or network
 //   --replay DIR                    arrow, coordinates, tracker, target and Game Menu readers on saved frames
+//   --pixels DIR                    every pixel reader on every saved frame under DIR: the perception regression set
 //   --sim-jev --scenario NAME       SimNav + Jev via TypeSafe; no capture or OS input
 //   --execute --keys wqe --to X,Y   window capture, pid-targeted W/Q/E, Jev via TypeSafe
 //   --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe   M4b hunts (HuntProbe.swift)
 // Recovery after a crash or kill: m0-probe --release --keys wqe, and tap W, Q and E in WoW.
 import AppKit
+import CryptoKit
 import Vision
 
 let navUsage = """
     usage: m4-nav [--preflight]
            m4-nav --dry-run
            m4-nav --replay DIR
+           m4-nav --pixels DIR
            m4-nav --sim-jev --scenario open|wall|pocket
            m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
@@ -215,6 +218,51 @@ func navReplay(_ directory: String) throws -> Int32 {
     return 0
 }
 
+/// Every pixel reader on one frame, rounded, with empty readings left out: one row of the perception
+/// regression set. Numbers only: no OCR, so no names or chat, and nothing the OS's Vision update can shift.
+func pixelReadings(_ image: RGBA) -> [String: Any] {
+    let hud = observe(image, plates: true)
+    var row: [String: Any] = ["player": roundTo(hud.player, 1000), "mana": roundTo(hud.mana, 1000),
+                              "target": roundTo(hud.target, 1000), "cast": roundTo(hud.castFill, 1000)]
+    for (key, on) in [("combat", hud.combat), ("casting", hud.casting), ("range_red", hud.rangeRed), ("buff", hud.buff),
+                      ("error_red", hud.errorRed)] where on { row[key] = true }
+    row["plate"] = hud.plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] }
+    row["ground"] = hud.ground
+    row["facing"] = arrowFacing(image).map { roundTo($0, 10) }
+    row["area"] = questArea(image).map { [roundTo($0.bearing, 10), roundTo($0.distance), $0.inside ? 1 : 0] }
+    let lists: [(String, [[Any]])] = [
+        ("plates", nameplates(image).map { [$0.x0, $0.x1, $0.y0, $0.y1, $0.hostile ? 1 : 0] }),
+        ("red", redNames(image).map { [$0.x0, $0.x1, $0.y0, $0.y1] }),
+        ("pins", minimapPins(image).map { [roundTo($0.x, 10), roundTo($0.y, 10), $0.offer ? 1 : 0] }),
+        ("map", mapPins(image).map { [roundTo($0.x, 10), roundTo($0.y, 10)] }),
+        ("marks", questMarks(image, box: QuestHUD.world).map { [roundTo($0.x, 10), roundTo($0.y, 10), roundTo($0.h, 10), roundTo($0.body, 10)] })]
+    for (key, list) in lists where !list.isEmpty { row[key] = list }
+    return row
+}
+
+/// The perception regression set's readings: every calibrated frame under `directory`, one JSON line each in
+/// path order, keyed by its relative path and the SHA-256 of its bytes. Saved frames only; no input or network.
+func navPixels(_ directory: String) throws -> Int32 {
+    let root = URL(fileURLWithPath: directory)
+    guard let walk = FileManager.default.enumerator(atPath: directory) else { throw ProbeError("cannot list \(directory)") }
+    let names = walk.compactMap { $0 as? String }.filter { $0.hasSuffix(".jpg") || $0.hasSuffix(".png") }.sorted()
+    var rows = [Data?](repeating: nil, count: names.count)
+    let lock = NSLock()
+    DispatchQueue.concurrentPerform(iterations: names.count) { i in
+        guard let bytes = try? Data(contentsOf: root.appendingPathComponent(names[i])),
+              let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == HUD.width, image.height == HUD.height else { return }  // not the calibrated layout
+        var row = pixelReadings(rgba(image))
+        row["frame"] = names[i]
+        row["sha256"] = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let line = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+        lock.withLock { rows[i] = line }
+    }
+    for line in rows.compactMap({ $0 }) { FileHandle.standardOutput.write(line + Data([10])) }
+    return 0
+}
+
 /// Rehearsal: the real Jev against a simulated map, before any live walk.
 func navSimJev(_ command: NavCommand) async throws -> Int32 {
     let key = try apiKey()
@@ -318,6 +366,7 @@ struct M4Nav {
                 FileHandle.standardOutput.write(data + Data([10]))
             case .dryRun: exit(try await navDryRun())
             case .replay: exit(try navReplay(command.directory ?? "."))
+            case .pixels: exit(try navPixels(command.directory ?? "."))
             case .simJev: exit(try await navSimJev(command))
             case .execute: exit(try await navExecute(command))
             case .huntDryRun, .huntSimJev, .hunt:
