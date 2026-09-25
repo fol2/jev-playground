@@ -47,8 +47,9 @@ def build(output: str, *sources: str, flags: tuple = ()) -> None:
 
 
 def build_all(builds: dict) -> None:
-    """Every binary at once, optimised and larger builds first: the builds are independent and each is one
-    serial compiler job. The checks run after all of them, on an idle machine: the dry-runs time their key-ups."""
+    """Every binary at once: the builds are independent. The -O builds, then the larger ones, start first
+    because they take longest; the order changes only when each starts, never what is built. The checks
+    run after all of them, on an idle machine: the dry-runs time their key-ups."""
     order = sorted(builds, key=lambda out: (-("-O" in builds[out][1]), -len(builds[out][0])))
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
         for job in [pool.submit(build, out, *builds[out][0], flags=builds[out][1]) for out in order]:
@@ -184,7 +185,8 @@ def main():
             seek: (seek_shell, ("-O", "-D", "SEEK")),
             fight_tests: (fight_sources + (FIGHT + "FightTests.swift",), ()),
             fight: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift") + clicks, ("-O", "-D", "SEEK", "-D", "FIGHT")),
-            nav_tests: (nav_sources + (NAV + "NavTests.swift", NAV + "HuntTests.swift"), ()),
+            nav_tests: (fight_sources + (NAV + "Nav.swift", NAV + "NavTests.swift", NAV + "Hunt.swift", NAV + "HuntTests.swift",
+                                         NAV + "Quest.swift"), ()),
             nav: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
                                 NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift") + clicks,
                   ("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV")),
