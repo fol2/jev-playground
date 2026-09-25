@@ -58,7 +58,10 @@ struct Record {
             let deadline = ProcessInfo.processInfo.systemUptime + Double(seconds + 15)
             while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { usleep(100_000) }
             if process.isRunning {
-                process.terminate()
+                process.terminate()  // then, as Python's timeout did, a kill if it ignores the request
+                let grace = ProcessInfo.processInfo.systemUptime + 5
+                while process.isRunning && ProcessInfo.processInfo.systemUptime < grace { usleep(100_000) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
                 process.waitUntilExit()
                 throw RecordError(description: "screencapture ran past \(seconds + 15) s")
             }

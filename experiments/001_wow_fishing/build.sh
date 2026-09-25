@@ -18,6 +18,7 @@ tools="$PWD/experiments/001_wow_fishing"
 swiftc -parse-as-library -O "$tools/analyse.swift" "$tools/dotenv.swift" "$json" -o /tmp/jev-fishing-analyse
 /tmp/jev-fishing-analyse --self-test
 swiftc -parse-as-library -O "$tools/record.swift" "$json" -o /tmp/jev-fishing-record
-/tmp/jev-fishing-record --dry-run --rect 0,0,10,10 | grep -q '"model_calls": 0'
+dry=$(/tmp/jev-fishing-record --dry-run --rect 0,0,10,10)  # set -e: a failing dry run stops here
+printf '%s\n' "$dry" | grep -q '"model_calls": 0'
 if /tmp/jev-fishing-record --dry-run --rect 0,0,0,10 2>/dev/null; then echo "record accepted a zero-width region" >&2; exit 1; fi
 swiftc -parse-as-library -O "$tools/run_test_a.swift" "$tools/dotenv.swift" "$json" -o /tmp/jev-fishing-run

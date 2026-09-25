@@ -25,8 +25,8 @@ performs the core suite, the Test A/B runner checks, Swift typechecks and offlin
 validation. The core suite uses synthetic pixels, fake monotonic time and fake HTTP.
 Native checks also use eight retained development image pairs, not held-out data:
 the original four, plus four acquired/first-missing pairs added for peak
-disambiguation. CI never captures a screen or dispatches input. Swift and Python's
-alone suffices for these checks. The historical pilot analyser (`analyse.swift`,
+disambiguation. CI never captures a screen or dispatches input. Swift alone suffices
+for these checks. The historical pilot analyser (`analyse.swift`,
 `/tmp/jev-fishing-analyse VIDEO`) needs FFmpeg only when it decodes a clip.
 
 On 25 Sept the tools moved from Python to Swift: `analyse.swift`, `record.swift` and

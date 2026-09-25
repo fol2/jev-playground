@@ -60,8 +60,8 @@ Human agreement can penalise sensible alternatives and reward an unsafe imitatio
 `--check` now fails on missing or unregistered decision files, changed per-file
 counts, any invalid row, duplicate JSON keys or action IDs, empty states/evidence,
 invalid timestamps, and non-finite values. It constructs requests offline, checks
-at least 100 flat knowledge facts, and runs 80 counted synthetic regression checks (67 on
-the evaluator, 13 on the JSON format; the suite and the gate both hold at fewer than 80).
+at least 100 flat knowledge facts, and runs 81 counted synthetic regression checks (67 on
+the evaluator, 14 on the JSON format; the suite and the gate both fail below 81).
 It never contacts Jev. This proves structure and request construction, **not**
 visual accuracy, truth of facts, provider acceptance, or gameplay skill.
 

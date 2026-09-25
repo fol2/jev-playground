@@ -344,6 +344,9 @@ func selfTestChecks() async throws -> Int {
                 && JSON.string("\u{E9}\u{7F}").text(ascii: false) == "\"\u{E9}\u{7F}\"", "Python string escapes")
     try require(try JSON.parse(#"{"b": [1, 2.50, true, null], "a": {}}"#).text() == #"{"b": [1, 2.5, true, null], "a": {}}"#
                 && (try JSON.parse(#"{"b": 1, "a": 2}"#).text(sorted: true)) == #"{"a": 2, "b": 1}"#, "key order kept; sorted on request")
+    try require((try JSON.parse(#"{"a": [], "b": {}, "c": [1, {"d": null}]}"#)).text(indent: 2)
+                == "{\n  \"a\": [],\n  \"b\": {},\n  \"c\": [\n    1,\n    {\n      \"d\": null\n    }\n  ]\n}",
+                "indent=2 as Python writes it: one item a line, empty containers inline")
     try require((try JSON.parse("[9223372036854775807, 9223372036854775808, -18446744073709551616]")).text()
                 == "[9223372036854775807, 9223372036854775808, -18446744073709551616]"
                 && (try validateDecision(with(try JSON.parse(#"{"t": "01m02s", "state": {"x": 9223372036854775808}, "options": {"A": "a", "B": "b"}, "human": "A", "evidence": "e"}"#), "t", .string("01m02s")))).count == 2,
@@ -431,7 +434,7 @@ func selfTestChecks() async throws -> Int {
     try require(calls == 0, "bad later file spends no provider calls")
     try row.text().write(to: root.appendingPathComponent("video/part2_decisions.jsonl"), atomically: true, encoding: .utf8)
     try refuses("unregistered file") { _ = try checkCorpus(root, expected: manifest, minimumFacts: 2) }
-    guard checks >= 80 else { throw Invalid("self-test suite lost checks (\(checks))") }  // the current count
+    guard checks >= 81 else { throw Invalid("self-test suite lost checks (\(checks))") }  // the current count
     return checks
 }
 
