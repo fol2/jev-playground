@@ -120,6 +120,26 @@ func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> 
         .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
 }
 
+/// A "?"'s dot joins its hook: a small round blob under a blob, overlapping it across, no further below than
+/// the hook is tall, no wider than it and at most a third of its pixels. Far away `yellowBlobs`' 13 px gap
+/// joins them; near, the gap grows with the mark (live run 6, 26 Sept: beside Dalia a 27 x 30 hook had its
+/// 11 x 9 dot 18 px below, and neither read as a mark). `dotted`: a dot was joined here, the glyph's shape.
+func withDots(_ blobs: [Blob]) -> [(blob: Blob, dotted: Bool)] {
+    var out = blobs.map { (blob: $0, dotted: false) }, used = Set<Int>()
+    for i in out.indices where !used.contains(i) {
+        let hook = out[i].blob
+        guard let j = out.indices.first(where: { j in
+            let d = out[j].blob, dw = d.x1 - d.x0 + 1, dh = d.y1 - d.y0 + 1
+            return j != i && !used.contains(j) && 3 * d.n <= hook.n && dw <= hook.x1 - hook.x0 + 1 && dw <= 2 * dh && dh <= 2 * dw
+                && d.y0 > hook.y1 && d.y0 - hook.y1 <= hook.y1 - hook.y0 + 1 && d.x0 <= hook.x1 && d.x1 >= hook.x0
+        }) else { continue }
+        let d = out[j].blob
+        out[i] = ((hook.n + d.n, hook.sx + d.sx, hook.sy + d.sy, min(hook.x0, d.x0), max(hook.x1, d.x1), hook.y0, d.y1), true)
+        used.insert(j)
+    }
+    return out.indices.filter { !used.contains($0) }.map { out[$0] }
+}
+
 /// A quest mark and the green name under it. `body` is where to right-click: below the name by 2.4 mark
 /// heights. `nameX` is the name's centre, which stands over the body when the "?" does not (live, 25 Sept:
 /// Dalia's "?" was 30 px right of her; the click at its x found ground). `nameTop` bounds the name for OCR.
@@ -128,39 +148,47 @@ typealias QuestMark = (x: Double, y: Double, h: Double, body: Double, nameX: Dou
 /// `body`: near, name bottom 577, body 608 under a 17-px "?"; a distant NPC's "?" was 4 x 6 px live, and a
 /// fixed step landed on its name.
 func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [QuestMark] {
-    let blobs = yellowBlobs(image, box: box)
+    let blobs = withDots(yellowBlobs(image, box: box))
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
-    func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, top: Int, bottom: Int, x: Double) {
+    func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, top: Int, bottom: Int, x: Double, text: Bool) {
         // Names are in the world: the search stays in the box, never down into the HUD (25 Sept: a wider reach
         // from a yellow glow above the unit frame found the player's green health bar).
         let top = max(0, y + 8), end = min(image.height, y + reach, box.3)
-        guard top < end else { return (0, y, y, Double(x)) }
-        var rows = [(n: Int, sx: Int)](repeating: (0, 0), count: end - top)
+        guard top < end else { return (0, y, y, Double(x), false) }
+        var rows = [(n: Int, sx: Int, x0: Int, x1: Int)](repeating: (0, 0, .max, .min), count: end - top)
         for yy in top..<end {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
                 if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) {
-                    rows[yy - top].n += 1; rows[yy - top].sx += xx
+                    let r = rows[yy - top]
+                    rows[yy - top] = (r.n + 1, r.sx + xx, min(r.x0, xx), max(r.x1, xx))
                 }
             }
         }
-        guard let first = rows.firstIndex(where: { $0.n > 0 }), let last = rows.lastIndex(where: { $0.n > 0 }) else { return (0, y, y, Double(x)) }
+        guard let first = rows.firstIndex(where: { $0.n > 0 }), let last = rows.lastIndex(where: { $0.n > 0 }) else { return (0, y, y, Double(x), false) }
         // The centre is the name's own line, the green rows from the first down to a row without any: a
-        // subtitle or another name further down does not pull it.
+        // subtitle or another name further down does not pull it. A line of text is at least twice as wide as
+        // it is tall; a creature's green glow is not (live, 24 Sept: a Cirrusfly's striped body over it read
+        // as a 140 px "?" with its dot).
         let line = rows[first...].prefix { $0.n > 0 }
         let centre = Double(line.reduce(0) { $0 + $1.sx }) / Double(line.reduce(0) { $0 + $1.n })
-        return (rows.reduce(0) { $0 + $1.n }, top + first, top + last, centre)
+        let wide = line.map(\.x1).max()! - line.map(\.x0).min()! + 1 >= 2 * line.count
+        return (rows.reduce(0) { $0 + $1.n }, top + first, top + last, centre, wide)
     }
-    return blobs.compactMap { b -> QuestMark? in
-        let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
-        guard b.n >= minPixels, w <= 24, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
+    return blobs.compactMap { found -> QuestMark? in
+        let b = found.blob, w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
+        // Upright and at most 24 px wide; wider only with a dot joined below, up to 0.6 of its height: a "?"
+        // with its dot is about half as wide as tall at every zoom (15 x 33, 27 x 56). A spell's tall glow is
+        // wider than 24 px and has no dot (a Lightning Bolt read as a 288 px "?" without that rule).
+        let widest = found.dotted ? max(24, 0.6 * Double(h)) : 24
+        guard b.n >= minPixels, Double(w) <= widest, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
         // How far below to look scales with the mark: its height stands for the NPC's distance. The name is UI
         // text of fixed size, so a small mark keeps a 50 px floor (96 accepted marks, h 3-10: name bottom 14-49
         // px below); a tall one's name sits 1.7-2.4 heights below (h 17-28), so 2.5 heights. 25 Sept, the owner's
         // closer zoom: a 33 px "?" (dot joined) had its name 54-63 px below, beyond the old fixed 50 px, and
         // the walk that reached the NPC read NO_QUEST_MARK_IN_VIEW.
         let name = greenBelow(b.sx / b.n, b.sy / b.n, reach: max(50, 5 * h / 2))
-        guard name.n >= 40 else { return nil }
+        guard name.n >= 40, name.text else { return nil }
         return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h), name.x, Double(name.top))
     }
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }

@@ -530,6 +530,27 @@ extension NavTests {
         let titled = questMarks(near, box: (0, 0, 400, 300))
         check(titled.count == 1 && abs(titled[0].nameX - 207.5) < 0.01 && titled[0].nameTop == 107 && titled[0].body == 125 + 2.4 * titled[0].h,
               "the name's centre is its own line: a subtitle below does not pull it, though the click goes below both")
+        // Live run 6, 26 Sept: beside Dalia a 27 x 30 hook had its 11 x 9 dot 18 px below, and no mark was read.
+        var close = RGBA(width: 400, height: 400, pixels: [UInt8](repeating: 30, count: 400 * 400 * 4))
+        func put(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ rgb: (UInt8, UInt8, UInt8)) {
+            var px = close.pixels
+            for y in y0..<(y0 + h) { for x in x0..<(x0 + w) { let i = (y * 400 + x) * 4; (px[i], px[i + 1], px[i + 2]) = rgb } }
+            close = RGBA(width: 400, height: 400, pixels: px)
+        }
+        put(180, 40, 27, 30, (250, 210, 40)); put(188, 88, 11, 9, (250, 210, 40)); put(140, 135, 110, 9, (60, 190, 40))
+        let beside = questMarks(close, box: (0, 0, 400, 400))
+        check(beside.count == 1 && beside[0].h == 57 && beside[0].body == 143 + 2.4 * 57,
+              "a near \"?\" joins its dot 18 px below and reads as one mark, 27 px wide")
+        put(188, 88, 11, 9, (30, 30, 30))
+        check(questMarks(close, box: (0, 0, 400, 400)).isEmpty, "without a dot a blob wider than 24 px is not a mark: a spell's glow has none")
+        put(188, 88, 11, 9, (250, 210, 40)); put(140, 135, 110, 9, (30, 30, 30)); put(185, 120, 20, 20, (60, 190, 40))
+        check(questMarks(close, box: (0, 0, 400, 400)).isEmpty,
+              "the green under a mark must be a line of text, not a round glow (a Cirrusfly's striped body over its glow)")
+        let hookBlob: Blob = (810, 0, 0, 180, 206, 40, 69), dotBlob: Blob = (99, 0, 0, 188, 198, 88, 96)
+        let stripe: Blob = (400, 0, 0, 175, 210, 88, 100), farDot: Blob = (99, 0, 0, 188, 198, 110, 118)
+        check(withDots([hookBlob, dotBlob]).count == 1 && withDots([hookBlob, dotBlob])[0].dotted
+              && withDots([hookBlob, stripe]).count == 2 && withDots([hookBlob, farDot]).count == 2,
+              "a small round dot within a hook's height below joins it; a wide segment or a far blob does not")
         // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
         let mask = [(161, "..#####"), (162, ".######"), (163, ".##..###"), (164, ".....###"), (165, ".....##"), (166, "....###"),
                     (167, "...###"), (168, "...##"), (171, "...##"), (172, "...##")]
