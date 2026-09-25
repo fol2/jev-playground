@@ -2,12 +2,18 @@
 import CryptoKit
 import Foundation
 
+/// The manifest's recordings: a list, as Python iterated it, and never empty (an emptied list would check nothing).
+func recordings(_ manifest: JSON) throws -> [JSON] {
+    guard let items = manifest.items, !items.isEmpty else { throw GateError("the shared-recording manifest lists no recordings") }
+    return items
+}
+
 func fishingProof() throws -> String {
     for name in fishingCode.sorted() where name.hasSuffix(".sh") {
         try sh(["sh", "-n", name], timeout: 90, passthrough: true).checked("sh -n " + name)
     }
     let manifest = try JSON.parse(try String(contentsOf: root.appendingPathComponent(fishingDir + "evidence/shared-recordings.json"), encoding: .utf8))
-    for item in manifest.items ?? [] {
+    for item in try recordings(manifest) {
         guard let path = item["path"]?.string, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
               path.hasPrefix("data/001_wow_fishing/") else {
             throw GateError("invalid shared recording path")

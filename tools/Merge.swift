@@ -137,15 +137,15 @@ func evaluate(_ s: JSON, number: Int, head: String, into: String = "main") throw
     // Merging into a topic branch still must not promote work that predates current main.
     try require(["ahead", "identical"].contains(s["main_compare"]?["status"]?.string ?? ""), "current main is not included")
     try require(p["mergeable"] == .bool(true) && p["mergeable_state"] == .string("clean"), "mergeability is not clean")
-    let runs = s["runs"]?.items ?? []
+    let runs = try s.needList("runs")
     try require(!runs.isEmpty, "no exact-head PR workflow run")
     let run = try runs.map { ($0, try attempt($0)) }.max { $0.1 < $1.1 }!.0  // every run keyed, as max(key=) did
     try require(run["workflow_id"] == .int(workflowID) && run["path"] == .string(workflowPath) && run["head_sha"] == .string(head)
                 && run["event"] == .string("pull_request"), "workflow identity mismatch")
     try require(run["head_repository"]?["full_name"] == .string(repoName)
-                && (run["pull_requests"]?.items ?? []).contains { $0["number"] == .int(number) }, "run is not bound to this PR")
+                && run.needList("pull_requests").contains { try $0.need("number") == .int(number) }, "run is not bound to this PR")
     try require(run["status"] == .string("completed") && run["conclusion"] == .string("success"), "latest workflow is not successful")
-    let focus = (s["jobs"]?.items ?? []).filter { $0["name"] == .string("Focus Gate") }
+    let focus = try s.needList("jobs").filter { try $0.need("name") == .string("Focus Gate") }
     try require(focus.count == 1 && focus[0]["conclusion"] == .string("success") && focus[0]["status"] == .string("completed")
                 && focus[0]["run_id"] == run.need("id"), "authentic Focus Gate did not pass")
     try require(try s.needList("checks").allSatisfy { $0["status"] == .string("completed")
@@ -192,7 +192,7 @@ func collect(_ github: GitHub, number: Int, head: String, into: String = "main")
     let p = try github.get("\(apiPrefix)/pulls/\(number)")
     guard let integration = try github.get("\(apiPrefix)/branches/\(into)")["commit"]?["sha"] else { throw Hold("integration branch unreadable") }
     let runs = try github.pages("\(apiPrefix)/actions/runs?event=pull_request&head_sha=\(head)", "workflow_runs")
-        .filter { $0["workflow_id"] == .int(workflowID) }
+        .filter { try $0.need("workflow_id") == .int(workflowID) }
     let latest = try runs.map { ($0, try attempt($0)) }.max { $0.1 < $1.1 }?.0
     let compare = try github.get("\(apiPrefix)/compare/\(integration.string ?? "")...\(head)")
     return .object([

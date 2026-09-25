@@ -168,7 +168,7 @@ struct GateTests {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? FileManager.default.copyItem(at: root.appendingPathComponent(path), to: target)
         }
-        let ci = ".github/workflows/ai-sdlc.yml"
+        let ci = ".github/workflows/ai-sdlc.yml", maintain = ".github/workflows/ai-sdlc-maintain.yml"
         let mutations: [(String, (String) -> String)] = [
             ("AGENTS.md", { $0.replacingOccurrences(of: "No compromise", with: "Optional") }),
             ("AGENTS.md", { $0 + String(repeating: "x", count: 6501) }),
@@ -179,6 +179,10 @@ struct GateTests {
             (ci, { $0.replacingOccurrences(of: "11d5960a326750d5838078e36cf38b85af677262", with: "v4") }),
             (ci, { $0.replacingOccurrences(of: #""Focus Gate""#, with: #""Optional""#) }),
             (ci, { $0.replacingOccurrences(of: #""pull_request""#, with: #""pull_request_target""#) }),
+            // Absent or mistyped, these once went unchecked; the Python gate held on them.
+            (ci, { $0.replacingOccurrences(of: #""uses": "actions/checkout"#, with: #""uses": 0, "uses_": "actions/checkout"#) }),
+            (maintain, { $0.replacingOccurrences(of: #""steps""#, with: #""stepz""#) }),
+            (maintain, { $0.replacingOccurrences(of: #""jobs""#, with: #""jobz""#) }),
         ]
         check((try? contracts(tmp)) != nil, "the copied contract holds before any mutation")
         for (path, mutate) in mutations {
@@ -347,6 +351,18 @@ struct GateTests {
         for rows in [[], [down], [down, up, down]] {
             holds("M1: an unreleased key holds") { try released(rows) }
         }
+        holds("a dry-run row without an event holds, not goes uncounted") { try released([down, up, .object([("reason", .string("x"))])], 1) }
+        let timed = { (ms: JSON) in up.setting("lateness_ms", ms) }
+        check((try? lateness([timed(.int(3)), timed(.double(12.5)), timed(.int(7))])) == .double(12.5), "the latest key-up's lateness is reported")
+        for ups in [[up], [timed(.int(3)), up], [timed(.string("0"))], [timed(.null)], []] {
+            holds("an untimed key-up holds, not reads as on time: \(JSON.array(ups).text().prefix(40))") { _ = try lateness(ups) }
+        }
+        holds("a perception reading without a frame holds") { _ = try frame(.object([("player", .int(1))])) }
+        holds("a signed or spaced tabletop count holds") { _ = try counted("tabletop scenarios checked: +13", "tabletop scenarios", 13, label: "checked") }
+        check((try? recordings(.array([.object([])])))?.count == 1, "a listed recording is checked")
+        for manifest in [JSON.object([]), .null, .string("data/001_wow_fishing/x"), .array([])] {
+            holds("a manifest that lists no recordings holds: \(manifest.text())") { _ = try recordings(manifest) }
+        }
         let command = buildCommand("unused", [fightDir + "Fight.swift"])
         check(command.contains(runtimeDir + "DecisionGraph.swift") && command.contains(runtimeDir + "Experience.swift")
               && command.contains(fightDir + "Tactics.swift"), "a fight binary also builds its tactics and runtime")
@@ -458,7 +474,8 @@ struct GateTests {
             }
         }
         // Python read these as x["key"] and held on a KeyError or TypeError; a default here would let evidence go missing.
-        for path in ["pr.draft", "pr.merged", "pr.head.ref", "pr.base.sha", "integration", "runs.0.run_number", "checks", "statuses",
+        for path in ["pr.draft", "pr.merged", "pr.head.ref", "pr.base.sha", "integration", "runs", "runs.0.run_number",
+                     "runs.0.pull_requests", "jobs", "checks", "statuses",
                      "threads", "reviews", "reviews.0.state", "reviews.0.user", "reviews.0.user.login", "reviews.0.commit_id",
                      "reviews.0.author_association"] {
             check(without(snapshot(), path) != snapshot(), "\(path) is in the fixture")
@@ -467,6 +484,12 @@ struct GateTests {
         check(eligible(without(snapshot(), "runs.0.run_attempt")), "a missing run attempt counts as the first, as Python's .get did")
         holds("a run and job that both lack their ids do not match") {
             _ = try evaluate(without(without(snapshot(), "runs.0.id"), "jobs.0.run_id"), number: 1, head: head)
+        }
+        holds("a run's numberless pull request holds, as any(x[\"number\"] ...) did") {
+            _ = try evaluate(set(snapshot(), "runs.0.pull_requests", .array([.object([]), .object([("number", .int(1))])])), number: 1, head: head)
+        }
+        holds("a nameless job holds, not is passed over") {
+            _ = try evaluate(appending(snapshot(), "jobs", .object([("status", .string("completed"))]), atStart: true), number: 1, head: head)
         }
         holds("a deleted account's review (user null) holds") { _ = try evaluate(set(snapshot(), "reviews.0.user", .null), number: 1, head: head) }
         holds("a review body that is not text holds") { _ = try evaluate(set(snapshot(), "reviews.0.body", .int(5)), number: 1, head: head) }
@@ -510,6 +533,22 @@ struct GateTests {
               "thread pagination checks every page")
         github = GitHub { _, _, _ in page(true, true, .string("repeat")) }
         holds("thread pagination must advance") { _ = try github.threads(1) }
+        func reads(_ run: JSON) -> GitHub {
+            GitHub { _, path, _ in
+                if path.contains("/branches/") { return .object([("commit", .object([("sha", .string(base))]))]) }
+                if path.contains("/actions/runs?") { return .object([("workflow_runs", .array([run]))]) }
+                if path.contains("/jobs?") { return .object([("jobs", .array([]))]) }
+                if path.contains("/check-runs?") { return .object([("check_runs", .array([]))]) }
+                if path.contains("/status?") { return .object([("statuses", .array([]))]) }
+                if path.contains("/reviews?") { return .array([]) }
+                return path == "graphql" ? page(true, false, .null) : .object([])
+            }
+        }
+        let listed = JSON.object([("id", .int(1)), ("run_number", .int(1)), ("workflow_id", .int(workflowID))])
+        check((try? collect(reads(listed), number: 1, head: head))?["runs"] == .array([listed]), "collect reads this workflow's runs")
+        holds("a workflow run without its workflow id holds, not is filtered away") {
+            _ = try collect(reads(.object([("id", .int(1)), ("run_number", .int(1))])), number: 1, head: head)
+        }
         for more in [JSON.null, .string("false")] {
             github = GitHub { _, _, _ in set(page(true, false, .null), "data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage", more) }
             holds("a hasNextPage of \(more.text()) holds, not ends the pages") { _ = try github.threads(1) }

@@ -238,12 +238,15 @@ func contracts(_ at: URL = root) throws {
         if events != (name == "ai-sdlc" ? ["pull_request", "push", "workflow_dispatch"] : ["workflow_run"]) {
             throw GateError("workflow trigger drift")
         }
-        for (_, job) in workflow["jobs"]?.pairs ?? [] {
+        // Read as the Python gate read them, workflow["jobs"] and job["steps"]: absent, they hold rather than go unchecked.
+        guard let jobs = workflow["jobs"]?.pairs else { throw GateError("workflow has no jobs") }
+        for (_, job) in jobs {
             if job["runs-on"] != .string(name == "ai-sdlc" ? "macos-14" : "ubuntu-24.04") || job["permissions"] != nil || job["container"] != nil {
                 throw GateError("workflow runner/permission drift")
             }
-            for step in job["steps"]?.items ?? [] {
-                let uses = step["uses"]?.string ?? ""
+            guard let steps = job["steps"]?.items else { throw GateError("workflow job has no steps") }
+            for step in steps {
+                guard let uses = step["uses"].map({ $0.string }) ?? "" else { throw GateError("unapproved or unpinned action") }
                 if !uses.isEmpty && uses.wholeMatch(of: #/actions/(checkout|github-script)@[0-9a-f]{40}/#) == nil {
                     throw GateError("unapproved or unpinned action")
                 }
@@ -263,7 +266,7 @@ func contracts(_ at: URL = root) throws {
 // MARK: The report
 
 /// The gate's own tests: built from these sources with -D GATE_TESTS and counted.
-let minimumGateTests = 496  // the current count: removing a check must lower this on purpose
+let minimumGateTests = 523  // the current count: removing a check must lower this on purpose
 func governanceTests() throws -> Int {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("gate-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: tmp) }

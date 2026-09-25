@@ -31,6 +31,8 @@ func counted(_ output: String, _ name: String = "motor", _ minimum: Int = minChe
 func event(_ row: JSON) -> String? { row["event"]?.string }
 
 func released(_ rows: [JSON], _ pulses: Int? = nil) throws {
+    // Python read every row as r["event"]: a row without one holds, rather than going uncounted.
+    guard rows.allSatisfy({ event($0) != nil }) else { throw GateError("a dry-run row has no event") }
     let downs = rows.filter { event($0) == "key_down" }.count, ups = rows.filter { event($0) == "key_up" }.count
     if downs != ups || downs == 0 || (pulses.map { downs != $0 } ?? false) || rows.contains(where: { event($0) == "release_unconfirmed" }) {
         throw GateError("dry-run dispatched \(downs) key-downs and \(ups) key-ups for \(pulses.map(String.init) ?? "any") pulses")
@@ -91,11 +93,21 @@ func refuses(_ binary: String, _ cases: [[String]]) throws {
     }
 }
 
+/// The latest key-up's lateness. Every key-up is timed, as max(r["lateness_ms"] ...) required.
+func lateness(_ ups: [JSON]) throws -> JSON {
+    let timed = try ups.map { up -> (JSON, Double) in
+        guard let value = up["lateness_ms"], let ms = value.number else { throw GateError("a dry-run key-up has no lateness") }
+        return (value, ms)
+    }
+    guard let late = timed.max(by: { $0.1 < $1.1 }) else { throw GateError("a dry-run released no key") }
+    return late.0
+}
+
 func onTime(_ binary: String, _ pulses: Int?) throws -> (rows: [JSON], late: JSON) {
     let rows = try jsonRows(try sh([binary, "--dry-run"], timeout: 90).checked(binary).out)
     try released(rows, pulses)
     let ups = rows.filter { event($0) == "key_up" }
-    let late = ups.compactMap { $0["lateness_ms"] }.max { ($0.number ?? 0) < ($1.number ?? 0) } ?? .int(0)
+    let late = try lateness(ups)
     if (late.number ?? .infinity) >= lateMS || ups.contains(where: { $0["reason"] != .string("expired") }) {
         throw GateError("dry-run key-up waited for the stalled observer (\(late.text()) ms late)")
     }
@@ -173,14 +185,19 @@ func savedFrames() throws -> URL? {
 /// Readings keyed by frame, in the order read.
 typealias Readings = [(frame: String, row: JSON)]
 
+func frame(_ row: JSON) throws -> String {
+    guard let name = row["frame"]?.string else { throw GateError("a perception reading names no frame") }
+    return name
+}
+
 func pixels(_ nav: String, _ frames: URL) throws -> Readings {
-    try jsonRows(try sh([nav, "--pixels", frames.path], timeout: 300).checked("m4-nav --pixels").out).map { ($0["frame"]?.string ?? "", $0) }
+    try jsonRows(try sh([nav, "--pixels", frames.path], timeout: 300).checked("m4-nav --pixels").out).map { (try frame($0), $0) }
 }
 
 func accepted(update: Bool = false) throws -> Readings {
     let file = root.appendingPathComponent(perceptionFile)
     if update && !FileManager.default.fileExists(atPath: file.path) { return [] }
-    let rows = try jsonRows(try String(contentsOf: file, encoding: .utf8)).map { ($0["frame"]?.string ?? "", $0) }
+    let rows = try jsonRows(try String(contentsOf: file, encoding: .utf8)).map { (try frame($0), $0) }
     if !update && (Set(rows.map(\.0)).count != rows.count || rows.count < minPerceptionFrames
                    || rows.contains { $0.1["sha256"]?.string?.wholeMatch(of: #/[0-9a-f]{64}/#) == nil }) {
         throw GateError("\(perceptionFile) lost frames or holds a malformed row; at least \(minPerceptionFrames) required")
@@ -459,9 +476,7 @@ func motorProof(update: Bool) throws -> String {
     try navTrap()
     let path = ["PATH": ProcessInfo.processInfo.environment["PATH"] ?? ""]
     let checked = try sh([tabletop, "--check"], timeout: 60, environment: path).checked("tabletop --check").out
-    let scenarios = checked.components(separatedBy: "\n").compactMap { line in
-        line.hasPrefix("tabletop scenarios checked: ") ? Int(line.dropFirst("tabletop scenarios checked: ".count)) : nil }
-    if scenarios.count != 1 || !(13...99).contains(scenarios[0]) {
+    if !(13...99).contains((try? counted(checked, "tabletop scenarios", 13, label: "checked")) ?? 0) {
         throw GateError("tabletop --check reported \(checked.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
     let replay = try sh([video, "--check"], timeout: 60, environment: path).checked("video-jev --check").out
