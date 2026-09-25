@@ -331,6 +331,18 @@ Every step is a script (controller RULE); there is no Jev call.
      capital face, as "HARVEStinG WinostonES". The page was taken for another quest's and closed
      with Esc. The title now matches with one letter in eight misread, as an edit (`sameTitle`; a
      title under eight letters must match exactly). A clear now allows ten reads, not six.
+   - Live run 6: beside Dalia, the step read `NO_QUEST_MARK_IN_VIEW`. At that range her "?" was a
+     27 x 30 hook, wider than the 24 px cap, and its 11 x 9 dot sat 18 px below, beyond the 13 px that
+     joins blobs. The dot alone had no name within its reach. Now:
+     - A small round blob, at most a third of a hook's pixels and no wider than it, joins the hook as
+       its dot when it lies under it within the hook's height (`withDots`).
+     - Only a blob with a dot may be wider than 24 px, up to 0.6 of its height. A spell's tall glow has
+       no dot: without this rule a Lightning Bolt read as a 288 px "?".
+     - The green under a mark must be a line of text, at least twice as wide as tall. A Cirrusfly's
+       striped body over its green glow read as a "?" with its dot.
+     - On the 2,449 saved frames, 17 frames gained true near marks (Dalia's "?" and "!", Rorian,
+       Boros, Yala's neighbours), checked by eye. Three false marks went: a character's green shirt, a
+       spell's glow and a Cirrusfly. A known false mark on flowers changed its height.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a
