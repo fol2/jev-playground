@@ -598,6 +598,7 @@ extension NavTests {
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
+        func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -654,11 +655,19 @@ extension NavTests {
         let twiceStuck = await runQuests(host: stuck, jev: twice, graph: graph()!)
         check(twiceStuck.outcome == "NO_PROGRESS_TWICE" && twice.offered[1].filter { $0.hasPrefix("DO:") }.count == 1,
               "a failed hand-in is not offered again, and the second NO_PROGRESS ends the run")
-        let attacked = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        let attacked = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: []),
+                                   QuestRead(quests: [], player: thendal, missing: [])])
         attacked.outcomes = ["The Gift of Skysight": "WALK_COMBAT"]  // slot 1: nearer
-        let combat = await runQuests(host: attacked, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
-        check(combat.outcome == "WALK_COMBAT",
-              "a walk stopped by combat ends the quest run")
+        let fighter = CannedGraph(["DO:HAND_IN_1", "DO:HAND_IN_2"])
+        let combat = await runQuests(host: attacked, jev: fighter, graph: graph()!)
+        check(attacked.handed == ["The Gift of Skysight", "FIGHT_BACK", "Harvesting Windstones"] && combat.outcome == "NOTHING_TO_HAND_IN_OR_TAKE"
+              && fighter.offered.count == 2 && fighter.offered[1].filter { $0.hasPrefix("DO:HAND_IN") }.count == 2,
+              "attacked on a walk: an M3 fight at once, with no Jev call; won, the run goes on and the interrupted hand-in is offered again")
+        let beaten = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        beaten.outcomes = ["The Gift of Skysight": "WALK_COMBAT", "FIGHT_BACK": "JEV_STOP"]
+        let lost = await runQuests(host: beaten, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
+        check(lost.outcome == "FIGHT_JEV_STOP" && beaten.handed == ["The Gift of Skysight", "FIGHT_BACK"],
+              "a fight that does not end in a kill, even one Jev stopped, ends the quest run: it may still be under attack")
         let danger = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: []),
                                  QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: [], player: thendal, missing: [])])
         danger.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD"]  // slot 1: nearer
