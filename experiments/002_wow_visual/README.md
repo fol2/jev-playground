@@ -1,6 +1,6 @@
 # 002 — Screen evidence for a Shaman decision experiment
 
-Status: **an offline evidence contract plus bounded, owner-supervised live probes (M0–M4a);
+Status: **bounded, owner-supervised live probes (M0–M4) on one Swift runtime;
 not an unattended game-playing agent**. M3 calibrates one UI layout at one window size and
 verifies a four-slot capability catalogue live; client build and specialisation remain
 unverified. No new dependency, service or database. Only M3 and M4a call a model (Jev) at
@@ -18,32 +18,26 @@ screen pixels -> calibrated local measurements -> evidence packet
                                           logged suggestion only
 ```
 
-Only the packet validation is implemented here. `observations.policy_state` checks
-schema, stream and geometry identity, a caller-supplied freshness deadline, bounded
-values and source ROIs. It preserves `unknown` instead of inventing false/zero and
-returns a detached copy. Coordinates are capture pixels, not desktop click points.
-All times use one monotonic clock. Renew `stream_id` on a new capture session and
-`geometry_id` on window/scale/calibration changes; those changes are detected by a
-future adapter, not by this stateless function. The future consumer must also reject
-reordered frames and bind every proposal to its originating frame and target.
+The Swift runtime implements this boundary. `ObservationStamp` in
+[runtime/Runtime.swift](runtime/Runtime.swift) carries the stream and geometry identity and the
+capture time on one monotonic clock, and `RuntimeExecutive` rejects a reply whose frame is stale,
+reordered, or from a changed stream, geometry or target cue ([runtime/README.md](runtime/README.md)).
+Coordinates are capture pixels, not desktop click points. The first prototype of the packet,
+Python `screen-evidence/v1` (`observations.py`), had no consumer once the runtime took this over;
+it was retired on 25 Sept 2026, when the repository moved to Swift only.
 
 An `observed` measurement is not proof that its interpretation is correct. A tracked
 patch may not be a bobber; correlation is not identity/bite confidence. Field-specific
 extraction, semantic validation and calibration still require labelled screenshots.
-Pixels, OCR and motion are the only methods admitted by this prototype. Audio is a
+Pixels, OCR and motion are the only methods admitted here. Audio is a
 later, separately authorised and timestamped observation source, not implemented here.
 No hidden game state, memory reading, packet parsing or injected telemetry is used.
 
 ## Reproduce offline
 
 ```sh
-python3 -S -m unittest discover -s experiments/002_wow_visual -p 'test_*.py' -v
+python3 -m tools.motor_offline   # builds and checks the runtime, M0-M4, the tabletop and the learning corpus
 ```
-
-`test_observations.py` contains synthetic packets: schema/identity failures, future
-and expired frames, ROI bounds, invalid numerics, unknown versus false and size limits.
-They demonstrate the interface, not HUD-reading accuracy. The existing Focus Gate
-selects these tests for this experiment and still rejects unknown executable paths.
 
 ## Shaman first, but verify the actual profile
 

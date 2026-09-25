@@ -255,7 +255,7 @@ class LearningContract(unittest.TestCase):
         for path in ('AGENTS.md', 'REVIEW.md', 'docs/agents/ai-sdlc.md',
                      '.github/pull_request_template.md', 'tests/test_sdlc.py'):
             self.assertIn('python-tests', sdlc.route([('M', path)])['checks'])
-        for path in ('knowledge/shaman.md', 'zerocks1/part1_decisions.jsonl', 'video_jev.py'):
+        for path in ('knowledge/shaman.md', 'zerocks1/part1_decisions.jsonl', 'VideoJev.swift'):
             self.assertIn('motor-offline', sdlc.route([
                 ('M', 'experiments/002_wow_visual/learning/' + path)])['checks'])
         with self.assertRaises(sdlc.GateError):

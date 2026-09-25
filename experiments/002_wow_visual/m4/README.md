@@ -234,7 +234,7 @@ Latency p50 was 0.52–0.60 s and p95 0.58–0.98 s. Each walk ended with every 
   - EAT_DRINK below 80% health or 50% mana;
   - grey (tapped) plates are skipped.
 
-  `tabletop.py` holds 13 demo situations as choices. Live Jev agreed on 13/13, re-run on 24 Sept
+  `Tabletop.swift` holds 13 demo situations as choices. Live Jev agreed on 13/13, re-run on 24 Sept
   after the chase fact changed. Offline, `--check` only validates the scenarios.
 - **Missing evidence is never completion or calm** (from the peer review of 24 Sept).
   - An objective is finished only when its own line reads done >= need, or when "Ready for turn-in"
@@ -490,7 +490,8 @@ swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/0
   experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
   experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift \
   experiments/002_wow_visual/runtime/Experience.swift -o /tmp/nav-tests && /tmp/nav-tests
-python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
+swiftc -parse-as-library experiments/002_wow_visual/m4/Tabletop.swift experiments/002_wow_visual/runtime/JSON.swift \
+  -o /tmp/tabletop && /tmp/tabletop --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 python3 -m tools.motor_offline --update-perception   # accept the pixel readers' new readings on the saved frames
 ```

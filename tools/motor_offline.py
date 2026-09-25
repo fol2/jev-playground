@@ -250,6 +250,7 @@ def main(update: bool = False):
         graph_tests = str(Path(tmp, "graph-tests"))
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
         fight_tests, fight = str(Path(tmp, "fight-tests")), str(Path(tmp, "m3-fight"))
+        tabletop, video = str(Path(tmp, "tabletop")), str(Path(tmp, "video-jev"))
         nav_tests, nav = str(Path(tmp, "nav-tests")), str(Path(tmp, "m4-nav"))
         memory_file = str(Path(tmp, "hunt-experience.json"))
         seek_tests, seek = str(Path(tmp, "seek-tests")), str(Path(tmp, "m1-seek"))
@@ -273,6 +274,8 @@ def main(update: bool = False):
             nav: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
                                 NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift") + clicks,
                   ("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV")),
+            tabletop: ((NAV + "Tabletop.swift", runtime + "JSON.swift"), ()),
+            video: ((LEARN + "VideoJev.swift", runtime + "JSON.swift"), ()),
         }
         if update:
             build_all({nav: builds[nav]})
@@ -363,15 +366,16 @@ def main(update: bool = False):
                    for row in recalled_rows):
             raise GateError("second graph run did not proactively retrieve retained experience")
         nav_trap()
-        tabletop = subprocess.run([sys.executable, NAV + "tabletop.py", "--check"], cwd=ROOT, check=True,
-                                  capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
-        if not re.search(r"^tabletop scenarios checked: (1[2-9]|[2-9]\d)$", tabletop.stdout, re.M):
-            raise GateError(f"tabletop --check reported {tabletop.stdout.strip() or 'nothing'}")
-        video = subprocess.run([sys.executable, LEARN + "video_jev.py", "--check"], cwd=ROOT, check=True,
-                               capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
-        if not (re.search(r"^askable decision points: 236$", video.stdout, re.M)
-                and re.search(r"^historical replays reconciled: 6$", video.stdout, re.M)):
-            raise GateError(f"video_jev --check reported {video.stdout.strip() or 'nothing'}")
+        checked = subprocess.run([tabletop, "--check"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=60,
+                                 env={"PATH": os.environ.get("PATH", "")})
+        if not re.search(r"^tabletop scenarios checked: (1[3-9]|[2-9]\d)$", checked.stdout, re.M):
+            raise GateError(f"tabletop --check reported {checked.stdout.strip() or 'nothing'}")
+        replay = subprocess.run([video, "--check"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=60,
+                                env={"PATH": os.environ.get("PATH", "")})
+        if not (re.search(r"^learning regression checks: (6[7-9]|[7-9]\d|\d{3,})$", replay.stdout, re.M)
+                and re.search(r"^askable decision points: 236$", replay.stdout, re.M)
+                and re.search(r"^historical replays reconciled: 6$", replay.stdout, re.M)):
+            raise GateError(f"video-jev --check reported {replay.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
         seen = perception(nav, tmp)  # last: it loads every core, and the dry-runs above time their key-ups

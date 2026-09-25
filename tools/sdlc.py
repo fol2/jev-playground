@@ -28,29 +28,24 @@ test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
 """.split()} | {"data/001_wow_fishing/pilot_20260921/recorder.swift"}
 
 VISUAL = "experiments/002_wow_visual/"
-VISUAL_CODE = {VISUAL + name for name in ("observations.py", "test_observations.py")}
 MOTOR = VISUAL + "m0/"
 SEEK = VISUAL + "m1/"
 FIGHT = VISUAL + "m3/"
 NAV = VISUAL + "m4/"
 RUNTIME = VISUAL + "runtime/"
-LEARN = VISUAL + "learning/"  # video/research evidence; video_jev.py --check proves it offline
+LEARN = VISUAL + "learning/"  # video/research evidence; VideoJev.swift --check proves it offline
 MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Probe.swift", "README.md")} |
                {SEEK + name for name in ("Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md")} |
                {FIGHT + name for name in ("Fight.swift", "Tactics.swift", "FightTests.swift", "FightProbe.swift", "README.md")} |
                {RUNTIME + name for name in ("Runtime.swift", "Input.swift", "RuntimeTests.swift", "IntegrationTests.swift",
                                             "DecisionGraph.swift", "GraphTests.swift", "Experience.swift", "ExperienceTests.swift",
+                                            "JSON.swift",
                                             "skyborne-hunt.graph.json", "skyborne-quest.graph.json", "skyborne-fight.graph.json",
                                             "README.md")} |
                {NAV + name for name in ("Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift",
-                                        "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "tabletop.py", "perception.jsonl",
-                                        "README.md")})
-# Load and count the suite here. Running the file trusts its own __main__, so deleting
-# that one line would exit 0 having run nothing; a missing module raises instead.
-VISUAL_SUITE = (f"import sys, unittest; sys.path.insert(0, {VISUAL!r}); import test_observations as m; "
-                "suite = unittest.defaultTestLoader.loadTestsFromModule(m); "
-                "assert suite.countTestCases() >= 6, 'visual contract suite lost its tests'; "
-                "sys.exit(not unittest.TextTestRunner().run(suite).wasSuccessful())")
+                                        "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "Tabletop.swift", "perception.jsonl",
+                                        "README.md")} |
+               {VISUAL + "README.md", LEARN + "VideoJev.swift"})
 
 
 def fishing_path(path: str) -> bool:
@@ -81,7 +76,6 @@ def route(changes: list[tuple[str, str]]) -> dict:
         raise GateError("empty diff: no acceptance claim to validate")
     full = False
     fishing = False
-    visual = False
     motor = False
     for status, path in changes:
         parts = PurePosixPath(path).parts
@@ -93,9 +87,7 @@ def route(changes: list[tuple[str, str]]) -> dict:
             full = True
             motor |= path == "tools/motor_offline.py"  # a changed proof runner must run its own proof
             fishing |= path == "tools/fishing_offline.py"
-        elif path in VISUAL_CODE or path == VISUAL + "README.md":
-            visual = True
-        elif path in MOTOR_PATHS or path == LEARN + "video_jev.py" or (
+        elif path in MOTOR_PATHS or (
                 path.startswith(LEARN) and PurePosixPath(path).suffix in {".md", ".jsonl"}):
             motor = True
         elif fishing_path(path):
@@ -107,8 +99,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             raise GateError(f"unclassified path: {path}; register actual offline proof before promotion")
     return {"checks": ["integrity", "governance"] +
             (["python-tests", "automation-tests"] if full else []) + (["fishing-offline"] if fishing else []) +
-            (["visual-offline"] if visual else []) + (["motor-offline"] if motor else []),
-            "reason": "registered M0-M4 motor probes" if motor else "registered visual evidence contract" if visual else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
+            (["motor-offline"] if motor else []),
+            "reason": "registered M0-M4 motor probes" if motor else ("registered fishing source/evidence" if fishing else ("authority/code/addition/deletion" if full else "allowlisted documentation only")),
             "omitted": {"F3": "no real-runtime claim or live observation authority",
                         "F4": "source delivery grants no live-effect authority",
                         "model_calls": "deterministic proof; no provider or model runtime"}}
@@ -134,7 +126,7 @@ def inspect(base: str, head: str, cwd: Path = ROOT) -> dict:
         mode = metadata.split()[0]
         if mode not in {b"100644", b"100755"}:
             raise GateError("symlink/submodule is not a validated source surface")
-        if mode == b"100755" and name.decode() not in CODE | FISHING_CODE | VISUAL_CODE:
+        if mode == b"100755" and name.decode() not in CODE | FISHING_CODE:
             raise GateError("unregistered executable mode")
         if name.decode() not in REQUIRED and name.decode() not in {p for _, p in changes}:
             route([("M", name.decode())])  # do not hide pre-existing unknown executable inputs
@@ -199,14 +191,13 @@ def main() -> int:
     try:
         report = inspect(args.base, args.head)
         if args.full:
-            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "visual-offline", "motor-offline"]))
+            report["checks"] = list(dict.fromkeys(report["checks"] + ["integrity", "governance", "python-tests", "automation-tests", "fishing-offline", "motor-offline"]))
             report["reason"] = "explicit full offline verification"
         if args.command == "check":
             contracts()
             commands = {"python-tests": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
                         "automation-tests": ["node", "--test", "tests/test_maintenance.cjs"],
                         "fishing-offline": [sys.executable, "-m", "tools.fishing_offline"],
-                        "visual-offline": [sys.executable, "-S", "-c", VISUAL_SUITE],
                         "motor-offline": [sys.executable, "-m", "tools.motor_offline"]}
             for check in report["checks"]:
                 if check in commands:
