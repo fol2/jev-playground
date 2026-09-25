@@ -485,6 +485,19 @@ extension NavTests {
         check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1 && marks[0].h == 20 && marks[0].body == 240 + 48,
               "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
         check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
+        // 25 Sept, the owner's zoom: a 15 x 19 "?" and its dot 11 px under it, the name 54-63 px below the centre.
+        var near = RGBA(width: 400, height: 300, pixels: [UInt8](repeating: 30, count: 400 * 300 * 4))
+        func dab(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ rgb: (UInt8, UInt8, UInt8)) {
+            var px = near.pixels
+            for y in y0..<(y0 + h) { for x in x0..<(x0 + w) { let i = (y * 400 + x) * 4; (px[i], px[i + 1], px[i + 2]) = rgb } }
+            near = RGBA(width: 400, height: 300, pixels: px)
+        }
+        dab(200, 40, 15, 19, (250, 210, 40)); dab(198, 69, 5, 4, (250, 210, 40)); dab(160, 107, 100, 9, (60, 190, 40))
+        check(questMarks(near, box: (0, 0, 400, 300)).count == 1, "a taller mark at a closer zoom finds its name farther below")
+        dab(160, 107, 100, 9, (30, 30, 30)); dab(160, 160, 100, 9, (60, 190, 40))
+        check(questMarks(near, box: (0, 0, 400, 300)).isEmpty, "but not a name beyond 2.5 mark heights")
+        dab(160, 160, 100, 9, (30, 30, 30)); dab(160, 107, 100, 9, (60, 190, 40))
+        check(questMarks(near, box: (0, 0, 400, 105)).isEmpty, "nor a name below the world box, where the HUD is")
         // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
         let mask = [(161, "..#####"), (162, ".######"), (163, ".##..###"), (164, ".....###"), (165, ".....##"), (166, "....###"),
                     (167, "...###"), (168, "...##"), (171, "...##"), (172, "...##")]
@@ -582,9 +595,13 @@ extension NavTests {
         let onlyFar = [log24Sept[4]]
         check(thisZone(questPlan(onlyFar, from: thendal), from: thendal).isEmpty,
               "live 24 Sept: with only Shen'dar's quest read, nothing is in this zone (not a 20-unit walk for a cliff)")
-        check(missingFromLog(["Harvesting Windstones", "The Gift of Skysight"], onlyFar) == ["Harvesting Windstones", "The Gift of Skysight"]
-              && missingFromLog(["18 m", "The Gift of Skysight", "Call of Earth", "15m", "Call of Earth"], log24Sept).isEmpty,
+        check(missingFromLog([["Harvesting Windstones"], ["The Gift of Skysight"]], onlyFar) == ["Harvesting Windstones", "The Gift of Skysight"]
+              && missingFromLog([["18 m", "The Gift of Skysight"], ["Call of Earth", "15m"], ["Call of Earth"]], log24Sept).isEmpty,
               "live 24 Sept: minimap names the log read lacks make it incomplete; distance lines are not names")
+        check(missingFromLog([["Dalia the Collector", "Harvesting Windstones"], ["nsana", "Dalia the Collector", "The Gift of Skysight"]],
+                             log24Sept).isEmpty, "live 25 Sept: an NPC's name above a quest the log holds is not a missing quest")
+        check(missingFromLog([["Dalia the Collector", "Harvesting Windstones"], ["Dalia the Collector", "18 m"]], log24Sept)
+              == ["Dalia the Collector"], "a tooltip naming no quest the log holds still counts, NPC name or not")
     }
 
     /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed).

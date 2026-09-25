@@ -74,7 +74,8 @@ func markYellow(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 170 && g > 140 && r 
 func nameGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 110 && g > r + 40 && g > b + 30 }
 
 /// Centres of yellow quest marks in a box (x0, y0, x1, y1), nearest the view's centre first. A mark is
-/// an upright blob (a "?" is about 10 x 18 px zoomed out) with a green NPC name 8-50 px below it: a
+/// an upright blob (a "?" is about 10 x 18 px zoomed out) with a green NPC name 8-50 px below it
+/// (farther below a taller mark, at a closer zoom): a
 /// neutral creature's yellow nameplate bar is a flat strip, and a glowing Cirrusfly has no green name
 /// (live frames: 305 green pixels under a near "?", about 60 under a distant one, 0-23 under the insects).
 typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
@@ -124,9 +125,13 @@ func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> 
 func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [(x: Double, y: Double, h: Double, body: Double)] {
     let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
-    func greenBelow(_ x: Int, _ y: Int) -> (n: Int, bottom: Int) {
+    func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, bottom: Int) {
         var n = 0, bottom = y
-        for yy in max(0, y + 8)..<min(image.height, y + 50) {
+        // Names are in the world: the search stays in the box, never down into the HUD (25 Sept: a wider reach
+        // from a yellow glow above the unit frame found the player's green health bar).
+        let top = max(0, y + 8), end = min(image.height, y + reach, box.3)
+        guard top < end else { return (0, y) }
+        for yy in top..<end {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
                 if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1; bottom = yy }
@@ -137,7 +142,12 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) ->
     return blobs.compactMap { b -> (x: Double, y: Double, h: Double, body: Double)? in
         let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
         guard b.n >= minPixels, w <= 24, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
-        let name = greenBelow(b.sx / b.n, b.sy / b.n)
+        // How far below to look scales with the mark: its height stands for the NPC's distance. The name is UI
+        // text of fixed size, so a small mark keeps a 50 px floor (96 accepted marks, h 3-10: name bottom 14-49
+        // px below); a tall one's name sits 1.7-2.4 heights below (h 17-28), so 2.5 heights. 25 Sept, the owner's
+        // closer zoom: a 33 px "?" (dot joined) had its name 54-63 px below, beyond the old fixed 50 px, and
+        // the walk that reached the NPC read NO_QUEST_MARK_IN_VIEW.
+        let name = greenBelow(b.sx / b.n, b.sy / b.n, reach: max(50, 5 * h / 2))
         guard name.n >= 40 else { return nil }
         return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h))
     }
@@ -233,25 +243,30 @@ func thisZone(_ plan: [PlannedQuest], from player: MapPoint, zoneRadius: Double 
 /// The minimap's quest icons by shape. A "!" is a giver: its tooltip names a quest not yet taken. A "?"
 /// names a quest the log must hold, so only a "?" tooltip counts towards `missingFromLog`.
 func sortIcons(_ icons: [(at: MapPoint, offer: Bool, read: [String])])
-    -> (givers: [Giver], hints: [(names: [String], at: MapPoint)], tooltips: [String]) {
-    var givers: [Giver] = [], hints: [(names: [String], at: MapPoint)] = [], tooltips: [String] = []
+    -> (givers: [Giver], hints: [(names: [String], at: MapPoint)], tooltips: [[String]]) {
+    var givers: [Giver] = [], hints: [(names: [String], at: MapPoint)] = [], tooltips: [[String]] = []
     for icon in icons {
         if icon.offer {
             givers.append(Giver(names: icon.read.filter { nameKey($0).count >= 4 }, pin: icon.at))  // "18 m" is not a name
         } else {
             hints.append((icon.read.map(nameKey), icon.at))
-            tooltips += icon.read
+            tooltips.append(icon.read)
         }
     }
     return (givers, hints, tooltips)
 }
 
-/// Quest names the minimap's tooltips showed that the log read lacks ("18 m" distance lines are not
-/// names). Any at all means the log read is incomplete (live, 24 Sept: one quest of four): do not plan on it.
-func missingFromLog(_ tooltips: [String], _ quests: [PlannedQuest]) -> [String] {
+/// Names in the minimap's "?" tooltips, one tooltip per icon, whose quest the log read lacks ("18 m"
+/// distance lines are not names). Any at all means the log read is incomplete (live, 24 Sept: one quest of
+/// four): do not plan on it. A tooltip that names a quest the log holds is accounted for, and its other
+/// lines are NPC names: 25 Sept, live, near the NPCs, "Dalia the Collector" above "Harvesting Windstones"
+/// stopped the run LOG_INCOMPLETE. (So a second quest of that same NPC missing from the log goes unseen.)
+func missingFromLog(_ tooltips: [[String]], _ quests: [PlannedQuest]) -> [String] {
     let known = Set(quests.map { nameKey($0.title) })
     var missing: [String] = []
-    for name in tooltips where nameKey(name).count >= 4 && !known.contains(nameKey(name)) && !missing.contains(name) { missing.append(name) }
+    for tip in tooltips where !tip.contains(where: { known.contains(nameKey($0)) }) {
+        for name in tip where nameKey(name).count >= 4 && !missing.contains(name) { missing.append(name) }
+    }
     return missing
 }
 
