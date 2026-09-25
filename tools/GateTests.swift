@@ -405,6 +405,16 @@ struct GateTests {
         return go(json, keys[...])
     }
 
+    /// The field at a dotted path removed, as GitHub omits one: `pr.draft`, `reviews.0.user.login`.
+    static func without(_ json: JSON, _ path: String) -> JSON {
+        var keys = path.split(separator: ".").map(String.init)
+        let last = keys.removeLast()
+        let parent = keys.reduce(json as JSON?) { node, key in Int(key).flatMap { node?.items?[$0] } ?? node?[key] }
+        guard case let .object(pairs)? = parent else { return json }
+        let trimmed = JSON.object(pairs.filter { $0.0 != last })
+        return keys.isEmpty ? trimmed : set(json, keys.joined(separator: "."), trimmed)
+    }
+
     static func review(_ changes: [(String, JSON)]) -> JSON {
         changes.reduce(snapshot()["reviews"]!.items![0]) { $0.setting($1.0, $1.1) }
     }
@@ -447,6 +457,22 @@ struct GateTests {
                 _ = try evaluate(set(snapshot(), "reviews.0." + field, value), number: 1, head: head)
             }
         }
+        // Python read these as x["key"] and held on a KeyError or TypeError; a default here would let evidence go missing.
+        for path in ["pr.draft", "pr.merged", "pr.head.ref", "pr.base.sha", "integration", "runs.0.run_number", "checks", "statuses",
+                     "threads", "reviews", "reviews.0.state", "reviews.0.user", "reviews.0.user.login", "reviews.0.commit_id",
+                     "reviews.0.author_association"] {
+            check(without(snapshot(), path) != snapshot(), "\(path) is in the fixture")
+            holds("a missing \(path) holds") { _ = try evaluate(without(snapshot(), path), number: 1, head: head) }
+        }
+        check(eligible(without(snapshot(), "runs.0.run_attempt")), "a missing run attempt counts as the first, as Python's .get did")
+        holds("a run and job that both lack their ids do not match") {
+            _ = try evaluate(without(without(snapshot(), "runs.0.id"), "jobs.0.run_id"), number: 1, head: head)
+        }
+        holds("a deleted account's review (user null) holds") { _ = try evaluate(set(snapshot(), "reviews.0.user", .null), number: 1, head: head) }
+        holds("a review body that is not text holds") { _ = try evaluate(set(snapshot(), "reviews.0.body", .int(5)), number: 1, head: head) }
+        let other = set(set(snapshot(), "reviews.0.user.login", .string("reviewer")), "reviews.0.state", .string("APPROVED"))
+        check(eligible(other), "another member's approving PASS is eligible")
+        holds("an approval cannot be checked against a PR with no author") { _ = try evaluate(without(other, "pr.user"), number: 1, head: head) }
         holds("a newer inconclusive verdict wins") {
             _ = try evaluate(appending(snapshot(), "reviews", review([("id", .int(2)), ("body", .string("AI-SDLC review: INCONCLUSIVE"))])),
                              number: 1, head: head)
@@ -484,6 +510,12 @@ struct GateTests {
               "thread pagination checks every page")
         github = GitHub { _, _, _ in page(true, true, .string("repeat")) }
         holds("thread pagination must advance") { _ = try github.threads(1) }
+        for more in [JSON.null, .string("false")] {
+            github = GitHub { _, _, _ in set(page(true, false, .null), "data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage", more) }
+            holds("a hasNextPage of \(more.text()) holds, not ends the pages") { _ = try github.threads(1) }
+        }
+        github = GitHub { _, _, _ in without(page(true, false, .null), "data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage") }
+        holds("a missing hasNextPage holds") { _ = try github.threads(1) }
 
         // The CLI: read-only by default; --execute guards the head and base and verifies the readback.
         var calls: [(String, String)] = []

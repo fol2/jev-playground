@@ -11,6 +11,39 @@ struct Hold: Error, CustomStringConvertible {
     init(_ d: String) { description = d }
 }
 
+// GitHub evidence is read as the Python tool read it, `x["key"]`: an absent field holds, never a default.
+extension JSON {
+    func need(_ key: String) throws -> JSON {
+        guard let value = self[key] else { throw Hold("GitHub evidence lacks '\(key)'") }
+        return value
+    }
+    func needString(_ key: String) throws -> String {
+        guard let value = try need(key).string else { throw Hold("GitHub evidence has no text '\(key)'") }
+        return value
+    }
+    func needList(_ key: String) throws -> [JSON] {
+        guard let value = try need(key).items else { throw Hold("GitHub evidence has no list '\(key)'") }
+        return value
+    }
+}
+
+/// A review body as `review.get("body") or ""`: absent or null is empty; anything but text holds.
+func reviewBody(_ review: JSON) throws -> String {
+    switch review["body"] {
+    case nil, .null?: return ""
+    case let .string(body)?: return body
+    default: throw Hold("review body is not text")
+    }
+}
+
+/// Runs order by number, then attempt (1 when GitHub omits it); a run without a number holds.
+func attempt(_ run: JSON) throws -> (Double, Double) {
+    guard let number = run["run_number"]?.number, let tries = (run["run_attempt"] ?? .int(1)).number else {
+        throw Hold("workflow run has no number or attempt")
+    }
+    return (number, tries)
+}
+
 /// GitHub through `gh api`: a GET, or a POST/PUT with a JSON body. The tests replace it.
 struct GitHub {
     var call: (_ method: String, _ path: String, _ body: JSON?) throws -> JSON
@@ -55,7 +88,8 @@ struct GitHub {
                 throw Hold("review-thread query failed")
             }
             result += nodes
-            if batch["pageInfo"]?["hasNextPage"] != .bool(true) { return result }
+            guard case let .bool(more)? = batch["pageInfo"]?["hasNextPage"] else { throw Hold("review-thread query failed") }
+            if !more { return result }
             let next = batch["pageInfo"]?["endCursor"] ?? .null
             if !truthy(next) || next == cursor { throw Hold("review-thread pagination did not advance") }
             cursor = next
@@ -82,8 +116,8 @@ func reviewOrder(_ review: JSON) throws -> (Date, Int, Int) {
           githubTime.string(from: submitted) == text else {
         throw Hold("review submission time is unavailable or malformed")
     }
-    let body = review["body"]?.string ?? ""
-    let blocking = ["CHANGES_REQUESTED", "DISMISSED"].contains(review["state"]?.string ?? "")
+    let body = try reviewBody(review)
+    let blocking = ["CHANGES_REQUESTED", "DISMISSED"].contains(try review.needString("state"))
         || verdictLines(body).contains { $0 == "AI-SDLC review: REQUEST_CHANGES" || $0 == "AI-SDLC review: INCONCLUSIVE" }
     guard case let .int(id)? = review["id"] else { throw Hold("review has no id") }
     return (submitted, blocking ? 1 : 0, id)
@@ -94,19 +128,18 @@ func evaluate(_ s: JSON, number: Int, head: String, into: String = "main") throw
     func require(_ condition: Bool, _ reason: String) throws { if !condition { throw Hold(reason) } }
     try require(head.wholeMatch(of: #/[0-9a-f]{40}/#) != nil, "full expected head SHA required")
     guard let p = s["pr"] else { throw Hold("PR is not open and ready") }
-    try require(p["number"] == .int(number) && p["state"] == .string("open") && !truthy(p["draft"]) && !truthy(p["merged"]),
+    try require(p["number"] == .int(number) && p["state"] == .string("open") && !truthy(p.need("draft")) && !truthy(p.need("merged")),
                 "PR is not open and ready")
     try require(p["head"]?["sha"] == .string(head), "PR head moved")
     try require(p["head"]?["repo"]?["full_name"] == .string(repoName) && p["base"]?["repo"]?["full_name"] == .string(repoName), "foreign repository")
-    try require(p["base"]?["ref"] == .string(into) && p["head"]?["ref"] != .string(into), "unexpected integration branches")
-    try require(p["base"]?["sha"] == s["integration"] && s["compare"]?["status"] == .string("ahead"), "integration branch is not included")
+    try require(p["base"]?["ref"] == .string(into) && p.need("head").need("ref") != .string(into), "unexpected integration branches")
+    try require(try p.need("base").need("sha") == s.need("integration") && s["compare"]?["status"] == .string("ahead"), "integration branch is not included")
     // Merging into a topic branch still must not promote work that predates current main.
     try require(["ahead", "identical"].contains(s["main_compare"]?["status"]?.string ?? ""), "current main is not included")
     try require(p["mergeable"] == .bool(true) && p["mergeable_state"] == .string("clean"), "mergeability is not clean")
     let runs = s["runs"]?.items ?? []
     try require(!runs.isEmpty, "no exact-head PR workflow run")
-    func attempt(_ run: JSON) -> (Double, Double) { (run["run_number"]?.number ?? 0, run["run_attempt"]?.number ?? 1) }
-    let run = runs.max { attempt($0) < attempt($1) }!
+    let run = try runs.map { ($0, try attempt($0)) }.max { $0.1 < $1.1 }!.0  // every run keyed, as max(key=) did
     try require(run["workflow_id"] == .int(workflowID) && run["path"] == .string(workflowPath) && run["head_sha"] == .string(head)
                 && run["event"] == .string("pull_request"), "workflow identity mismatch")
     try require(run["head_repository"]?["full_name"] == .string(repoName)
@@ -114,21 +147,22 @@ func evaluate(_ s: JSON, number: Int, head: String, into: String = "main") throw
     try require(run["status"] == .string("completed") && run["conclusion"] == .string("success"), "latest workflow is not successful")
     let focus = (s["jobs"]?.items ?? []).filter { $0["name"] == .string("Focus Gate") }
     try require(focus.count == 1 && focus[0]["conclusion"] == .string("success") && focus[0]["status"] == .string("completed")
-                && focus[0]["run_id"] == run["id"], "authentic Focus Gate did not pass")
-    try require((s["checks"]?.items ?? []).allSatisfy { $0["status"] == .string("completed")
+                && focus[0]["run_id"] == run.need("id"), "authentic Focus Gate did not pass")
+    try require(try s.needList("checks").allSatisfy { $0["status"] == .string("completed")
                 && ["success", "neutral", "skipped"].contains($0["conclusion"]?.string ?? "") }, "another check is pending or failed")
-    try require((s["statuses"]?.items ?? []).allSatisfy { $0["state"] == .string("success") }, "commit status is pending or failed")
+    try require(try s.needList("statuses").allSatisfy { $0["state"] == .string("success") }, "commit status is pending or failed")
     var decisions: [(actor: String, review: JSON, verdict: String)] = []
     var native: [String: String] = [:]
-    let submitted = try (s["reviews"]?.items ?? []).filter { $0["state"] != .string("PENDING") }.map { ($0, try reviewOrder($0)) }
+    let submitted = try s.needList("reviews").filter { try $0.needString("state") != "PENDING" }.map { ($0, try reviewOrder($0)) }
     for (review, _) in submitted.sorted(by: { $0.1 < $1.1 }) {
-        let actor = review["user"]?["login"]?.string ?? ""
-        let state = review["state"]?.string ?? ""
+        let actor = try review.need("user").needString("login")
+        let state = try review.needString("state")
         if ["CHANGES_REQUESTED", "APPROVED"].contains(state) { native[actor] = state }
-        if review["commit_id"] != .string(head) || !["OWNER", "MEMBER", "COLLABORATOR"].contains(review["author_association"]?.string ?? "") {
+        if try review.need("commit_id") != .string(head)
+            || !["OWNER", "MEMBER", "COLLABORATOR"].contains(review.need("author_association").string ?? "") {
             continue
         }
-        let verdicts = verdictLines(review["body"]?.string ?? "").compactMap { line -> String? in
+        let verdicts = verdictLines(try reviewBody(review)).compactMap { line -> String? in
             ["PASS", "REQUEST_CHANGES", "INCONCLUSIVE"].first { line == "AI-SDLC review: " + $0 }
         }
         try require(verdicts.count <= 1, "ambiguous review verdict")
@@ -146,9 +180,10 @@ func evaluate(_ s: JSON, number: Int, head: String, into: String = "main") throw
                     "review independence is undisclosed")
         try require(body.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).contains { $0 == "Head: \(head)" },
                     "review text head mismatch")
-        try require(!(review["state"] == .string("APPROVED") && review["user"]?["login"] == p["user"]?["login"]), "author must not self-approve")
+        try require(review["state"] != .string("APPROVED") || review.need("user").need("login") != p.need("user").need("login"),
+                    "author must not self-approve")
     }
-    try require((s["threads"]?.items ?? []).allSatisfy { $0["isResolved"] == .bool(true) }, "unresolved review thread")
+    try require(try s.needList("threads").allSatisfy { $0["isResolved"] == .bool(true) }, "unresolved review thread")
     return .object([("decision", .string("ELIGIBLE")), ("pr", .int(number)), ("head", .string(head)), ("base", s["integration"] ?? .null),
                     ("integration_ref", .string(into)), ("workflow_run", run["id"] ?? .null), ("live_effect_authority", .string("none"))])
 }
@@ -158,13 +193,12 @@ func collect(_ github: GitHub, number: Int, head: String, into: String = "main")
     guard let integration = try github.get("\(apiPrefix)/branches/\(into)")["commit"]?["sha"] else { throw Hold("integration branch unreadable") }
     let runs = try github.pages("\(apiPrefix)/actions/runs?event=pull_request&head_sha=\(head)", "workflow_runs")
         .filter { $0["workflow_id"] == .int(workflowID) }
-    func attempt(_ run: JSON) -> (Double, Double) { (run["run_number"]?.number ?? 0, run["run_attempt"]?.number ?? 1) }
-    let latest = runs.max { attempt($0) < attempt($1) }
+    let latest = try runs.map { ($0, try attempt($0)) }.max { $0.1 < $1.1 }?.0
     let compare = try github.get("\(apiPrefix)/compare/\(integration.string ?? "")...\(head)")
     return .object([
         ("pr", p), ("integration", integration), ("runs", .array(runs)), ("compare", compare),
         ("main_compare", into == "main" ? compare : try github.get("\(apiPrefix)/compare/main...\(head)")),
-        ("jobs", .array(try latest.map { try github.pages("\(apiPrefix)/actions/runs/\($0["id"]!.text())/jobs?filter=latest", "jobs") } ?? [])),
+        ("jobs", .array(try latest.map { try github.pages("\(apiPrefix)/actions/runs/\(try $0.need("id").text())/jobs?filter=latest", "jobs") } ?? [])),
         ("checks", .array(try github.pages("\(apiPrefix)/commits/\(head)/check-runs?filter=latest", "check_runs"))),
         ("statuses", .array(try github.pages("\(apiPrefix)/commits/\(head)/status", "statuses"))),
         ("reviews", .array(try github.pages("\(apiPrefix)/pulls/\(number)/reviews"))), ("threads", .array(try github.threads(number)))])

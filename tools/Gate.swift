@@ -263,7 +263,7 @@ func contracts(_ at: URL = root) throws {
 // MARK: The report
 
 /// The gate's own tests: built from these sources with -D GATE_TESTS and counted.
-let minimumGateTests = 457  // the current count: removing a check must lower this on purpose
+let minimumGateTests = 496  // the current count: removing a check must lower this on purpose
 func governanceTests() throws -> Int {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("gate-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: tmp) }
