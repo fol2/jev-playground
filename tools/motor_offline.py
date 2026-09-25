@@ -372,7 +372,7 @@ def main(update: bool = False):
             raise GateError(f"tabletop --check reported {checked.stdout.strip() or 'nothing'}")
         replay = subprocess.run([video, "--check"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=60,
                                 env={"PATH": os.environ.get("PATH", "")})
-        if not (re.search(r"^learning regression checks: (6[7-9]|[7-9]\d|\d{3,})$", replay.stdout, re.M)
+        if not (re.search(r"^learning regression checks: ([89]\d|\d{3,})$", replay.stdout, re.M)  # at least 80
                 and re.search(r"^askable decision points: 236$", replay.stdout, re.M)
                 and re.search(r"^historical replays reconciled: 6$", replay.stdout, re.M)):
             raise GateError(f"video-jev --check reported {replay.stdout.strip() or 'nothing'}")

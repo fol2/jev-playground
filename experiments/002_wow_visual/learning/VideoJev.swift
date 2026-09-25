@@ -243,9 +243,9 @@ func askJev(_ key: String, _ state: JSON, _ options: Options, _ facts: JSON) asy
     throw Invalid("unreachable")
 }
 
-/// Python's `round(x, 2)`: correctly rounded from the exact binary value, as printf does; a whole number stays whole.
+/// Python's `round(x, 2)`; a whole number stays whole.
 func rounded(_ x: JSON) -> JSON {
-    if case let .double(d) = x { return .double(Double(String(format: "%.2f", d))!) }
+    if case let .double(d) = x { return .double(JSON.round(d, 2)) }
     return x
 }
 
@@ -344,6 +344,12 @@ func selfTestChecks() async throws -> Int {
                 && JSON.string("\u{E9}\u{7F}").text(ascii: false) == "\"\u{E9}\u{7F}\"", "Python string escapes")
     try require(try JSON.parse(#"{"b": [1, 2.50, true, null], "a": {}}"#).text() == #"{"b": [1, 2.5, true, null], "a": {}}"#
                 && (try JSON.parse(#"{"b": 1, "a": 2}"#).text(sorted: true)) == #"{"a": 2, "b": 1}"#, "key order kept; sorted on request")
+    try require((try JSON.parse("[9223372036854775807, 9223372036854775808, -18446744073709551616]")).text()
+                == "[9223372036854775807, 9223372036854775808, -18446744073709551616]"
+                && (try validateDecision(with(try JSON.parse(#"{"t": "01m02s", "state": {"x": 9223372036854775808}, "options": {"A": "a", "B": "b"}, "human": "A", "evidence": "e"}"#), "t", .string("01m02s")))).count == 2,
+                "a whole number past Int keeps its digits and is finite, as Python's int is")
+    try require(JSON.round(0.612345, 2) == 0.61 && JSON.round(2.675, 2) == 2.67 && JSON.round(0.125, 2) == 0.12 && JSON.round(0.375, 2) == 0.38,
+                "round as Python's round does: from the exact binary value, exact ties to even")
     for bad in [#"{"a": 1,}"#, #"["a"#, #""\ud800""#, "01", "1.", #"{"a" 1}"#, "tru", "\"tab\tin\""] {
         try refuses("strict JSON") { _ = try JSON.parse(bad) }
     }
@@ -425,7 +431,7 @@ func selfTestChecks() async throws -> Int {
     try require(calls == 0, "bad later file spends no provider calls")
     try row.text().write(to: root.appendingPathComponent("video/part2_decisions.jsonl"), atomically: true, encoding: .utf8)
     try refuses("unregistered file") { _ = try checkCorpus(root, expected: manifest, minimumFacts: 2) }
-    guard checks >= 67 else { throw Invalid("self-test suite lost checks (\(checks))") }
+    guard checks >= 80 else { throw Invalid("self-test suite lost checks (\(checks))") }  // the current count
     return checks
 }
 

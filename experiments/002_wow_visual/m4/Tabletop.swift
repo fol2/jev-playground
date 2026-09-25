@@ -217,16 +217,18 @@ struct Tabletop {
             do {
                 guard let answer = try await ask(s, key: key)["answers"]?["action"] else { fail("no answers.action from Jev") }
                 let probs = answer["probabilities"]?.pairs ?? []
-                let pick = probs.isEmpty ? answer["choice"]?.string ?? ""
-                    : probs.reduce(probs[0]) { ($1.1.number ?? 0) > ($0.1.number ?? 0) ? $1 : $0 }.0
-                if pick == s.human { agree += 1 }
-                // Python's round(p, 2): correctly rounded, and a whole number stays whole.
+                // The most probable option, else the reply's choice (null when it gives neither, as Python's None).
+                let pick = probs.isEmpty ? answer["choice"] ?? .null
+                    : .string(probs.reduce(probs[0]) { ($1.1.number ?? 0) > ($0.1.number ?? 0) ? $1 : $0 }.0)
+                let match = pick == .string(s.human)
+                if match { agree += 1 }
+                // Python's round(p, 2): a whole number stays whole.
                 let p = JSON.object(probs.map { pair in
                     guard case let .double(d) = pair.1 else { return pair }
-                    return (pair.0, .double(Double(String(format: "%.2f", d))!))
+                    return (pair.0, .double(JSON.round(d, 2)))
                 })
-                print(JSON.object([("scenario", .string(s.name)), ("jev", .string(pick)), ("owner", .string(s.human)),
-                                   ("match", .bool(pick == s.human)), ("p", p)]).text())
+                print(JSON.object([("scenario", .string(s.name)), ("jev", pick), ("owner", .string(s.human)),
+                                   ("match", .bool(match)), ("p", p)]).text())
             } catch {
                 fail("Jev request failed: \(error)")
             }

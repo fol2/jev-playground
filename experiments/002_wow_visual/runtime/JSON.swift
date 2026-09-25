@@ -6,6 +6,8 @@ import Foundation
 /// replaced the Python ones send Jev exactly what those sent.
 indirect enum JSON: Equatable {
     case null, bool(Bool), int(Int), double(Double), string(String), array([JSON]), object([(String, JSON)])
+    /// A whole number too large for Int, kept as its digits, as Python keeps them.
+    case big(String)
 
     struct ParseError: Error, CustomStringConvertible { let description: String }
 
@@ -15,7 +17,7 @@ indirect enum JSON: Equatable {
         case let (.bool(x), .bool(y)): return x == y
         case let (.int(x), .int(y)): return x == y
         case let (.double(x), .double(y)): return x == y
-        case let (.string(x), .string(y)): return x == y
+        case let (.string(x), .string(y)), let (.big(x), .big(y)): return x == y
         case let (.array(x), .array(y)): return x == y
         case let (.object(x), .object(y)): return x.count == y.count && zip(x, y).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 }
         default: return false
@@ -44,8 +46,16 @@ indirect enum JSON: Equatable {
         switch self {
         case let .int(i): return Double(i)
         case let .double(d): return d
+        case let .big(digits): return Double(digits)  // perhaps infinite: a range check then refuses it
         default: return nil
         }
+    }
+
+    /// Python's `round(x, digits)`: correctly rounded from the exact binary value (2.675 is 2.67499…, so 2.67), exact
+    /// ties to even, as C's printf does. `String(format:)` is not localised: under de_DE it still writes 0.61. Its
+    /// `locale:` variant is avoided: it wrote "0,61" there and rounded 2.675 to 2.68.
+    static func round(_ x: Double, _ digits: Int) -> Double {
+        Double(String(format: "%.\(digits)f", x)) ?? x
     }
 
     /// No NaN or infinity anywhere: what Python's `json.dumps(..., allow_nan=False)` accepts.
@@ -71,6 +81,7 @@ indirect enum JSON: Equatable {
         case .null: return "null"
         case let .bool(b): return b ? "true" : "false"
         case let .int(i): return String(i)
+        case let .big(digits): return digits
         case let .double(d): return JSON.pythonRepr(d)
         case let .string(s): return JSON.quoted(s, ascii: ascii)
         case let .array(a): return "[" + a.map { $0.text(sorted: sorted, ascii: ascii) }.joined(separator: ", ") + "]"
@@ -113,7 +124,7 @@ indirect enum JSON: Equatable {
         var text = "\(abs(d))"
         var exponent = 0
         if let e = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
-            exponent = Int(text[text.index(after: e)...])!
+            exponent = Int(text[text.index(after: e)...]) ?? 0
             text = String(text[..<e])
         }
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)
@@ -277,8 +288,7 @@ private struct Parser {
             guard digits() > 0 else { throw fail("invalid number") }
         }
         let text = String(decoding: bytes[start..<at], as: UTF8.self)
-        // A whole number too large for Int becomes a Double (maybe infinite), which isFinite then refuses.
-        if !real, let i = Int(text) { return .int(i) }
+        if !real { return Int(text).map(JSON.int) ?? .big(text) }
         return .double(Double(text) ?? (text.hasPrefix("-") ? -.infinity : .infinity))
     }
 }

@@ -9,22 +9,27 @@ runtime, under the owner's supervision.
 ## The smallest useful boundary
 
 ```text
-screen pixels -> calibrated local measurements -> evidence packet
+screen pixels -> calibrated local measurements -> evidence stamp
                                                    |
-                                      freshness/identity/ROI validation
+                                      freshness/identity validation
                                                    |
                               identical observations for Rules / Jev
                                                    |
                                           logged suggestion only
 ```
 
-The Swift runtime implements this boundary. `ObservationStamp` in
-[runtime/Runtime.swift](runtime/Runtime.swift) carries the stream and geometry identity and the
-capture time on one monotonic clock, and `RuntimeExecutive` rejects a reply whose frame is stale,
-reordered, or from a changed stream, geometry or target cue ([runtime/README.md](runtime/README.md)).
-Coordinates are capture pixels, not desktop click points. The first prototype of the packet,
-Python `screen-evidence/v1` (`observations.py`), had no consumer once the runtime took this over;
-it was retired on 25 Sept 2026, when the repository moved to Swift only.
+The Swift runtime checks evidence identity, not a packet. `ObservationStamp` in
+[runtime/Runtime.swift](runtime/Runtime.swift) carries the stream and geometry identity, the
+capture time on one monotonic clock and the target cue, and `RuntimeExecutive` rejects a reply
+whose frame is stale, reordered, or from a changed stream, geometry or target cue
+([runtime/README.md](runtime/README.md)). Coordinates are capture pixels, not desktop click points.
+
+The first prototype of a packet format, Python `screen-evidence/v1` (`observations.py`), also
+validated each fact: an exact schema, a frame ID, the capture size, at most 64 facts, a method of
+pixels, OCR or motion, a source ROI inside the capture, and `unknown` never carrying a value. No
+reader or policy ever produced or consumed such a packet, so on 25 Sept 2026, when the repository
+moved to Swift only, it was retired with its tests, not ported. Those per-fact checks do not exist
+in the runtime; a future structured-evidence adapter would need its own, with tests.
 
 An `observed` measurement is not proof that its interpretation is correct. A tracked
 patch may not be a bobber; correlation is not identity/bite confidence. Field-specific
