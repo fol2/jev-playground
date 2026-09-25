@@ -18,8 +18,8 @@ class VisualRouteTests(unittest.TestCase):
             self.assertNotIn("fishing-offline", checks)
 
     def test_retired_python_may_only_be_deleted(self):
-        for path in sdlc.RETIRED:
-            self.assertIn("motor-offline", route([("D", path)])["checks"])
+        for path, proof in sdlc.RETIRED.items():
+            self.assertIn(proof, route([("D", path)])["checks"])
             for status in ("A", "M"):
                 with self.subTest(path=path, status=status), self.assertRaises(GateError):
                     route([(status, path)])
@@ -30,6 +30,11 @@ class VisualRouteTests(unittest.TestCase):
                      VISUAL + "observations.py", NAV + "tabletop.py", LEARN + "video_jev.py"):
             with self.subTest(path=path), self.assertRaises(GateError):
                 route([("A", path)])
+
+    def test_shared_json_runs_both_consumers(self):
+        checks = route([("M", RUNTIME + "JSON.swift")])["checks"]
+        self.assertIn("motor-offline", checks)
+        self.assertIn("fishing-offline", checks)
 
     def test_fishing_regression_selects_native_proof(self):
         checks = route([("A", FISHING + "tests/MotionChecks.swift")])["checks"]
@@ -67,7 +72,8 @@ class VisualRouteTests(unittest.TestCase):
                     checks = route([(status, path)])["checks"]
                     self.assertIn("motor-offline", checks)
                     self.assertNotIn("visual-offline", checks)
-                    self.assertNotIn("fishing-offline", checks)
+                    if path != RUNTIME + "JSON.swift":  # shared with the fishing tools: see below
+                        self.assertNotIn("fishing-offline", checks)
 
     def test_a_changed_proof_runner_runs_its_own_proof(self):
         self.assertIn("motor-offline", route([("M", "tools/motor_offline.py")])["checks"])

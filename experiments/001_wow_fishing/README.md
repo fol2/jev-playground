@@ -16,19 +16,26 @@ From the repository root, without WoW or a provider key:
 python3 -m tools.fishing_offline
 # or to run individual checks:
 sh experiments/001_wow_fishing/test_core.sh
-python3 -S -m unittest discover -s experiments/001_wow_fishing -p 'test_*.py' -v
-# macOS only: compile the real helper and run retained image/decision fixtures.
+# macOS only: compile the real helper and the tools, and run retained image/decision fixtures.
 sh experiments/001_wow_fishing/build.sh
 ```
 
 The `tools.fishing_offline` module is the superset entry point that CI now runs; it
-performs the core suite, Python unittests, Swift typechecks and offline fixture
+performs the core suite, the Test A/B runner checks, Swift typechecks and offline fixture
 validation. The core suite uses synthetic pixels, fake monotonic time and fake HTTP.
 Native checks also use eight retained development image pairs, not held-out data:
 the original four, plus four acquired/first-missing pairs added for peak
 disambiguation. CI never captures a screen or dispatches input. Swift and Python's
-standard library suffice for these checks. The historical `analyse.py` video decoder
-still needs NumPy and FFmpeg; those are loaded only when decoding is requested.
+alone suffices for these checks. The historical pilot analyser (`analyse.swift`,
+`/tmp/jev-fishing-analyse VIDEO`) needs FFmpeg only when it decodes a clip.
+
+On 25 Sept the tools moved from Python to Swift: `analyse.swift`, `record.swift` and
+`run_test_a.swift` (with `tests/RunnerTests.swift`) replace `analyse.py`, `record.py`,
+`run_test_a.py` and their tests. Before the Python was deleted, the Swift analyser wrote
+byte-identical `observations.jsonl` (268 rows) and `comparison.jsonl` for the pilot clip,
+and the same Jev question bytes. The runner keeps all 14 Python checks and adds the call
+budget, an interruption and a timeout. `build.sh` builds `/tmp/jev-fishing-analyse`,
+`/tmp/jev-fishing-record` and `/tmp/jev-fishing-run`.
 
 ## Architecture
 
