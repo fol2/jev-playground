@@ -25,7 +25,7 @@ let navUsage = """
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
            m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
            m4-nav --quests --graph PATH --keys wqe [--fight-graph PATH]   Jev chooses each hand-in within one walk
-    Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
+    Live keys: W, Q, E; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
     """
 
@@ -41,10 +41,26 @@ func upscaledText(_ image: CGImage, _ box: CGRect) -> [String] {
     return ocr(scaled).sorted { $0.1.maxY > $1.1.maxY }.map(\.0)  // Vision's boxes grow upwards
 }
 
-/// The coordinates under the minimap.
-func coordsText(_ image: CGImage) -> String {
-    upscaledText(image, CGRect(x: NavHUD.coordsX, y: NavHUD.coordsY, width: NavHUD.coordsWidth, height: NavHUD.coordsHeight))
-        .joined(separator: " ")
+/// The coordinates under the minimap: the raw OCR, and only when it does not parse the masked ones
+/// (NavHUD.coordsMasks, agreedCoords). `text` is everything read, for the log.
+func readCoords(_ image: CGImage) -> (text: String, at: MapPoint?) {
+    let box = CGRect(x: NavHUD.coordsX, y: NavHUD.coordsY, width: NavHUD.coordsWidth, height: NavHUD.coordsHeight)
+    let raw = upscaledText(image, box).joined(separator: " ")
+    if let at = parseCoords(raw) { return (raw, at) }
+    guard let crop = image.cropping(to: box) else { return (raw, nil) }
+    let pixels = rgba(crop), whole = CGRect(x: 0, y: 0, width: box.width, height: box.height)
+    let masked = NavHUD.coordsMasks.map { mask in
+        cgImage(whiteText(pixels, spread: mask.spread, floor: mask.floor)).map { upscaledText($0, whole).joined(separator: " ") } ?? ""
+    }
+    return (([raw] + masked).joined(separator: " | "), agreedCoords(raw: raw, masked: masked))
+}
+
+func cgImage(_ image: RGBA) -> CGImage? {
+    CGDataProvider(data: Data(image.pixels) as CFData).flatMap {
+        CGImage(width: image.width, height: image.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                provider: $0, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
 }
 
 func apiKey() throws -> String {
@@ -105,8 +121,8 @@ final class LiveNavBody: NavBody {
             write(image, to: directory.appendingPathComponent(String(format: "f%03d.jpg", frameNo)), type: .jpeg)
         }
         frameNo += 1
-        let text = coordsText(image)
-        guard let at = parseCoords(text), let facing = arrowFacing(pixels) else {
+        let (text, read) = readCoords(image)
+        guard let at = read, let facing = arrowFacing(pixels) else {
             emit("unreadable", ["coords_text": text, "frame": frameNo - 1])
             return nil
         }
@@ -200,8 +216,7 @@ func navReplay(_ directory: String) throws -> Int32 {
             log.emit("frame", ["file": name, "skipped": "\(image.width)x\(image.height) is not the calibrated layout"])
             continue
         }
-        let text = coordsText(image)
-        let at = parseCoords(text)
+        let (text, at) = readCoords(image)
         let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
         let hud = observe(rgba(image), plates: true)
         log.emit("frame", ["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
@@ -311,14 +326,13 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
         try? await stream.stopCapture()
         throw ProbeError("no \(HUD.width)-wide frame within \(Limits.firstFrameWait) s")
     }
-    _ = await Task.detached { coordsText(first.image) }.value  // Vision's first OCR in a process takes ~30 s
+    _ = await Task.detached { readCoords(first.image) }.value  // Vision's first OCR in a process takes ~30 s
     let sink = PidKeySink(pid: session.app.processIdentifier)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     body.ghost = command.ghost
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
-    await zoomOut(body.keys, log)
     guard let start = body.look() else {
         try? await stream.stopCapture()
         throw ProbeError("coordinates or minimap arrow unreadable at the start")

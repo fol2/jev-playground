@@ -124,6 +124,15 @@ All boxes are capture pixels of the 2560×1320 window.
   after a ×3 upscale and parsed as `44.8,28.1`, `44.8, 28.1` or `44.7.27.9`.
   - It was read on all 61 saved frames at this layout.
   - It was never unreadable in 99 live looks.
+  - 25 Sept, the first live `--quests` run: 0.46 from a quest giver, its orange name covered the
+    text ("43.0, 23к7 Eнн") for six looks, and the walk stopped `HUD_UNREADABLE`. Two changes:
+    - A move that sees the arrival radius now ends the walk `ARRIVED` without one more reading.
+    - When the raw text does not parse, it is read again with coloured pixels blanked, under two
+      masks, and counts only when both agree. On 2,410 saved frames at this layout, the masks agreed
+      with each other 1,762 times where the raw text parsed, and never with a point other than the
+      raw one. Either mask alone disagreed with the raw text 81 times, mostly a 4 read as 1 or 9 (once
+      the raw text was the one wrong), so neither is used alone.
+      The raw reading, which parsed on 2,396 frames, is unchanged.
 - **Geometry.** The zone map is 3:2, so one x unit covers 1.5 y units of ground. Distances are
   in y units.
   - Running covers about 0.2 per second: 0.63–0.78 per move of 3.0–3.3 s.
@@ -276,10 +285,11 @@ labelled live:
 `m4-nav --turn-in --keys wqe --quest NAME`, run within reach of the quest's NPC (M4a walks there).
 Every step is a script (controller RULE); there is no Jev call.
 
-1. Zoom out (F10). If the quest dialogue is not already open, find the NPC's yellow "?": an upright
-   yellow blob with a green name 8-50 px below it. Zoomed out the "?" is small and dim, so the test
-   is the hue; a neutral nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click
-   68 px below the mark: with Click-to-Move the character walks to the NPC and opens the dialogue.
+1. If the quest dialogue is not already open, find the NPC's yellow "?": an upright yellow blob
+   with a green name 8-50 px below it. Calibrated zoomed fully out, where the "?" is small and dim, so
+   the test is the hue (the camera has stayed at the owner's closer zoom since 25 Sept). A neutral
+   nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click 68 px below the mark: with Click-to-Move the character walks to the NPC and
+   opens the dialogue.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a

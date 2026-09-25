@@ -81,8 +81,9 @@ enum FightLimits {
     static let turnRight: UInt16 = 14
     static let interact: UInt16 = 101  // F9, Interact With Target (owner-consented bind): turns, walks, auto-attacks
     static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
-    static let zoomOut: UInt16 = 109  // F10, Camera Zoom Out (owner-consented bind, 24 Sept)
-    static let zoomSeconds = 2.5
+    // F10, Camera Zoom Out (owner-consented bind, 24 Sept). No run presses it since 25 Sept: the camera stays
+    // at the owner's zoom (the widest view hid the NPCs' "?" and "!"). Still released on every exit.
+    static let zoomOut: UInt16 = 109
     static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut] }
 }
 

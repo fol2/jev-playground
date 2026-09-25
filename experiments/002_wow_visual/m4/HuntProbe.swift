@@ -102,8 +102,8 @@ final class LiveHuntHost: HuntHost {
         if walkNo % 2 == 0 { write(image, to: directory.appendingPathComponent(String(format: "w%03d.jpg", walkNo)), type: .jpeg) }
         walkNo += 1
         let pixels = rgba(image)
-        let text = coordsText(image)
-        guard let at = parseCoords(text), let facing = arrowFacing(pixels) else {
+        let (text, read) = readCoords(image)
+        guard let at = read, let facing = arrowFacing(pixels) else {
             emit("unreadable", ["coords_text": text, "walk_frame": walkNo - 1])
             return nil
         }
@@ -133,7 +133,7 @@ final class LiveHuntHost: HuntHost {
         o.stamp?.target = o.target
         o.targetAlive = !name.isEmpty && observe(pixels, plates: false).target > 0.005
         o.gameMenu = upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")
-        if let at = parseCoords(coordsText(image)), let facing = o.facing {
+        if let at = readCoords(image).at, let facing = o.facing {
             o.here = NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: o.combat, player: o.player)
         }
         if let facing = o.facing {
@@ -335,7 +335,6 @@ func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil,
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holding })
-    await zoomOut(host.keys, log)
     guard let start = host.survey(), !start.objectives.isEmpty else {
         try? await stream.stopCapture()
         throw ProbeError("the objectives tracker is unreadable or empty at the start")

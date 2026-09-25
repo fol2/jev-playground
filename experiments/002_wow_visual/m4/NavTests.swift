@@ -99,6 +99,15 @@ struct NavTests {
         check(same(parseCoords("Player: 43.2, 23.8"), 43.2, 23.8), "coordinates inside the world map's player line")
         check(parseCoords("ITEn") == nil && parseCoords("") == nil, "noise reads no coordinates")
         check(parseCoords("144.8,28.1") == nil && parseCoords("44.8,28.15") == nil, "a digit on either side rejects the match")
+        // 25 Sept, live: a quest giver's orange name across the box. Raw first; masks only when they agree.
+        check(same(agreedCoords(raw: "42.5, 23.7", masked: ["12.5, 23.7", "12.5, 23.7"]), 42.5, 23.7), "a raw reading that parses is kept")
+        check(same(agreedCoords(raw: "43.0.23к7 Eнн", masked: ["43.0,23.7", "43.0, 23.7"]), 43.0, 23.7), "masks that agree read through a name")
+        check(agreedCoords(raw: "43.0.23v7", masked: ["43.0,23.1", "43.0,23.7"]) == nil, "masks that disagree read nothing")
+        check(agreedCoords(raw: "43.0.23v7", masked: ["43.0,23.7", "43.0.2311-"]) == nil, "one mask alone reads nothing")
+        check(agreedCoords(raw: "", masked: ["43.0,23.7"]) == nil && agreedCoords(raw: "", masked: []) == nil, "fewer than two masks read nothing")
+        let orange: [UInt8] = [236, 140, 30, 255], white: [UInt8] = [240, 238, 236, 255], dark: [UInt8] = [40, 40, 40, 255]
+        let masked = whiteText(RGBA(width: 3, height: 1, pixels: orange + white + dark), spread: 60, floor: 60).pixels
+        check(masked == [0, 0, 0, 255] + white + [0, 0, 0, 255], "the mask blanks a coloured and a dark pixel, and keeps white")
     }
 
     static func geometry() {
@@ -374,6 +383,19 @@ struct NavTests {
             let result = await runNav(body: world, jev: scripted(), destination: goal)
             check(result.outcome == outcome && result.jevCalls == 0 && !result.holding, "\(outcome) stops before any decision")
         }
+
+        // 25 Sept, live: arrival seen mid-move, then a quest giver's name covered the coordinates.
+        let (covered, coveredGoal) = SimNav.scenario("open", clock: FightClock())!
+        covered.readsNear = ((coveredGoal.x, coveredGoal.y), coveredGoal.arrive, 1)
+        let reached = await runNav(body: covered, jev: scripted(), destination: coveredGoal)
+        check(reached.outcome == "ARRIVED" && !reached.holding && reached.end.map { distance($0.point, (coveredGoal.x, coveredGoal.y)) < coveredGoal.arrive } == true,
+              "arrival seen during a move ends the walk, though the next looks cannot read")
+        let (blind, blindGoal) = SimNav.scenario("open", clock: FightClock())!
+        blind.readsNear = ((blindGoal.x, blindGoal.y), blindGoal.arrive, 0)
+        let unseen = await runNav(body: blind, jev: scripted(), destination: blindGoal)
+        check(unseen.outcome != "ARRIVED" && !unseen.holding
+              && unseen.end.map { distance($0.point, (blindGoal.x, blindGoal.y)) >= blindGoal.arrive } ?? true,
+              "an arrival never seen is not claimed (\(unseen.outcome))")
 
         let there = SimNav(clock: FightClock(), x: 40, y: 25.2, facing: 0)
         let already = await runNav(body: there, jev: scripted(), destination: NavDestination(label: "here", x: 40, y: 25))
