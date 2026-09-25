@@ -95,6 +95,10 @@ struct FightTests {
         var white = blank()
         paint(&white, x0: HUD.rangeX0, x1: HUD.rangeX0 + 6, y0: HUD.rangeY0, y1: HUD.rangeY0 + 2, r: 220, g: 220, b: 220)
         check(!observe(white, plates: false).rangeRed, "range absent: a white digit is not the dark-red rule")
+        var held = blank()
+        paint(&held, x0: HUD.rangeX0 - 8, x1: HUD.rangeX0 - 4, y0: HUD.rangeY0, y1: HUD.rangeY1, r: 243, g: 174, b: 145)
+        check(HUD.darkRedDigit(243, 174, 145) && !observe(held, plates: false).rangeRed,
+              "a held key's orange edge, left of the digit, is not read (24 Sept: 20 frames mid-cast read it as red)")
         var shockDigit = blank()
         paint(&shockDigit, x0: HUD.shockRangeX0, x1: HUD.shockRangeX0 + 6, y0: HUD.rangeY0, y1: HUD.rangeY0 + 2, r: 160, g: 40, b: 40)
         check(observe(shockDigit, plates: false).shockRangeRed && !observe(shockDigit, plates: false).rangeRed,
@@ -235,13 +239,13 @@ struct FightTests {
               && !facingError("Out of range.") && !facingError(nil), "the game's facing errors, and only those, trigger the F9 turn")
         let saved = (FightLimits.bolt, HUD.rangeX0)
         applyRoles([.bolt: 20])
-        check(FightLimits.bolt == 20 && HUD.rangeX0 == 758, "the range digit box follows the bolt's slot")
+        check(FightLimits.bolt == 20 && HUD.rangeX0 == 766, "the range digit box follows the bolt's slot")
         applyRoles([.bolt: saved.0])
         check(HUD.rangeX0 == saved.1, "and returns with it")
         let savedShock = (FightLimits.shock, HUD.shockRangeX0)
-        check(savedShock == (20, 758), "the shock's default is key 3, Earth Shock's slot on the 24 Sept bar")
+        check(savedShock == (20, 766), "the shock's default is key 3, Earth Shock's slot on the 24 Sept bar")
         applyRoles([.shock: 23])
-        check(FightLimits.shock == 23 && HUD.shockRangeX0 == 859 && HUD.shockRangeX1 == 885, "the shock's digit box follows its slot")
+        check(FightLimits.shock == 23 && HUD.shockRangeX0 == 867 && HUD.shockRangeX1 == 883, "the shock's digit box follows its slot")
         applyRoles([.shock: savedShock.0])
         check(HUD.shockRangeX0 == savedShock.1, "and returns with it")
         let facing = "Target needs to be in front of you."
