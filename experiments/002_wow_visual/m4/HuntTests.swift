@@ -668,6 +668,11 @@ extension NavTests {
               && !wary.offered[0].contains("DO:RETREAT") && wary.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:HAND_IN_1", "DO:RETREAT"]
               && !wary.offered[2].contains("DO:RETREAT"),
               "a red name ahead fails only that step: RETREAT is offered next, the step is not offered again, and the run goes on")
+        let cornered = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: [])])
+        cornered.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD", "RETREAT": "WALK_DANGER_AHEAD"]
+        let trapped = await runQuests(host: cornered, jev: CannedGraph(["DO:HAND_IN_1", "DO:RETREAT"]), graph: graph()!)
+        check(trapped.outcome == "RETREAT_WALK_DANGER_AHEAD" && cornered.handed == ["The Gift of Skysight", "RETREAT"],
+              "a retreat that meets a red name too ends the run: no other step is walked from there")
         let wrong = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
         let icons = sortIcons([((43.4, 23.9), false, ["Harvesting Windstones", "18 m"]), ((43.2, 22.4), true, ["Windshaper Boros", "9 m"])])
         check(missingFromLog(icons.tooltips, []) == ["Harvesting Windstones"] && icons.givers.map(\.names) == [["Windshaper Boros"]]

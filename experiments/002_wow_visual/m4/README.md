@@ -379,7 +379,8 @@ heading, and the walk ends `DANGER_AHEAD`: a local stop, as for combat. Every fr
 saved. The hunt's own walks do not look for red names yet: their quest creatures are red names too.
 
 In the quest loop, `WALK_DANGER_AHEAD` fails only that step (not offered again this run). `RETREAT` is
-then offered first: it walks back to where that walk began, which the walk had just passed. Jev chooses
+then offered first: it walks back to where that walk began, which the walk had just passed. A retreat
+that does not get back (a red name that way too) ends the run as `RETREAT_<outcome>`. Jev chooses
 between it and the other steps; the owner's rules, a READ, now include the red-name rule. The quest
 graph is `skyborne-quest-tools-v3`. A position unreadable before a walk is now `WALK_HUD_UNREADABLE`, not
 an arrival.
@@ -392,9 +393,11 @@ on these same frames (it removed 6 of 8 Vuldren frames), so this is calibration,
 Misses were not counted over every frame; one name over bright cloud fails the outline test. On the nest
 walk of 24 Sept the first hit is f128, at (46.3, 27.3): the name lies at 109°, the walk's heading to the
 "Cirrusfly Queen area" is 109°, so it would have stopped there, 15 s before it reached the nest's centre.
-The scan takes at most 2 ms a frame. 7 nav checks: a real-shaped red name and its bearing, a plate bar, the
+The scan takes at most 2 ms a frame. 8 nav checks: a real-shaped red name and its bearing, a plate bar, the
 Vuldren's colour and outline-less strokes are not names; a name ahead stops the move and ends the walk
-`DANGER_AHEAD`, one 33° off does not; in the quest loop RETREAT follows and the run goes on.
+`DANGER_AHEAD`, one 33° off does not; in the quest loop RETREAT follows and the run goes on, and a
+retreat that meets a red name ends the run. A move's check runs while it walks: during a Jev call W
+may still run on under its 1.5 s grant, and the next move's first look stops it.
 Not seen live: raw (not JPEG) frames, a real stop, a real retreat, names over snow or sky.
 
 ## Limits

@@ -426,8 +426,8 @@ struct QuestResult {
 
 /// Read, offer, let Jev choose, run, and read again: a hand-in changes the log. A walk that stops for
 /// combat, health, the owner or the HUD ends the run; the second NO_PROGRESS ends it (the run envelope).
-/// A walk that stops for a red name ahead fails only its step, and RETREAT is offered next. A failed step
-/// is not offered again this run. There is no rules fallback when Jev fails.
+/// A walk that stops for a red name ahead fails only its step, and RETREAT is offered next; a retreat that
+/// does not get back ends the run. A failed step is not offered again this run. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
@@ -466,6 +466,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         }
         r.steps.append((offer.step.name, outcome))
         if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "RETREATED" { continue }
+        if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
         failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {
             stuck += 1
