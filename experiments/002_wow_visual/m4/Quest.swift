@@ -290,6 +290,12 @@ func hoverPoints(_ m: QuestMark) -> [(x: Double, y: Double)] {
     return columns.flatMap { x in rows.map { (x, $0) } } + [(m.x, m.body)]
 }
 
+/// Whether the NPC's tooltip has gone: the last two reads, both on fresh frames, lack its name. An
+/// unreadable frame (nil) proves nothing, and one OCR miss is not "gone" (review, 25 Sept).
+func tooltipGone(_ reads: [Bool?]) -> Bool {
+    reads.count >= 2 && reads.suffix(2).allSatisfy { $0 == false }
+}
+
 /// Whether an unconfirmed click would repeat the last unconfirmed one: within half a mark height of it
 /// (live run 4: three clicks at one point below Dalia's "?" found the ground). A new mark after
 /// Click-to-Move has moved the character is a new point.
@@ -441,6 +447,9 @@ enum QuestLimits {
     // 0.2-0.3 s, but a background click can leave the capture quiet for 1-2 s (QuestRun.frame), hence 2 s.
     // `clickWalk` bounds the wait: 3 units, 15 s of running, beyond the walk's 0.5 and a pin's error.
     static let clickPoll = 0.5, standStill = 2.0, clickWalk = 15.0
+    // One hover sweep over an NPC's points (QuestRun.onUnit) stops starting points after 12 s: a read takes
+    // 0.7 s, or up to 2.9 s when a background move stalls the capture.
+    static let hoverSeconds = 12.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]

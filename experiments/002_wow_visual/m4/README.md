@@ -315,9 +315,12 @@ Every step is a script (controller RULE); there is no Jev call.
        the chest, the waist and the legs; then half a mark height and a whole one to each side; last,
        below the "?".
      - At each point the game's unit tooltip (bottom right) is read, on a frame captured after the move.
-     - A point counts only when the tooltip names that NPC (up to two letters lost at the ends; a part
-       of the name does not count). The tooltip must also go when the pointer leaves, and name the NPC
-       again when it returns: a tooltip still fading from the last point cannot confirm this one.
+     - A point counts only when a line of the tooltip is that NPC's name (up to two letters lost at the
+       ends; a part of the name does not count). The tooltip must also go when the pointer leaves (two
+       fresh reads in a row without the name), and name the NPC again when it returns: a tooltip still
+       fading from the last point cannot confirm this one.
+     - One sweep starts no point after 12 s. Where an unconfirmed click has already gone, there is no
+       second sweep.
      - With no point confirmed, the point below the "?" is clicked, but never again at the same place
        (within half a mark height). A new mark after Click-to-Move is a new place.
      - Each click's frame is saved as `clickN.jpg`, and the perception set now records each mark's name

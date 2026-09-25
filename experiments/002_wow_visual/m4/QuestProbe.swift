@@ -241,31 +241,35 @@ final class QuestRun {
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         guard let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text else { return nil }
-        /// The tooltip's top line once the pointer rests at `p`, read on a frame captured after the move: a
-        /// frame from before it, or a tooltip still fading from the last point, must not answer for this one.
-        func tip(at p: (x: Double, y: Double)) async -> String {
+        let start = hostNow()
+        /// Whether the tooltip names the NPC once the pointer rests at `p`, on a frame captured after the move:
+        /// a frame from before it must not answer for this point. Any line of the box may (the box can hold
+        /// other text above the tooltip); only a line that is the name matches. nil: no fresh frame.
+        func shows(at p: (x: Double, y: Double), again: Bool = false) async -> Bool? {
             hover(p.x, p.y)
             let moved = hostNow()
             await sleep(0.4)
-            return lines(QuestHUD.unitTip, await frame(after: moved + 0.3)).min(by: { $0.y < $1.y })?.text ?? ""
+            guard let seen = await frame(after: moved + 0.3) else { return nil }
+            let read = lines(QuestHUD.unitTip, seen).map(\.text)
+            body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
+            return read.contains { sameUnit($0, name) }
         }
-        /// Off every unit, until the tooltip no longer names the NPC (at most 2 s).
+        /// Off every unit until the tooltip has gone: two fresh reads in a row without the name (at most six).
         func cleared() async -> Bool {
-            for _ in 0..<4 {
-                if !sameUnit(await tip(at: (1280, 60)), name) { return true }
+            var reads: [Bool?] = []
+            for _ in 0..<6 {
+                reads.append(await shows(at: (1280, 60)))
+                if tooltipGone(reads) { return true }
             }
             return false
         }
         guard await cleared() else { return nil }
-        for point in hoverPoints(mark) {
-            let shown = await tip(at: point)
-            body.emit("hover", ["at": [Int(point.x), Int(point.y)], "tooltip": shown, "name": name])
-            guard sameUnit(shown, name) else { continue }
-            // Confirmed only if it goes when the pointer leaves and comes back when it returns: this point's own.
+        for point in hoverPoints(mark) where hostNow() - start < QuestLimits.hoverSeconds {
+            guard await shows(at: point) == true else { continue }
+            // Confirmed only if it goes when the pointer leaves and comes back when it returns: this point's own,
+            // not one still fading from the point before.
             guard await cleared() else { return nil }
-            let again = await tip(at: point)
-            body.emit("hover", ["at": [Int(point.x), Int(point.y)], "tooltip": again, "name": name, "again": true])
-            if sameUnit(again, name) { return point }
+            if await shows(at: point, again: true) == true { return point }
         }
         return nil
     }
@@ -287,13 +291,12 @@ final class QuestRun {
             guard let mark = marks.first else { break }
             clicks += 1
             write(image, to: body.directory.appendingPathComponent(String(format: "click%d.jpg", clicks)), type: .jpeg)  // what it was chosen on
+            // Where the last unconfirmed click went, the hover already failed: no second sweep, no second click.
+            if repeatsClick((mark.x, mark.body), blind, h: mark.h) { marks.removeFirst(); continue }
             let confirmed = await onUnit(mark, in: image)
             body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull()])
             let point = confirmed ?? (mark.x, mark.body)
-            if confirmed == nil {
-                if repeatsClick(point, blind, h: mark.h) { marks.removeFirst(); continue }
-                blind = point
-            }
+            if confirmed == nil { blind = point }
             guard click(point.x, point.y, right: true) else { return (nil, "CLICK_FAILED") }
             guard let arrived = await arrive() else { return (nil, "WALK_COMBAT") }
             let seen: [TipLine]

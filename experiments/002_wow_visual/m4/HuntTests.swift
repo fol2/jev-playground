@@ -503,6 +503,9 @@ extension NavTests {
         check(nameLine(row, nameX: 1901, nameTop: 224)?.text == "Dalia the Collector" && nameLine(row, nameX: 1850, nameTop: 224)?.text == "Jolee Brightmeadows"
               && nameLine(row, nameX: 1901, nameTop: 300) == nil,
               "the name read is the line level with the green name that starts nearest left of its centre, never a neighbour's")
+        check(tooltipGone([false, false]) && tooltipGone([true, nil, false, false]) && !tooltipGone([false]) && !tooltipGone([nil, false])
+              && !tooltipGone([false, nil]) && !tooltipGone([false, true]) && !tooltipGone([]),
+              "a tooltip has gone only after two fresh reads in a row without the name; an unreadable frame proves nothing")
         check(repeatsClick((1906, 313), (1907, 313), h: 33) && !repeatsClick((1880, 290), (1906, 313), h: 33)
               && !repeatsClick((1906, 313), nil, h: 33),
               "an unconfirmed click is not repeated at the same point; a new point after Click-to-Move may be tried")
