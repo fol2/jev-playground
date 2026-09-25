@@ -286,7 +286,10 @@ labelled live:
 Every step is a script (controller RULE); there is no Jev call.
 
 1. If the quest dialogue is not already open, find the NPC's yellow "?": an upright yellow blob
-   with a green name 8-50 px below it. Calibrated zoomed fully out, where the "?" is small and dim, so
+   with a green name below it, within 50 px or 2.5 mark heights, whichever is more, and never below
+   the world box. The mark's height stands for the NPC's distance: a small mark's name is UI text of
+   fixed size, a tall one's sits 1.7-2.4 heights below (25 Sept: at the owner's zoom a 33 px "?" had
+   its name 54-63 px below, and the hand-in read `NO_QUEST_MARK_IN_VIEW`). Calibrated zoomed fully out, where the "?" is small and dim, so
    the test is the hue (the camera has stayed at the owner's closer zoom since 25 Sept). A neutral
    nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click 68 px below the mark: with Click-to-Move the character walks to the NPC and
    opens the dialogue.
