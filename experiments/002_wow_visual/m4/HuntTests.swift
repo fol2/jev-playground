@@ -540,13 +540,16 @@ extension NavTests {
         check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
               && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),
               "a panel is open only when one of its buttons is read, never a name in the world behind the box")
-        let walking: [(t: Double, at: MapPoint?)] = [(0, (43.1, 23.9)), (0.5, (43.1, 23.9)), (1.0, (43.2, 23.9)), (1.5, (43.2, 23.9)), (2.0, (43.3, 24.0))]
-        let stopped = walking + [(2.5, (43.3, 24.0)), (3.0, (43.3, 24.0)), (3.5, (43.3, 24.0)), (4.0, (43.3, 24.0))]
+        // Run 3's pace: a 0.1 step every 0.3 s while walking.
+        let walking: [(t: Double, at: MapPoint?)] = (0..<8).map { i in (0.3 * Double(i), (43.0 + 0.1 * Double(i), 24.0)) }
+        let stopped = walking + [2.5, 3.0, 3.5, 4.0].map { t -> (t: Double, at: MapPoint?) in (t, (43.7, 24.0)) }  // near 43.7 since t = 1.8
         check(!stoodStill(walking, for: 2) && stoodStill(stopped, for: 2) && !stoodStill(Array(stopped.dropLast()), for: 2),
-              "Click-to-Move has ended once the position reads the same for the whole window")
-        check(!stoodStill([(0, nil), (1, nil), (2, nil), (3, nil)], for: 2)
-              && !stoodStill([(0, (43.3, 24.0)), (1, nil), (2, (43.3, 24.0)), (2.5, (43.3, 24.0))], for: 2) && !stoodStill([], for: 2),
-              "an unreadable position is never still, and it breaks the window")
+              "Click-to-Move has ended once the position stays within a step for the whole window, not before")
+        let flicker: [(t: Double, at: MapPoint?)] = [0, 0.5, 1.0, 1.5, 2.0].enumerated().map { i, t in (t, (i % 2 == 0 ? 43.3 : 43.2, 24.0)) }
+        check(stoodStill(flicker, for: 2), "a reading that flickers by one step while standing is still")
+        check(!stoodStill([(0, nil), (1, nil), (2, nil), (3, nil)], for: 2) && !stoodStill([(0, nil), (1, nil), (2.5, (43.3, 24.0))], for: 2)
+              && stoodStill([(0, (43.3, 24.0)), (1, nil), (2, nil), (2.5, (43.3, 24.0))], for: 2) && !stoodStill([], for: 2),
+              "unreadable reads count neither way; the window needs a readable read at each end")
         plans()
     }
 

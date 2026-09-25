@@ -205,11 +205,12 @@ final class QuestRun {
         var seen: [TipLine] = []
         while hostNow() - start < QuestLimits.clickWalk {
             await sleep(QuestLimits.clickPoll)
-            seen = lines(QuestHUD.dialog, await frame())
+            guard let image = await frame() else { continue }
+            seen = lines(QuestHUD.dialog, image)
             if panelOpen(seen) { break }
-            let look = body.look()
-            if look?.combat == true { return nil }
-            track.append((hostNow(), look.map { ($0.x, $0.y) }))
+            // The portrait ring is read even when the coordinates are not (a name can cover them).
+            if observe(rgba(image), plates: false).combat { return nil }
+            track.append((hostNow(), readCoords(image).at))
             if stoodStill(track, for: QuestLimits.standStill) { break }
         }
         body.emit("click_walk", ["seconds": hostNow() - start, "panel": panelOpen(seen)])
@@ -392,10 +393,13 @@ final class LiveQuestHost: QuestHost {
         lock.withLock { fighting }?.releaseAll()
     }
 
-    /// Attacked on a walk: one M3 episode, in combat, on a child of the walk's key set, as the hunt's fights.
+    /// Attacked on a walk: one M3 episode, in combat, on a child of the run's own key set, as the hunt's
+    /// fights. Not the walk's: runNav's exit sweep has retired it, and no child can be taken from it (the
+    /// 25 Sept review; M4i had not run live). The run's set only taps, and stays active until the run ends.
     /// A fight that ends with keys held stays tracked for the exit sweep, and its handoff fails the run.
     func fightBack() async -> String {
-        guard let parent = walker else { return "NO_WALK_KEYS" }
+        guard walker?.holding != true else { return "WALK_KEYS_HELD" }
+        let parent = quester.body
         fights += 1
         let folder = quester.body.directory.appendingPathComponent(String(format: "fight%d", fights))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

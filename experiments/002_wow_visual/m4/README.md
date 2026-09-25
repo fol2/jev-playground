@@ -294,8 +294,8 @@ Every step is a script (controller RULE); there is no Jev call.
    nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click the NPC's body,
    2.4 mark heights below its name: with Click-to-Move the character walks to the NPC and opens the
    dialogue. The dialogue box is read every 0.5 s until a panel's own button shows, or until the
-   position has read the same for 2 s, at most 15 s. Attacked on the way, the step ends
-   `WALK_COMBAT` and the run fights back (M4i). Another NPC's panel is closed with Esc, and only a
+   position has stayed within one 0.1 step for 2 s, at most 15 s. Attacked on the way (the portrait
+   ring, read even when a name covers the coordinates), the step ends `WALK_COMBAT` and a `--quests` run fights back (M4i; `--turn-in` alone stops there). Another NPC's panel is closed with Esc, and only a
    panel: text in the box without a button is the world behind it.
    - 25 Sept, live `--quests` run 3: both hand-ins read `DIALOGUE_NOT_OPEN`. The box was read at a
      fixed 2.5 s. Dalia's right-click was still walking her way; a vendor's green name had come into
@@ -464,11 +464,13 @@ The owner, 24 Sept: "those reactions should be written in jev engine ... how to 
 aggressives, intentionally or unintentionally". A quest walk attacked on the way used to end the run
 with its keys released, leaving the character standing under attack. Now `WALK_COMBAT` hands over at once
 to one M3 fight in combat (controller SAFETY, no quest-graph call: in combat the only choice is to fight
-back, as in the hunt). The fight's own decisions are Jev's, on a child of the walk's key set, its frames
+back, as in the hunt). The fight's own decisions are Jev's, on a child of the run's own key set, its frames
 in `fightN/` (and each walk's in `walkN/`: run 3 of 25 Sept overwrote its first walk's frames with the second's). A kill lets the run go on, and the interrupted step may be offered again; any other outcome,
 Jev's STOP included, ends the run as `FIGHT_<outcome>`. Unlike the hunt, M3 cannot select an attacker
 behind the character (Tab looks ahead), so walking on after a STOP would only be attacked again. The exit
-sweep and the key check cover the fight's keys as well as the walk's. 2 nav checks replace "combat ends
+sweep and the key check cover the fight's keys as well as the walk's. (Until 25 Sept the child was taken
+from the walk's set, which the walk's own exit sweep had already retired: no fight could have started. Found
+in review before any live fight back.) 2 nav checks replace "combat ends
 the run": a won fight goes on and re-offers the step; a stopped fight ends the run. Not seen live.
 
 ## Limits

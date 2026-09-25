@@ -239,13 +239,15 @@ func panelOpen(_ lines: [TipLine]) -> Bool {
     lines.contains { panelButtons.contains($0.text.trimmingCharacters(in: .whitespaces)) }
 }
 
-/// Whether the position has read the same for `window` seconds. The coordinates step by 0.1 and a walk
-/// covers about 0.12 units a second (live, 25 Sept), so a walking character changes them within a second.
-/// An unreadable position is never still.
+/// Whether the position has read within one coordinate step (0.1) of the latest for `window` seconds.
+/// Walking steps the coordinates every 0.2-0.3 s (live run 3, 25 Sept), so a step's tolerance absorbs a
+/// reading that flickers while standing and still ends within a second of walking. Unreadable reads (a
+/// name over the text) count neither way; the window needs a readable read at each end.
 func stoodStill(_ track: [(t: Double, at: MapPoint?)], for window: Double) -> Bool {
-    guard let last = track.last, let here = last.at else { return false }
-    let same = track.reversed().prefix { $0.at.map { $0 == here } ?? false }
-    return last.t - same.last!.t >= window
+    let read = track.compactMap { r in r.at.map { (t: r.t, at: $0) } }
+    guard let last = read.last else { return false }
+    let near = read.reversed().prefix { abs($0.at.x - last.at.x) <= 0.11 && abs($0.at.y - last.at.y) <= 0.11 }
+    return last.t - near.last!.t >= window
 }
 
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
@@ -387,7 +389,8 @@ enum QuestLimits {
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
     // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a
-    // panel opens or the character has stood still for `standStill` s (two coordinate steps at walking pace).
+    // panel opens or the character has stood still for `standStill` s. Walking steps the coordinates every
+    // 0.2-0.3 s, but a background click can leave the capture quiet for 1-2 s (QuestRun.frame), hence 2 s.
     // `clickWalk` bounds the wait: 3 units, 15 s of running, beyond the walk's 0.5 and a pin's error.
     static let clickPoll = 0.5, standStill = 2.0, clickWalk = 15.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
