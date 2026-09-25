@@ -250,7 +250,7 @@ func pixelReadings(_ image: RGBA) -> [String: Any] {
         ("red", redNames(image).map { [$0.x0, $0.x1, $0.y0, $0.y1] }),
         ("pins", minimapPins(image).map { [roundTo($0.x, 10), roundTo($0.y, 10), $0.offer ? 1 : 0] }),
         ("map", mapPins(image).map { [roundTo($0.x, 10), roundTo($0.y, 10)] }),
-        ("marks", questMarks(image, box: QuestHUD.world).map { [roundTo($0.x, 10), roundTo($0.y, 10), roundTo($0.h, 10), roundTo($0.body, 10)] })]
+        ("marks", questMarks(image, box: QuestHUD.world).map { [roundTo($0.x, 10), roundTo($0.y, 10), roundTo($0.h, 10), roundTo($0.body, 10), roundTo($0.nameX, 10), $0.nameTop] })]
     for (key, list) in lists where !list.isEmpty { row[key] = list }
     return row
 }

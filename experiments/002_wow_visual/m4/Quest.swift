@@ -120,26 +120,38 @@ func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> 
         .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
 }
 
-/// `body` is where to right-click: below the green name by 2.4 mark heights (near: name bottom 577, body
-/// 608 under a 17-px "?"; a distant NPC's "?" was 4 x 6 px live, and a fixed step landed on its name).
-func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [(x: Double, y: Double, h: Double, body: Double)] {
+/// A quest mark and the green name under it. `body` is where to right-click: below the name by 2.4 mark
+/// heights. `nameX` is the name's centre, which stands over the body when the "?" does not (live, 25 Sept:
+/// Dalia's "?" was 30 px right of her; the click at its x found ground). `nameTop` bounds the name for OCR.
+typealias QuestMark = (x: Double, y: Double, h: Double, body: Double, nameX: Double, nameTop: Double)
+
+/// `body`: near, name bottom 577, body 608 under a 17-px "?"; a distant NPC's "?" was 4 x 6 px live, and a
+/// fixed step landed on its name.
+func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) -> [QuestMark] {
     let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
-    func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, bottom: Int) {
-        var n = 0, bottom = y
+    func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, top: Int, bottom: Int, x: Double) {
         // Names are in the world: the search stays in the box, never down into the HUD (25 Sept: a wider reach
         // from a yellow glow above the unit frame found the player's green health bar).
         let top = max(0, y + 8), end = min(image.height, y + reach, box.3)
-        guard top < end else { return (0, y) }
+        guard top < end else { return (0, y, y, Double(x)) }
+        var rows = [(n: Int, sx: Int)](repeating: (0, 0), count: end - top)
         for yy in top..<end {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
-                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { n += 1; bottom = yy }
+                if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) {
+                    rows[yy - top].n += 1; rows[yy - top].sx += xx
+                }
             }
         }
-        return (n, bottom)
+        guard let first = rows.firstIndex(where: { $0.n > 0 }), let last = rows.lastIndex(where: { $0.n > 0 }) else { return (0, y, y, Double(x)) }
+        // The centre is the name's own line, the green rows from the first down to a row without any: a
+        // subtitle or another name further down does not pull it.
+        let line = rows[first...].prefix { $0.n > 0 }
+        let centre = Double(line.reduce(0) { $0 + $1.sx }) / Double(line.reduce(0) { $0 + $1.n })
+        return (rows.reduce(0) { $0 + $1.n }, top + first, top + last, centre)
     }
-    return blobs.compactMap { b -> (x: Double, y: Double, h: Double, body: Double)? in
+    return blobs.compactMap { b -> QuestMark? in
         let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
         guard b.n >= minPixels, w <= 24, h >= 3, Double(h) >= 0.8 * Double(w) else { return nil }
         // How far below to look scales with the mark: its height stands for the NPC's distance. The name is UI
@@ -149,7 +161,7 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) ->
         // the walk that reached the NPC read NO_QUEST_MARK_IN_VIEW.
         let name = greenBelow(b.sx / b.n, b.sy / b.n, reach: max(50, 5 * h / 2))
         guard name.n >= 40 else { return nil }
-        return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h))
+        return (Double(b.sx) / Double(b.n), Double(b.sy) / Double(b.n), Double(h), Double(name.bottom) + 2.4 * Double(h), name.x, Double(name.top))
     }
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
 }
@@ -248,6 +260,48 @@ func stoodStill(_ track: [(t: Double, at: MapPoint?)], for window: Double) -> Bo
     guard let last = read.last else { return false }
     let near = read.reversed().prefix { abs($0.at.x - last.at.x) <= 0.11 && abs($0.at.y - last.at.y) <= 0.11 }
     return last.t - near.last!.t >= window
+}
+
+/// Whether the game's unit tooltip names the NPC whose green name was read in the world. OCR can drop a
+/// letter or two at the ends ("alia the Collector", live 25 Sept); a part of the name ("Dalia", "Collector")
+/// or a neighbour's name is not the NPC. Five letters at least.
+func sameUnit(_ tooltip: String, _ name: String) -> Bool {
+    let a = nameKey(tooltip), b = nameKey(name)
+    let (short, long) = a.count <= b.count ? (a, b) : (b, a)
+    guard short.count >= 5, long.count - short.count <= 2 else { return false }
+    return long.contains(short)
+}
+
+/// The NPC's own name among the OCR lines of the box around it: level with the green name's top (within
+/// one line of UI text) and starting left of the name's centre, the nearest such start. A name beside it at
+/// the same depth starts right of the centre, or further left than this one.
+func nameLine(_ lines: [TipLine], nameX: Double, nameTop: Double) -> TipLine? {
+    lines.filter { abs($0.y - nameTop) <= 8 && $0.x <= nameX }.max { $0.x < $1.x }
+}
+
+/// Where to rest the pointer on the NPC under a mark, best first, all in the mark's own scale: below the
+/// name's centre at the chest, the waist and the legs, then half a mark height and a whole one to each
+/// side (live, 25 Sept: Dalia's body stood 17 px left of her name's centre under a 33 px "?"); last, below
+/// the "?" itself, where the click went before.
+func hoverPoints(_ m: QuestMark) -> [(x: Double, y: Double)] {
+    let name = m.body - 2.4 * m.h  // the name's bottom
+    let rows = [name + 1.4 * m.h, m.body, name + 3.4 * m.h]
+    let columns = [0, -0.5, 0.5, -1, 1].map { m.nameX + $0 * m.h }
+    return columns.flatMap { x in rows.map { (x, $0) } } + [(m.x, m.body)]
+}
+
+/// Whether the NPC's tooltip has gone: the last two reads, both on fresh frames, lack its name. An
+/// unreadable frame (nil) proves nothing, and one OCR miss is not "gone" (review, 25 Sept).
+func tooltipGone(_ reads: [Bool?]) -> Bool {
+    reads.count >= 2 && reads.suffix(2).allSatisfy { $0 == false }
+}
+
+/// Whether an unconfirmed click would repeat the last unconfirmed one: within half a mark height of it
+/// (live run 4: three clicks at one point below Dalia's "?" found the ground). A new mark after
+/// Click-to-Move has moved the character is a new point.
+func repeatsClick(_ p: (x: Double, y: Double), _ last: (x: Double, y: Double)?, h: Double) -> Bool {
+    guard let last else { return false }
+    return abs(p.x - last.x) <= h / 2 && abs(p.y - last.y) <= h / 2
 }
 
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
@@ -393,6 +447,9 @@ enum QuestLimits {
     // 0.2-0.3 s, but a background click can leave the capture quiet for 1-2 s (QuestRun.frame), hence 2 s.
     // `clickWalk` bounds the wait: 3 units, 15 s of running, beyond the walk's 0.5 and a pin's error.
     static let clickPoll = 0.5, standStill = 2.0, clickWalk = 15.0
+    // One hover sweep over an NPC's points (QuestRun.onUnit) stops starting points after 12 s: a read takes
+    // 0.7 s, or up to 2.9 s when a background move stalls the capture.
+    static let hoverSeconds = 12.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]

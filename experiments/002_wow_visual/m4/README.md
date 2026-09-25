@@ -302,6 +302,29 @@ Every step is a script (controller RULE); there is no Jev call.
      the box as the camera turned, was taken for her dialogue, and Esc was pressed. The character
      ended beside Dalia. Ventaari's right-click targeted him, but the walk had ended wedged between
      two standing stones and Click-to-Move did not move (not fixed here).
+   - Live run 4: The Gift of Skysight was handed in (`COMPLETED`: Click-to-Move took 4.8 s to
+     Ventaari, the panel opened, 180 XP). Harvesting Windstones read `DIALOGUE_NOT_OPEN`: the three
+     clicks below Dalia's "?" landed on the ground 30 px to her right, beside another player, and
+     nothing moved. The "?" need not stand over the body.
+   - So, as a human does, the pointer rests on the NPC before the click.
+     - The name is read by OCR, on the line level with the green name's top that starts nearest left of
+       its centre; a neighbour at the same depth is not it. The name's centre is taken from its own
+       line only, so a subtitle below does not pull it. On run 4's frame it was 1900, while Dalia's
+       body was about 1884.
+     - The pointer then rests on up to 16 points, in the mark's own scale: below the name's centre at
+       the chest, the waist and the legs; then half a mark height and a whole one to each side; last,
+       below the "?".
+     - At each point the game's unit tooltip (bottom right) is read, on a frame captured after the move.
+     - A point counts only when a line of the tooltip is that NPC's name (up to two letters lost at the
+       ends; a part of the name does not count). The tooltip must also go when the pointer leaves (two
+       fresh reads in a row without the name), and name the NPC again when it returns: a tooltip still
+       fading from the last point cannot confirm this one.
+     - One sweep starts no point after 12 s. Where an unconfirmed click has already gone, there is no
+       second sweep.
+     - With no point confirmed, the point below the "?" is clicked, but never again at the same place
+       (within half a mark height). A new mark after Click-to-Move is a new place.
+     - Each click's frame is saved as `clickN.jpg`, and the perception set now records each mark's name
+       centre and top.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a
