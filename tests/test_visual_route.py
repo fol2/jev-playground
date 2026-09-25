@@ -89,6 +89,11 @@ class VisualRouteTests(unittest.TestCase):
                     self.assertNotIn("visual-offline", checks)
                     self.assertNotIn("fishing-offline", checks)
 
+    def test_a_changed_proof_runner_runs_its_own_proof(self):
+        self.assertIn("motor-offline", route([("M", "tools/motor_offline.py")])["checks"])
+        self.assertIn("fishing-offline", route([("M", "tools/fishing_offline.py")])["checks"])
+        self.assertNotIn("motor-offline", route([("M", "tools/merge_pr.py")])["checks"])
+
     def test_unregistered_motor_paths_fail_closed(self):
         for path in (MOTOR + "Executor.swift", MOTOR + "nested/Probe.swift", MOTOR + "evidence.json", MOTOR + "run.sh",
                      SEEK + "Executor.swift", SEEK + "look.png", SEEK + "run.sh", VISUAL + "m2/Seek.swift",

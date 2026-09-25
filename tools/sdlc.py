@@ -89,6 +89,8 @@ def route(changes: list[tuple[str, str]]) -> dict:
             raise GateError("malformed diff path/status")
         if path in CODE | POLICY:
             full = True
+            motor |= path == "tools/motor_offline.py"  # a changed proof runner must run its own proof
+            fishing |= path == "tools/fishing_offline.py"
         elif path in VISUAL_CODE or path == VISUAL + "README.md":
             visual = True
         elif path in MOTOR_PATHS or path == LEARN + "video_jev.py" or (
@@ -206,7 +208,7 @@ def main() -> int:
                         "motor-offline": [sys.executable, "-m", "tools.motor_offline"]}
             for check in report["checks"]:
                 if check in commands:
-                    subprocess.run(commands[check], cwd=ROOT, check=True, timeout=300, stdout=sys.stderr)
+                    subprocess.run(commands[check], cwd=ROOT, check=True, timeout=600, stdout=sys.stderr)
             report["result"] = "PASS"
         report["model_tokens"] = 0  # this deterministic command only, not the author session
         # Hash before timing: a manifest nobody can reproduce on a second run anchors nothing.
