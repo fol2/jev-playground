@@ -325,6 +325,12 @@ Every step is a script (controller RULE); there is no Jev call.
        (within half a mark height). A new mark after Click-to-Move is a new place.
      - Each click's frame is saved as `clickN.jpg`, and the perception set now records each mark's name
        centre and top.
+   - Live run 5 (26 Sept): the first point, below the name's centre at the chest, raised Dalia's
+     tooltip. It faded for about 2 s after the pointer left, and came back on return. The click
+     opened her dialogue after 3.2 s of Click-to-Move. OCR then read the title, drawn in a decorative
+     capital face, as "HARVEStinG WinostonES". The page was taken for another quest's and closed
+     with Esc. The title now matches with one letter in eight misread, as an edit (`sameTitle`; a
+     title under eight letters must match exactly). A clear now allows ten reads, not six.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a

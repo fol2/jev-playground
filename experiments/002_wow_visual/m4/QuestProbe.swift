@@ -254,10 +254,11 @@ final class QuestRun {
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
             return read.contains { sameUnit($0, name) }
         }
-        /// Off every unit until the tooltip has gone: two fresh reads in a row without the name (at most six).
+        /// Off every unit until the tooltip has gone: two fresh reads in a row without the name, at most ten
+        /// (live run 5: Dalia's tooltip faded for about 2 s, four reads, after the pointer left her).
         func cleared() async -> Bool {
             var reads: [Bool?] = []
-            for _ in 0..<6 {
+            for _ in 0..<10 {
                 reads.append(await shows(at: (1280, 60)))
                 if tooltipGone(reads) { return true }
             }
@@ -355,7 +356,7 @@ final class QuestRun {
     }
 
     func turnIn(_ quest: String) async -> String {
-        func ours(_ lines: [TipLine]) -> TipLine? { lines.first { nameKey($0.text) == nameKey(quest) } }
+        func ours(_ lines: [TipLine]) -> TipLine? { lines.first { sameTitle($0.text, quest) } }
         /// A delivery shows its progress page first ("Continue", live 24 Sept for Call of Earth).
         func pastContinue(_ dialog: [TipLine]) async -> [TipLine] {
             guard has(dialog, "Complete Quest") == nil, ours(dialog) != nil, let next = has(dialog, "Continue") else { return dialog }
@@ -381,7 +382,7 @@ final class QuestRun {
             guard let open = opened.dialog else { return opened.failure! }
             dialog = open
         }
-        guard dialog.contains(where: { nameKey($0.text) == nameKey(quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
+        guard dialog.contains(where: { sameTitle($0.text, quest) }) else { return "OTHER_QUEST_IN_DIALOGUE" }
 
         var equip: (name: String, slot: String)? = nil
         if let choose = has(dialog, "Choose your reward") {
