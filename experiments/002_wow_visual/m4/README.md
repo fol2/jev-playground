@@ -316,8 +316,8 @@ Skysight. The plan's first zone was then Shen'dar, 20 units south, and the walk 
 cliff. The frame the log was read from was not kept, so the cause of the short read is unknown. Now:
 
 - The frame the log is read from is saved as `quest-log.png`.
-- A quest named by a minimap tooltip but missing from the log read stops the run as `LOG_INCOMPLETE`.
-  A quest giver's "!" (a quest not yet taken) would stop it the same way until pick-ups are built.
+- A quest named by a minimap "?" tooltip but missing from the log read stops the run as `LOG_INCOMPLETE`.
+  A giver's "!" names a quest not yet taken, so it does not count (M4g).
 - A walk is offered only to a pin within 12 y units (a hub is smaller); farther is zone travel, which
   waits for road routing.
 
@@ -341,7 +341,7 @@ experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replace
 Stops: no offer left (`NOTHING_TO_HAND_IN_OR_TAKE`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
 a walk stopped for combat, health, the owner or the HUD; a walk whose key release is unconfirmed
 (`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; eight steps.
-A failed hand-in is not offered again. Offline, 8 checks run the loop on the live Thendal values of
+A failed hand-in is not offered again. Offline, 8 checks (M4g adds 4) run the loop on the live Thendal values of
 24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
 reach only the request after the READ, and the one-quest log read stops before any Jev call. They do not
 show what the real Jev chooses, or live hand-ins.
@@ -355,13 +355,16 @@ Each "!" within one walk is offered as `ACCEPT_1` to `ACCEPT_3`, nearest first, 
 skill walks to it, right-clicks the NPC under a quest mark and presses the dialogue's whole-line "Accept"
 button (RULE). A giver's quest list is clicked through only when the minimap's tooltip named the entry.
 The chat's "accepted" line gives `ACCEPTED`, otherwise `ACCEPTED_UNCONFIRMED`; the next log read is the
-proof. A giver that failed is not offered again this run. The dialogue opening (the nearest three marks, Esc
-only on an open dialogue, looking again after Click-to-Move) is now one function shared with the hand-in.
+proof. A giver that failed is not offered again this run. The dialogue opening (the nearest three marks,
+Esc only on an open dialogue, looking again after Click-to-Move) is now one function shared with the
+hand-in. An Accept already on screen is pressed only when its page names one of the giver's tooltip
+lines; otherwise it is closed and the giver's mark is clicked.
 
 Offline: the classifier replayed on the real frames found 8 "!" on three 23 Sept Thendal frames and 7 "?"
 on three 24 Sept scans, all classified correctly. Two "!" pressed under the player arrow were not found; the
-next read, after a step, sees them. The 23 Sept frames are JPEG, not the live decode path. 3 more nav checks:
-a real-shaped "!" and "?" stamp, `ACCEPT_1` taken then nothing left, a failed giver not offered again.
+next read, after a step, sees them. The 23 Sept frames are JPEG, not the live decode path. 4 more nav checks:
+a real-shaped "!" and "?" stamp, the split of their tooltips (only a "?" can make the log incomplete),
+`ACCEPT_1` taken then nothing left, a failed giver not offered again.
 Not seen live: a "!" tooltip's text (the giver's or the quest's name), the Accept flow and the chat line.
 
 ## Limits

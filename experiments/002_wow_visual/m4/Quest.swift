@@ -230,6 +230,22 @@ func thisZone(_ plan: [PlannedQuest], from player: MapPoint, zoneRadius: Double 
     return plan.filter { q in zone.contains { $0.title == q.title } }
 }
 
+/// The minimap's quest icons by shape. A "!" is a giver: its tooltip names a quest not yet taken. A "?"
+/// names a quest the log must hold, so only a "?" tooltip counts towards `missingFromLog`.
+func sortIcons(_ icons: [(at: MapPoint, offer: Bool, read: [String])])
+    -> (givers: [Giver], hints: [(names: [String], at: MapPoint)], tooltips: [String]) {
+    var givers: [Giver] = [], hints: [(names: [String], at: MapPoint)] = [], tooltips: [String] = []
+    for icon in icons {
+        if icon.offer {
+            givers.append(Giver(names: icon.read.filter { nameKey($0).count >= 4 }, pin: icon.at))  // "18 m" is not a name
+        } else {
+            hints.append((icon.read.map(nameKey), icon.at))
+            tooltips += icon.read
+        }
+    }
+    return (givers, hints, tooltips)
+}
+
 /// Quest names the minimap's tooltips showed that the log read lacks ("18 m" distance lines are not
 /// names). Any at all means the log read is incomplete (live, 24 Sept: one quest of four): do not plan on it.
 func missingFromLog(_ tooltips: [String], _ quests: [PlannedQuest]) -> [String] {

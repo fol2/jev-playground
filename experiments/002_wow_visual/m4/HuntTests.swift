@@ -634,6 +634,10 @@ extension NavTests {
         check(combat.outcome == "WALK_COMBAT",
               "a walk stopped by combat ends the quest run")
         let wrong = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
+        let icons = sortIcons([((43.4, 23.9), false, ["Harvesting Windstones", "18 m"]), ((43.2, 22.4), true, ["Windshaper Boros", "9 m"])])
+        check(missingFromLog(icons.tooltips, []) == ["Harvesting Windstones"] && icons.givers.map(\.names) == [["Windshaper Boros"]]
+              && icons.hints.count == 1,
+              "a \"?\" tooltip must be in the log read; a \"!\" tooltip names a giver and never stops the run as LOG_INCOMPLETE")
         let boros = Giver(names: ["Windshaper Boros"], pin: (43.2, 22.4))
         let giving = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [boros]),
                                  QuestRead(quests: [], player: (43.2, 22.4), missing: [])])

@@ -153,23 +153,16 @@ final class QuestRun {
         if let scanned { write(scanned, to: body.directory.appendingPathComponent("minimap-scan.png"), type: .png) }
         let nearby = player == nil ? [] : scanned.map { minimapPins(rgba($0)) } ?? []
         body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
-        var minimapNames: [(names: [String], at: MapPoint)] = []
-        var tooltips: [String] = []
-        var givers: [Giver] = []
+        var icons: [(at: MapPoint, offer: Bool, read: [String])] = []
         for spot in nearby {
             hover(spot.x, spot.y)
             await sleep(0.7)
             let box = CGRect(x: 1850, y: max(0, spot.y - 120), width: 710, height: 160)  // the tip runs over the minimap
             let read = lines(box, await frame()).map(\.text)
             body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read, "offer": spot.offer])
-            let at = minimapPoint(spot.x, spot.y, player: player!)
-            if spot.offer {
-                givers.append(Giver(names: read.filter { nameKey($0).count >= 4 }, pin: at))  // "18 m" is not a name
-            } else {
-                minimapNames.append((read.map(nameKey), at))
-                tooltips += read
-            }
+            icons.append((minimapPoint(spot.x, spot.y, player: player!), spot.offer, read))
         }
+        let (givers, minimapNames, tooltips) = sortIcons(icons)
         await tap(QuestHUD.mapKey)
         await sleep(1.2)
         let listed = await frame()
@@ -244,6 +237,11 @@ final class QuestRun {
     func accept(_ giver: Giver) async -> String {
         func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { nameKey($0) == nameKey(l.text) } } }
         var dialog = lines(QuestHUD.dialog, await frame())
+        if acceptButton(dialog) != nil && listed(dialog) == nil {  // an offer already open, not known to be this giver's
+            await tap(QuestHUD.escape)
+            await sleep(0.8)
+            dialog = []
+        }
         if acceptButton(dialog) == nil {
             let opened = await openAtMark { page in
                 var page = page
