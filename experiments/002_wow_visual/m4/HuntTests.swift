@@ -485,6 +485,16 @@ extension NavTests {
         check(marks.count == 2 && abs(marks[0].x - 305.5) < 1 && abs(marks[0].y - 209.5) < 1 && marks[0].h == 20 && marks[0].body == 240 + 48,
               "two quest marks, the nearer the centre first; a speck, a flat yellow nameplate bar and a nameless glow are not")
         check(questMarks(image, box: (0, 0, 200, 150)).count == 1, "only inside the box")
+        check(abs(marks[0].nameX - 304.5) < 0.01 && marks[0].nameTop == 235, "the name's centre and top: where the body stands and the OCR box")
+        // Live, 25 Sept: Dalia's "?" (h 33) stood 30 px right of her; the name's centre was nearer her body.
+        let dalia: QuestMark = (x: 1906, y: 167, h: 33, body: 313, nameX: 1891, nameTop: 222)
+        let points = hoverPoints(dalia)
+        check(points.count == 10 && points[0] == (1891, 313) && points[1] == (1891, 313 - 2.4 * 33 + 1.4 * 33)
+              && points[3] == (1891 - 16.5, 313) && points.last! == (1906, 313),
+              "the pointer rests below the name's centre first, in the mark's scale, and below the \"?\" last")
+        check(sameUnit("Dalia the Collector", "alia the Collector") && sameUnit("Ventaari Brightwish", "Ventaari Brightwish")
+              && !sameUnit("Strogruid Noc", "Dalia the Collector") && !sameUnit("", "Dalia the Collector") && !sameUnit("Noc", "Noc"),
+              "the unit tooltip confirms the NPC by its name, a letter lost at an end allowed; never a neighbour or a blank")
         // 25 Sept, the owner's zoom: a 15 x 19 "?" and its dot 11 px under it, the name 54-63 px below the centre.
         var near = RGBA(width: 400, height: 300, pixels: [UInt8](repeating: 30, count: 400 * 300 * 4))
         func dab(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ rgb: (UInt8, UInt8, UInt8)) {

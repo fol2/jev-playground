@@ -302,6 +302,16 @@ Every step is a script (controller RULE); there is no Jev call.
      the box as the camera turned, was taken for her dialogue, and Esc was pressed. The character
      ended beside Dalia. Ventaari's right-click targeted him, but the walk had ended wedged between
      two standing stones and Click-to-Move did not move (not fixed here).
+   - Live run 4: The Gift of Skysight was handed in (`COMPLETED`: Click-to-Move took 4.8 s to
+     Ventaari, the panel opened, 180 XP). Harvesting Windstones read `DIALOGUE_NOT_OPEN`: the three
+     clicks below Dalia's "?" landed on the ground 30 px to her right, beside another player, and
+     nothing moved. The "?" need not stand over the body.
+   - So, as a human does, the pointer rests on the NPC before the click. The green name under the
+     mark is read (OCR), and the pointer is rested on up to ten points: below the name's centre, at
+     the waist, the chest and the legs, then half a mark height to each side, and last below the "?".
+     The game's unit tooltip (bottom right) is read at each point, and the click goes where it names
+     that NPC (a letter lost at an end allowed). With no point confirmed, the old point below the "?"
+     is clicked once in the attempt. Each click's frame is saved as `clickN.jpg`.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a

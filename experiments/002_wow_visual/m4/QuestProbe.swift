@@ -7,6 +7,9 @@ import Vision
 
 enum QuestHUD {
     static let dialog = CGRect(x: 0, y: 140, width: 400, height: 580)  // the quest dialogue, left edge
+    // The unit under the pointer: the game's tooltip, bottom right, growing upwards (25 Sept: a player's four
+    // lines at x 2278-2545, y 1150-1248).
+    static let unitTip = CGRect(x: 2200, y: 1000, width: 360, height: 260)
     static let tooltip = CGRect(x: 150, y: 100, width: 850, height: 560)  // a reward's tooltip and the equipped one
     static let chatInput = CGRect(x: 30, y: 1160, width: 700, height: 44)  // "Say:" once Enter opens it
     static let world = (300, 100, 2100, 950)  // where quest marks are looked for
@@ -31,6 +34,7 @@ final class QuestRun {
     let body: LiveNavBody
     let routed: RoutedClickTarget
     let bounds: CGRect
+    private var clicks = 0  // click1.jpg, click2.jpg: the frame each NPC click was chosen on
 
     init(body: LiveNavBody) throws {
         self.body = body
@@ -217,21 +221,49 @@ final class QuestRun {
         return seen
     }
 
+    /// As a human does before clicking: rest the pointer on the NPC and read the game's unit tooltip (bottom
+    /// right) until it names the NPC whose green name is under the mark. nil: no point did, or the name was
+    /// unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
+    func onUnit(_ mark: QuestMark, in image: CGImage) async -> (x: Double, y: Double)? {
+        let bottom = mark.body - 2.4 * mark.h
+        let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
+            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let name = lines(box, image).min(by: { $0.y < $1.y })?.text else { return nil }
+        hover(1280, 60)  // off any unit first: a tooltip left showing is someone else's
+        await sleep(0.5)
+        for point in hoverPoints(mark) {
+            hover(point.x, point.y)
+            await sleep(0.5)
+            let tip = lines(QuestHUD.unitTip, await frame()).min(by: { $0.y < $1.y })?.text ?? ""
+            body.emit("hover", ["at": [Int(point.x), Int(point.y)], "tooltip": tip, "name": name])
+            if sameUnit(tip, name) { return point }
+        }
+        return nil
+    }
+
     /// Right-click the NPCs under the quest marks in view, nearest the centre first, at most three, until
     /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
     /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
     /// only when a panel is open: Esc with nothing open is the Game Menu.
     func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
-        guard let image = await frame() else { return (nil, "NO_FRESH_FRAME") }
+        guard var image = await frame() else { return (nil, "NO_FRESH_FRAME") }
         var marks = questMarks(rgba(image), box: QuestHUD.world)
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
         guard !marks.isEmpty else {
             write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
             return (nil, "NO_QUEST_MARK_IN_VIEW")
         }
+        var blind = false  // a click the tooltip did not confirm is made once: below Dalia's "?" it found the ground three times
         for _ in 0..<3 {
             guard let mark = marks.first else { break }
-            guard click(mark.x, mark.body, right: true) else { return (nil, "CLICK_FAILED") }
+            clicks += 1
+            write(image, to: body.directory.appendingPathComponent(String(format: "click%d.jpg", clicks)), type: .jpeg)  // what it was chosen on
+            let confirmed = await onUnit(mark, in: image)
+            body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull()])
+            if confirmed == nil && blind { marks.removeFirst(); continue }
+            blind = blind || confirmed == nil
+            let point = confirmed ?? (mark.x, mark.body)
+            guard click(point.x, point.y, right: true) else { return (nil, "CLICK_FAILED") }
             guard let arrived = await arrive() else { return (nil, "WALK_COMBAT") }
             let seen: [TipLine]
             switch await page(arrived) {
@@ -245,6 +277,7 @@ final class QuestRun {
                 await sleep(0.8)
                 marks.removeFirst()
             } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
+                image = again
                 marks = questMarks(rgba(again), box: QuestHUD.world)
                 body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
             }
