@@ -352,9 +352,41 @@ final class LiveQuestHost: QuestHost {
     let quester: QuestRun
     let key: String
     let newWalker: () -> LiveNavBody
+    let newFighter: (URL, LiveKeys) -> LiveHost  // M3's host on a child key set, its frames in the folder
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
-    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody) { self.quester = quester; self.key = key; self.newWalker = newWalker }
+    private let lock = NSLock()
+    private var fighting: LiveHost?  // read by the signal handler's thread
+    private var fights = 0
+    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost) {
+        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter
+    }
+
+    var holding: Bool { (walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false } }
+
+    /// The exit sweep over the walk's and the fight's key sets.
+    func releaseAll() {
+        walker?.releaseAll()
+        lock.withLock { fighting }?.releaseAll()
+    }
+
+    /// Attacked on a walk: one M3 episode, in combat, on a child of the walk's key set, as the hunt's fights.
+    /// A fight that ends with keys held stays tracked for the exit sweep, and its handoff fails the run.
+    func fightBack() async -> String {
+        guard let parent = walker else { return "NO_WALK_KEYS" }
+        fights += 1
+        let folder = quester.body.directory.appendingPathComponent(String(format: "fight%d", fights))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard let child = parent.keys.takeChild(releaseCodes: FightLimits.releaseCodes) else { return "INPUT_HANDOFF_FAILED" }
+        let host = newFighter(folder, child)
+        lock.withLock { fighting = host }
+        emit("fight_start", ["fight": fights, "in_combat": true, "controller": "SAFETY"])
+        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout), startHealth: 0)
+        emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
+        guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
+        lock.withLock { fighting = nil }
+        return result.outcome
+    }
 
     func readQuests() async -> QuestRead? {
         let (quests, player, missing, givers) = await quester.readQuests()
@@ -430,13 +462,13 @@ func questsExecute(graph: GraphSession) async throws -> Int32 {
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
-    let host = LiveQuestHost(quester: try QuestRun(body: body), key: key) {
-        LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
-    }
-    defer { body.releaseAll(); host.walker?.releaseAll() }
+    let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
+                             newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log) },
+                             newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) })
+    defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
-    let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.walker?.releaseAll() },
-                              holding: { body.holding || (host.walker?.holding ?? false) })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
+                              holding: { body.holding || host.holding })
     await zoomOut(body.keys, log)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
     let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
@@ -446,7 +478,7 @@ func questsExecute(graph: GraphSession) async throws -> Int32 {
                           "graph_requests": result.graphRecords.count, "run_directory": run.url.path])
     for s in result.steps { print("\(s.quest): \(s.outcome)") }
     print("run: \(result.outcome)")
-    return body.holding || (host.walker?.holding ?? false) ? 3 : 0
+    return body.holding || host.holding ? 3 : 0
 }
 
 /// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.

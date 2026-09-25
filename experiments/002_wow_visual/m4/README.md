@@ -339,7 +339,7 @@ experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replace
    because a hand-in changes the log.
 
 Stops: no offer left (`NOTHING_TO_HAND_IN_OR_TAKE`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
-a walk stopped for combat, health, the owner or the HUD; a walk whose key release is unconfirmed
+a walk stopped for health, the owner or the HUD (combat: M4i); a walk whose key release is unconfirmed
 (`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; eight steps.
 A failed hand-in is not offered again. Offline, 8 checks (M4g adds 4) run the loop on the live Thendal values of
 24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
@@ -399,6 +399,19 @@ Vuldren's colour and outline-less strokes are not names; a name ahead stops the 
 retreat that meets a red name ends the run. A move's check runs while it walks: during a Jev call W
 may still run on under its 1.5 s grant, and the next move's first look stops it.
 Not seen live: raw (not JPEG) frames, a real stop, a real retreat, names over snow or sky.
+
+## M4i — fight back when a quest walk is attacked
+
+The owner, 24 Sept: "those reactions should be written in jev engine ... how to handle / avoid / engage
+aggressives, intentionally or unintentionally". A quest walk attacked on the way used to end the run
+with its keys released, leaving the character standing under attack. Now `WALK_COMBAT` hands over at once
+to one M3 fight in combat (controller SAFETY, no quest-graph call: in combat the only choice is to fight
+back, as in the hunt). The fight's own decisions are Jev's, on a child of the walk's key set, its frames
+in `fightN/`. A kill lets the run go on, and the interrupted step may be offered again; any other outcome,
+Jev's STOP included, ends the run as `FIGHT_<outcome>`. Unlike the hunt, M3 cannot select an attacker
+behind the character (Tab looks ahead), so walking on after a STOP would only be attacked again. The exit
+sweep and the key check cover the fight's keys as well as the walk's. 2 nav checks replace "combat ends
+the run": a won fight goes on and re-offers the step; a stopped fight ends the run. Not seen live.
 
 ## Limits
 

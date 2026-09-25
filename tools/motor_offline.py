@@ -16,7 +16,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 235  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 236  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 
@@ -98,10 +98,14 @@ def nav_trap() -> None:
         raise GateError("the hunt's release does not sweep both its own keys and the current fight's")
     quest = Path(ROOT, NAV + "QuestProbe.swift").read_text()
     execute = quest.split("func questsExecute", 1)[-1]
-    if ("also: { body.releaseAll(); host.walker?.releaseAll() }," not in execute
-            or "holding: { body.holding || (host.walker?.holding ?? false) }" not in execute
-            or "defer { body.releaseAll(); host.walker?.releaseAll() }" not in execute):
-        raise GateError("questsExecute does not trap signals and defer onto its body's and current walk's keys")
+    if ("also: { body.releaseAll(); host.releaseAll() }," not in execute
+            or "holding: { body.holding || host.holding }" not in execute
+            or "defer { body.releaseAll(); host.releaseAll() }" not in execute):
+        raise GateError("questsExecute does not trap signals and defer onto its body's and its host's keys")
+    host = quest.split("final class LiveQuestHost", 1)[-1].split("func fightBack", 1)[0]
+    if ("walker?.releaseAll()" not in host or "lock.withLock { fighting }?.releaseAll()" not in host
+            or "(walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false }" not in host):
+        raise GateError("the quest host's exit sweep and holding do not cover the current walk and fight")
     if ('if walker?.holding == true { return "WALK_KEYS_HELD" }' not in quest
             or 'guard !legs.holding else { return "WALK_KEYS_HELD" }' not in quest):
         raise GateError("a quest walk whose key release is unconfirmed does not end the run")

@@ -341,7 +341,8 @@ protocol QuestHost: AnyObject {
     func readQuests() async -> QuestRead?  // nil: the position was unreadable
     func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
-    func retreat() async -> String  // walk back to where the last walk began; RETREATED or a WALK_ outcome
+    func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
+    func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -353,6 +354,9 @@ enum QuestLimits {
     static let maxSteps = 8
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
+    // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
+    // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
+    static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
 }
 
 /// A step local code can run here: a hand-in, a quest to take, or a way back from danger (M4h).
@@ -427,7 +431,9 @@ struct QuestResult {
 /// Read, offer, let Jev choose, run, and read again: a hand-in changes the log. A walk that stops for
 /// combat, health, the owner or the HUD ends the run; the second NO_PROGRESS ends it (the run envelope).
 /// A walk that stops for a red name ahead fails only its step, and RETREAT is offered next; a retreat that
-/// does not get back ends the run. A failed step is not offered again this run. There is no rules fallback when Jev fails.
+/// does not get back ends the run. A walk that is attacked hands over to one M3 fight at once (SAFETY: in
+/// combat the only choice is to fight back); a won fight lets the run go on, and the interrupted step may
+/// be offered again. A failed step is not offered again this run. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
@@ -465,6 +471,13 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
+        if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
+            host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])
+            let fought = await host.fightBack()
+            r.steps.append(("fight back", fought))
+            guard QuestLimits.fightWon.contains(fought) else { return finish("FIGHT_" + fought) }
+            continue
+        }
         if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "RETREATED" { continue }
         if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
         failed.insert(offer.step.key)
