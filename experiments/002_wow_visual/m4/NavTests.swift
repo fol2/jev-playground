@@ -209,6 +209,8 @@ struct NavTests {
         check((try? parseNav([]))?.mode == .preflight, "no arguments is the preflight")
         check((try? parseNav(["--dry-run"]))?.mode == .dryRun, "dry-run parses")
         check((try? parseNav(["--replay", "runs/frames"]))?.directory == "runs/frames", "replay takes one directory")
+        check((try? parseNav(["--pixels", "runs/002"]))?.mode == .pixels && (try? parseNav(["--pixels", "runs/002"]))?.directory == "runs/002",
+              "pixels takes one directory")
         check((try? parseNav(["--sim-jev", "--scenario", "wall"]))?.scenario == "wall", "sim-jev takes a named scenario")
         let live = try? parseNav(["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "1", "--label", "Yala Windwatcher"])
         check(live?.toX == 47.1 && live?.toY == 21.8 && live?.arrive == 1 && live?.label == "Yala Windwatcher" && live?.profile == .wqe,
@@ -218,7 +220,7 @@ struct NavTests {
               && (try? parseNav(["--sim-jev", "--ghost"])) == nil,
               "--ghost is a flag of --execute only, once")
         let refused: [[String]] = [
-            ["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--replay", "a", "b"], ["--replay", "-x"],
+            ["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--replay", "a", "b"], ["--replay", "-x"], ["--pixels"], ["--pixels", "a", "b"], ["--pixels", "-x"],
             ["--sim-jev"], ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
             ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],
             ["--execute", "--keys", "wqe", "--to", "a,b"], ["--execute", "--keys", "wqe", "--to", "101,2"],

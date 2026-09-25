@@ -10,7 +10,9 @@ import re
 import signal
 import subprocess
 import sys
+import struct
 import tempfile
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 
@@ -20,6 +22,8 @@ MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on
 MIN_NAV_CHECKS = 236  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
+PERCEPTION = NAV + "perception.jsonl"  # the accepted readings of the perception regression set
+MIN_PERCEPTION_FRAMES = 2397  # the current count: dropping frames from the set must lower this on purpose
 
 
 def counted(output: str, name: str = "motor", minimum: int = MIN_CHECKS) -> int:
@@ -93,6 +97,85 @@ def interrupted(command: list) -> None:
     released(rows, 1)
 
 
+def saved_frames() -> Path | None:
+    """The saved-frame corpus, shared by every worktree of this clone. A hosted runner has none: it stays local."""
+    common = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=ROOT, check=True,
+                            capture_output=True, text=True, timeout=30).stdout.strip()
+    frames = Path(common).parent / "runs/002_wow_visual"
+    return frames if frames.is_dir() else None
+
+
+def pixels(nav: str, frames: Path) -> dict:
+    out = subprocess.run([nav, "--pixels", str(frames)], cwd=ROOT, check=True, capture_output=True, text=True, timeout=300)
+    return {row["frame"]: row for row in map(json.loads, out.stdout.splitlines())}
+
+
+def accepted(update: bool = False) -> dict:
+    if update and not Path(ROOT, PERCEPTION).is_file():
+        return {}
+    rows = [json.loads(line) for line in Path(ROOT, PERCEPTION).read_text().splitlines()]
+    frames = {row.get("frame"): row for row in rows}
+    if not update and (len(frames) != len(rows) or len(rows) < MIN_PERCEPTION_FRAMES
+            or any(not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256"))) for row in rows)):
+        raise GateError(f"{PERCEPTION} lost frames or holds a malformed row; at least {MIN_PERCEPTION_FRAMES} required")
+    return frames
+
+
+def shifts(old: dict, new: dict) -> list:
+    """What differs from the accepted readings, reader by reader, with up to three example frames each."""
+    changed: dict = {}
+    for frame, row in old.items():
+        now = new.get(frame)
+        keys = (["missing"] if now is None else ["frame bytes"] if now["sha256"] != row["sha256"]
+                else sorted(k for k in set(row) | set(now) if row.get(k) != now.get(k)))
+        for key in keys:
+            changed.setdefault(key, []).append(frame)
+    return [f"{key} {len(frames)} ({', '.join(frames[:3])})" for key, frames in sorted(changed.items())]
+
+
+def black_png(path: Path, width: int, height: int) -> None:
+    row = b"\0" * (1 + 3 * width)  # filter byte, then RGB
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b""))
+
+
+def perception(nav: str, tmp: str, update: bool = False) -> str:
+    """The perception regression set: every pixel reader on every saved frame must read as accepted.
+    The frames stay local, so a hosted runner checks the accepted file and a black-frame negative control only."""
+    control = Path(tmp, "control")
+    control.mkdir()
+    black_png(control / "black.png", 2560, 1320)
+    black_png(control / "small.png", 1280, 660)  # not the calibrated layout: skipped
+    read = pixels(nav, control)
+    black = {k: v for k, v in read.get("black.png", {}).items() if k != "sha256"}
+    if list(read) != ["black.png"] or black != {"frame": "black.png", "player": 0, "mana": 0, "target": 0, "cast": 0}:
+        raise GateError(f"a black frame read something, or a wrong-size frame was read: {read}")
+    old = accepted(update)
+    first = min(old, default="")
+    if old and (shifts(old, {**old, first: {**old[first], "red": [[1, 2, 3, 4]]}}) != [f"red 1 ({first})"]
+                or shifts(old, {**old, first: {**old[first], "sha256": "0" * 64}}) != [f"frame bytes 1 ({first})"]
+                or shifts(old, {k: v for k, v in old.items() if k != first}) != [f"missing 1 ({first})"]):
+        raise GateError("the perception comparer missed a planted shift")
+    frames = saved_frames()
+    if frames is None:
+        if update:
+            raise GateError("no saved frames here to accept readings from")
+        return f"perception: {len(old)} accepted frames well-formed, black frame reads nothing; replay not run (no saved frames here)"
+    new = pixels(nav, frames)
+    if update:
+        Path(ROOT, PERCEPTION).write_text("".join(json.dumps(new[f], sort_keys=True, separators=(",", ":")) + "\n"
+                                                  for f in sorted(new)))
+        return (f"accepted {len(new)} frames into {PERCEPTION}; changed from before: "
+                + ("; ".join(shifts(old, new)) or "nothing") + f"; new {len(set(new) - set(old))}")
+    changed = shifts(old, new)
+    if changed:
+        raise GateError(f"perception shifted from the accepted readings: {'; '.join(changed)}. Review the frames, "
+                        "then accept with python3 -m tools.motor_offline --update-perception")
+    return (f"perception: {len(old)} saved frames read as accepted, black frame reads nothing"
+            + (f"; {len(set(new) - set(old))} newer frames not yet in the set" if set(new) - set(old) else ""))
+
+
 def nav_trap() -> None:
     """M4 execute must trap SIGINT onto the body's LiveKeys sweep; this is not OS-key proof."""
     probe = Path(ROOT, NAV + "NavProbe.swift").read_text()
@@ -158,7 +241,7 @@ def interrupted_dry(command: list) -> None:
         raise GateError(f"SIGINT of {command[0]} dry-run did not report holding false")
 
 
-def main():
+def main(update: bool = False):
     with tempfile.TemporaryDirectory() as tmp:
         runtime = "experiments/002_wow_visual/runtime/"
         core_tests = str(Path(tmp, "runtime-tests"))
@@ -174,7 +257,7 @@ def main():
         nav_sources = fight_sources + (NAV + "Nav.swift", NAV + "Hunt.swift", NAV + "Quest.swift")
         seek_shell = (MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekProbe.swift")
         clicks = (CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift", CLICK + "NativeBackgroundClickTransport.swift")
-        build_all({
+        builds = {
             core_tests: ((runtime + "Runtime.swift", runtime + "RuntimeTests.swift"), ()),
             experience_tests: ((runtime + "Experience.swift", runtime + "ExperienceTests.swift"), ()),
             integration: (nav_sources + (runtime + "IntegrationTests.swift",), ()),
@@ -190,7 +273,12 @@ def main():
             nav: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
                                 NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift") + clicks,
                   ("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV")),
-        })
+        }
+        if update:
+            build_all({nav: builds[nav]})
+            print(perception(nav, tmp, update=True))
+            return
+        build_all(builds)
         suite(core_tests, "runtime", 33)
         experience_checks = suite(experience_tests, "experience", 34)
         suite(integration, "runtime integration", 41)
@@ -224,7 +312,7 @@ def main():
         interrupted_dry([fight, "--dry-run"])
 
         nav_checks = suite(nav_tests, "nav", MIN_NAV_CHECKS)
-        refuses(nav, (["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--sim-jev"],
+        refuses(nav, (["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--pixels"], ["--sim-jev"],
                       ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
                       ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],
                       ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--arrive", "5"], ["--hunt"],
@@ -273,12 +361,15 @@ def main():
             raise GateError(f"video_jev --check reported {video.stdout.strip() or 'nothing'}")
         interrupted_dry([nav, "--dry-run"])
         interrupted_dry([nav, "--hunt-dry-run"])
+        seen = perception(nav, tmp)  # last: it loads every core, and the dry-runs above time their key-ups
     print(f"Experience: {experience_checks} checks. Decision graph: {graph_checks} checks and native tool/skill/recall dry-run passed. M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses), the simulated M3 fight ({fight_summary.get('decisions')} "
           f"decisions) and the simulated M4 walk ({nav_summary.get('decisions')} decisions); M3/M4 dry-run SIGINT stops the "
-          f"loop (130, holding false) with no OS keys; zero capture, OS input or live model calls.")
+          f"loop (130, holding false) with no OS keys; {seen}; zero capture, OS input or live model calls.")
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] not in ([], ["--update-perception"]):
+        sys.exit("usage: python3 -m tools.motor_offline [--update-perception]")
+    main(update=sys.argv[1:] == ["--update-perception"])
