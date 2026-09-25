@@ -10,9 +10,35 @@ enum NavHUD {
     static let arrowX0 = 2406, arrowX1 = 2440, arrowY0 = 182, arrowY1 = 212
     /// Zone coordinates under the minimap ("44.8, 28.1"); OCR'd after a x3 upscale.
     static let coordsX = 2322, coordsY = 300, coordsWidth = 200, coordsHeight = 34
+    /// When the raw text does not parse, the box is read again under these masks (whiteText). 25 Sept, the
+    /// first live --quests run: a quest giver's orange name drawn across the box read as "43.0, 23к7 Eнн"
+    /// on arrival, and the walk stopped HUD_UNREADABLE 0.48 from the pin. One mask alone misread 23.7 as
+    /// 23.1, and a floor of 140 misread 42.5 as 12.5; so a masked reading counts only when both agree.
+    static let coordsMasks: [(spread: Int, floor: Int)] = [(60, 0), (60, 60)]
 
     static func silver(_ r: Int, _ g: Int, _ b: Int) -> Bool { min(r, g, b) > 120 && max(r, g, b) - min(r, g, b) < 50 }
     static func navy(_ r: Int, _ g: Int, _ b: Int) -> Bool { b >= r + 10 && b >= g + 8 }
+}
+
+/// The raw reading when it parses (unchanged since M4a); otherwise a masked reading only when every mask
+/// reads the same point, so a misread glyph under one mask cannot move the character on the map.
+func agreedCoords(raw: String, masked: [String]) -> MapPoint? {
+    if let point = parseCoords(raw) { return point }
+    let points = masked.map(parseCoords)
+    guard points.count >= 2, let first = points[0],
+          points.allSatisfy({ $0.map { $0.x == first.x && $0.y == first.y } ?? false }) else { return nil }
+    return first
+}
+
+/// The image with its coloured pixels (channels spread wider than `spread`) and its dark ones (below
+/// `floor`) blanked, so only neutral light text reaches OCR: a coloured name drawn across it goes.
+func whiteText(_ image: RGBA, spread: Int, floor: Int) -> RGBA {
+    var pixels = image.pixels
+    for i in stride(from: 0, to: pixels.count, by: 4) {
+        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+        if max(r, g, b) - min(r, g, b) > spread || min(r, g, b) < floor { (pixels[i], pixels[i + 1], pixels[i + 2]) = (0, 0, 0) }
+    }
+    return RGBA(width: image.width, height: image.height, pixels: pixels)
 }
 
 enum NavLimits {
@@ -496,6 +522,9 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         result.records.append(record)
         body.emit("decision", record)
         if attempt.warned { result.end = attempt.to; return finish("DANGER_AHEAD") }  // never walk on into it
+        // Seen within the radius during the move, W released: arrived, without one more reading. 25 Sept,
+        // live: 0.46 from a quest giver, its name then covered the coordinates for six looks (HUD_UNREADABLE).
+        if attempt.arrived { result.end = attempt.to; return finish("ARRIVED") }
     }
 }
 
@@ -544,6 +573,7 @@ final class SimNav: NavBody {
     static let nameRange = 4.0
     var unreadable = false
     var missEvery = 0  // every n-th look is unreadable
+    var readsNear: (point: MapPoint, radius: Double, reads: Int)?  // within it, only so many looks read (a name over the text)
     private var looks = 0
     var ownerFront = false
     var emitHandler: Emit = { _, _ in }
@@ -565,6 +595,10 @@ final class SimNav: NavBody {
     func look() -> NavObs? {
         looks += 1
         guard !unreadable, missEvery == 0 || looks % missEvery != 0 else { return nil }
+        if let near = readsNear, distance((roundTo(x, 10), roundTo(y, 10)), near.point) < near.radius {  // as it would read
+            guard near.reads > 0 else { return nil }
+            readsNear?.reads -= 1
+        }
         let warnings = hostiles.filter { distance((x, y), $0) <= SimNav.nameRange }.map { bearing(from: (x, y), to: $0) }
             .filter { abs(angleError($0, facing)) <= HuntLimits.viewDegrees / 2 }
         return NavObs(stamp: ObservationStamp(stream: "sim-nav", geometry: "sim-layout", capturedAt: now()),

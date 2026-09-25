@@ -146,7 +146,7 @@ final class QuestRun {
     /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
     /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
-        let player = (await frame()).flatMap { parseCoords(coordsText($0)) }
+        let player = (await frame()).flatMap { readCoords($0).at }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         await sleep(0.4)
         let scanned = await frame()
@@ -477,7 +477,6 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
-    await zoomOut(body.keys, log)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
     let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
     try? await stream.stopCapture()
@@ -545,7 +544,6 @@ func questExecute(_ command: NavCommand) async throws -> Int32 {
     defer { body.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
-    await zoomOut(body.keys, log)
     body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
     let outcome = await (try QuestRun(body: body)).turnIn(quest)
     try? await stream.stopCapture()

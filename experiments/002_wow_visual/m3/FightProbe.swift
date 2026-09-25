@@ -428,16 +428,6 @@ func responses(_ records: [[String: Any]]) -> [[String: Any]] {
     }
 }
 
-/// The owner, 23-24 Sept: zoomed out to the widest view by default. Holds F10 (Camera Zoom Out) on a
-/// host's keys, after its signal trap: the watchdog and every exit path release it.
-func zoomOut(_ keys: LiveKeys, _ log: Log) async {
-    keys.grant(FightLimits.zoomOut, seconds: FightLimits.zoomSeconds + 1)
-    keys.press(FightLimits.zoomOut)
-    try? await Task.sleep(nanoseconds: UInt64(FightLimits.zoomSeconds * 1_000_000_000))
-    keys.lift(FightLimits.zoomOut)
-    log.emit("zoomed_out", ["seconds": FightLimits.zoomSeconds, "t": hostNow()])
-}
-
 func fightDryRun(graph: String? = nil) async throws -> Int32 {
     let log = try Log(file: nil)
     let clock = FightClock(pace: 0.02)
@@ -504,7 +494,6 @@ func fightExecute(graph: String? = nil) async throws -> Int32 {
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holdingKeys })
-    await zoomOut(host.keys, log)
     var manifest: [String: Any] = [
         "schema": "m3-run/v1", "run_id": run.id, "mode": "execute",
         "started_utc": ISO8601DateFormatter().string(from: Date()),

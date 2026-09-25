@@ -62,7 +62,8 @@ bar first: the pointer rests on each slot in the background, Vision reads the to
 skill's role comes from its text (`Attack`; a cast with "damage" and a range; a cast that "Heals";
 "Imbue"; an item that restores mana or health). A missing role, or one tooltip on two slots (the
 pointer was contested), stops the run before any key. The range digit box follows the bolt's slot.
-The run then holds F10 (Camera Zoom Out, an owner-consented bind) for the widest view.
+The camera stays at the owner's zoom. Until 25 Sept the run held F10 (Camera Zoom Out) for the
+widest view; the owner then found that view too far, because it hid the NPCs' "?" and "!".
 
 FACE_TARGET is F9, Interact With Target (owner, 24 Sept: "why can't F9 work for everything?"): the
 game turns to the target wherever it is and turns on automatic swings, and a forward tap cancels the
