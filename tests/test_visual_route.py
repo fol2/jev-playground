@@ -17,6 +17,13 @@ class VisualRouteTests(unittest.TestCase):
             self.assertIn("motor-offline", checks)
             self.assertNotIn("fishing-offline", checks)
 
+    def test_retired_python_may_only_be_deleted(self):
+        for path in sdlc.RETIRED:
+            self.assertIn("motor-offline", route([("D", path)])["checks"])
+            for status in ("A", "M"):
+                with self.subTest(path=path, status=status), self.assertRaises(GateError):
+                    route([(status, path)])
+
     def test_unregistered_visual_executable_fails_closed(self):
         # The retired Python tools may not come back unregistered.
         for path in (VISUAL + "executor.py", VISUAL + "nested/README.md", VISUAL + "capture.swift",

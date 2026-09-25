@@ -46,6 +46,8 @@ MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Pr
                                         "HuntProbe.swift", "Quest.swift", "QuestProbe.swift", "Tabletop.swift", "perception.jsonl",
                                         "README.md")} |
                {VISUAL + "README.md", LEARN + "VideoJev.swift"})
+# Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.
+RETIRED = {VISUAL + "observations.py", VISUAL + "test_observations.py", NAV + "tabletop.py", LEARN + "video_jev.py"}
 
 
 def fishing_path(path: str) -> bool:
@@ -87,7 +89,7 @@ def route(changes: list[tuple[str, str]]) -> dict:
             full = True
             motor |= path == "tools/motor_offline.py"  # a changed proof runner must run its own proof
             fishing |= path == "tools/fishing_offline.py"
-        elif path in MOTOR_PATHS or (
+        elif path in MOTOR_PATHS or (path in RETIRED and status == "D") or (
                 path.startswith(LEARN) and PurePosixPath(path).suffix in {".md", ".jsonl"}):
             motor = True
         elif fishing_path(path):
