@@ -18,7 +18,7 @@ bounded skills and stops on safety rules. The owner supervises every live episod
 |---|---|---|
 | `Fight.swift` | Pure core: HUD detectors, `Obs`, `Episode`, admissibility, state packet, question, reply validation, `SimFight`, `ScriptedJev`, `runFight` | `FightTests.swift` |
 | `Tactics.swift` | M3b: the bar's skill cards, the chain book, a chain's steps and breaks, offers and calculations | `FightTests.swift` |
-| `FightProbe.swift` | Native shell: capture, keys, held-key watchdog, background loot click, Vision OCR, Jev HTTP, run files | `--dry-run` and argument refusals in `tools/motor_offline.py` |
+| `FightProbe.swift` | Native shell: capture, keys, held-key watchdog, background loot click, Vision OCR, Jev HTTP, run files | `--dry-run` and argument refusals in `tools/MotorProof.swift` |
 | `FightTests.swift` | Counted offline checks on synthetic frames, rules, rejections and a simulated episode | Focus Gate `motor-offline` |
 
 ## What Jev decides, and what it does not
@@ -219,7 +219,7 @@ Proof, simulation only: 66 new fight checks (207). In SimFight the chain fight k
 Jev decisions and 3 unasked steps, against 8 decisions for the legacy policy; a fast health loss breaks
 a chain and Jev can heal; a long fight checks in and Jev can go on; below 30% only HEAL is offered;
 a melee step until contact waits for the swings to land before shock-melee's shock;
-an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/motor_offline.py` runs the chain
+an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/sdlc motor` runs the chain
 dry-run in the gate. Not built: reading the character's level (the portrait badge defeats Vision OCR;
 the portrait's tooltip is next) and the frame's absolute health and mana numbers; fight experience
 that proposes candidate chains; several attackers. Nothing here has run live.
@@ -236,7 +236,7 @@ now reads out of range on exactly the 9 frames whose "2" is red by eye, and neve
 ## Reproduce
 
 ```sh
-python3 -m tools.motor_offline   # builds and checks M0, M1/M2 and M3 with no live effect
+tools/sdlc motor   # builds and checks M0, M1/M2 and M3 with no live effect
 ```
 
 ```sh

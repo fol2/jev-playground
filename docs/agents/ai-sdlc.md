@@ -213,10 +213,11 @@ unrun tests passed, or a source-only merge launched autonomous gameplay.
 
 ## Repository gates and integration
 
-`tools/sdlc.py` owns the exact-diff route. It requires a clean committed tree, resolved
+`tools/sdlc` (Swift, `tools/Gate.swift`) owns the exact-diff route. It requires a clean committed tree, resolved
 ancestor base/head and regular registered files; renames expose deletion and addition.
-Unknown paths fail closed. It now registers governance Python/Node, `fishing-offline`
-and `motor-offline` (the runtime, M0–M4, the tabletop and learning corpus checks). Preserve these
+Unknown paths fail closed. It registers `governance-tests` (its own Swift checks), the Node
+maintenance test, `fishing-offline` and `motor-offline` (the runtime, M0–M4, the tabletop and
+learning corpus checks). The repository has no Python; retired Python paths may only be deleted. Preserve these
 routes; do not substitute governance success for gameplay evidence. Registered learning
 Markdown/JSONL changes take the motor-learning lane, not a generic docs-only shortcut.
 New executable/consumer boundaries need explicit proof registration in the same change.
@@ -231,7 +232,7 @@ hosted runner is not the owner's Mac and receives no gameplay/provider authority
 Run narrow diagnostics during editing and the selected final route once. Re-run only
 invalidated proof. REVIEW.md governs one substantive exact-head review. Prefer fresh
 context; disclose author-review, never self-approve or waive required independence.
-Batch findings. The read-only-default `tools/merge_pr.py` requires same-repo open PR,
+Batch findings. The read-only-default `tools/sdlc merge` requires same-repo open PR,
 current-main ancestry, clean mergeability, native workflow ID 363313034/path, latest
 successful exact-head PR run and authentic Focus Gate, passing other relevant checks,
 trusted submitted review and no open vetoes/threads. Submission time, not draft ID,

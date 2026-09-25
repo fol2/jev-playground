@@ -76,11 +76,12 @@ indirect enum JSON: Equatable {
     }
 
     /// Python's `json.dumps(value, sort_keys=sorted, ensure_ascii=ascii, indent=indent)`: ", " and ": "
-    /// separators, or with an indent one item a line and "," at its end.
-    func text(sorted: Bool = false, ascii: Bool = true, indent: Int? = nil, depth: Int = 0) -> String {
+    /// separators, or with an indent one item a line and "," at its end; `compact` is separators=(",", ":").
+    func text(sorted: Bool = false, ascii: Bool = true, indent: Int? = nil, compact: Bool = false, depth: Int = 0) -> String {
+        let colon = compact ? ":" : ": "
         func block(_ open: String, _ items: [String], _ close: String) -> String {
             if items.isEmpty { return open + close }
-            guard let indent else { return open + items.joined(separator: ", ") + close }
+            guard let indent else { return open + items.joined(separator: compact ? "," : ", ") + close }
             let inner = "\n" + String(repeating: " ", count: indent * (depth + 1))
             return open + inner + items.joined(separator: "," + inner) + "\n" + String(repeating: " ", count: indent * depth) + close
         }
@@ -91,11 +92,12 @@ indirect enum JSON: Equatable {
         case let .big(digits): return digits
         case let .double(d): return JSON.pythonRepr(d)
         case let .string(s): return JSON.quoted(s, ascii: ascii)
-        case let .array(a): return block("[", a.map { $0.text(sorted: sorted, ascii: ascii, indent: indent, depth: depth + 1) }, "]")
+        case let .array(a):
+            return block("[", a.map { $0.text(sorted: sorted, ascii: ascii, indent: indent, compact: compact, depth: depth + 1) }, "]")
         case let .object(p):
             let ordered = sorted ? p.sorted { $0.0.unicodeScalars.lexicographicallyPrecedes($1.0.unicodeScalars) } : p
             return block("{", ordered.map {
-                JSON.quoted($0.0, ascii: ascii) + ": " + $0.1.text(sorted: sorted, ascii: ascii, indent: indent, depth: depth + 1)
+                JSON.quoted($0.0, ascii: ascii) + colon + $0.1.text(sorted: sorted, ascii: ascii, indent: indent, compact: compact, depth: depth + 1)
             }, "}")
         }
     }

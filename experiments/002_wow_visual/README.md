@@ -41,7 +41,7 @@ No hidden game state, memory reading, packet parsing or injected telemetry is us
 ## Reproduce offline
 
 ```sh
-python3 -m tools.motor_offline   # builds and checks the runtime, M0-M4, the tabletop and the learning corpus
+tools/sdlc motor   # builds and checks the runtime, M0-M4, the tabletop and the learning corpus
 ```
 
 ## Shaman first, but verify the actual profile

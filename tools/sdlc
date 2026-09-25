@@ -1,0 +1,20 @@
+#!/bin/sh
+# The Focus Gate launcher: builds the Swift gate once per source and compiler change, then runs it.
+#   tools/sdlc route|check --base BASE [--head HEAD] [--full]
+#   tools/sdlc motor [--update-perception] | tools/sdlc fishing
+#   tools/sdlc merge PR FULL_HEAD_SHA [--execute] [--into BRANCH]
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+# Absolute paths: the gate finds the repository from its own source path. Quoted, so a path may hold spaces.
+with_sources() {
+  "$@" "$root/tools/Gate.swift" "$root/tools/MotorProof.swift" "$root/tools/FishingProof.swift" "$root/tools/Merge.swift" \
+    "$root/experiments/002_wow_visual/runtime/JSON.swift"
+}
+fingerprint() { swiftc --version 2>&1; for f; do printf '%s\n' "$f"; cat "$f"; done; }
+key=$(with_sources fingerprint | shasum -a 256 | cut -c1-16)
+bin="${TMPDIR:-/tmp}/jev-sdlc-$key"
+if [ ! -x "$bin" ]; then
+  with_sources swiftc -parse-as-library -O -o "$bin.$$" >&2
+  mv -f "$bin.$$" "$bin"
+fi
+exec "$bin" "$@"

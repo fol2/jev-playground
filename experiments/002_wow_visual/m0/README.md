@@ -83,11 +83,11 @@ requested nothing: no capture, input, permission prompt, window title or game-fi
 From the repository root:
 
 ```sh
-python3 -m tools.motor_offline      # 117 counted checks, argument refusal, dry-run release, SIGINT release
-python3 tools/sdlc.py check --base origin/main --head HEAD   # the Focus Gate route (clean tree)
+tools/sdlc motor      # 117 counted checks, argument refusal, dry-run release, SIGINT release
+tools/sdlc check --base origin/main --head HEAD   # the Focus Gate route (clean tree)
 ```
 
-`tools.motor_offline` compiles the checks and the probe, confirms invalid arguments exit
+`tools/sdlc motor` compiles the checks and the probe, confirms invalid arguments exit
 64 with no output, and runs `--dry-run`. The dry-run blocks its own observer for 400 ms
 after each key-down, and every key-up must still land within 100 ms of its deadline
 (0 ms measured here). The last step sends SIGINT during a held key and requires the

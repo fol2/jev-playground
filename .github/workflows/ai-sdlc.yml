@@ -43,7 +43,7 @@
             "EVENT": "${{ github.event_name }}"
           },
           "shell": "bash",
-          "run": "set -euo pipefail\nif [ -z \"$BASE\" ]; then BASE=\"$(git rev-parse HEAD^)\"; fi\nargs=(check --base \"$BASE\" --head \"$HEAD\")\nif [ \"$EVENT\" = \"workflow_dispatch\" ]; then args+=(--full); fi\npython3 tools/sdlc.py \"${args[@]}\" > \"$RUNNER_TEMP/sdlc.json\"\ncat \"$RUNNER_TEMP/sdlc.json\"\n{ printf '### Exact-head source evidence\n```json\n'; cat \"$RUNNER_TEMP/sdlc.json\"; printf '\n```\n'; } >> \"$GITHUB_STEP_SUMMARY\"\n"
+          "run": "set -euo pipefail\nif [ -z \"$BASE\" ]; then BASE=\"$(git rev-parse HEAD^)\"; fi\nargs=(check --base \"$BASE\" --head \"$HEAD\")\nif [ \"$EVENT\" = \"workflow_dispatch\" ]; then args+=(--full); fi\nsh tools/sdlc \"${args[@]}\" > \"$RUNNER_TEMP/sdlc.json\"\ncat \"$RUNNER_TEMP/sdlc.json\"\n{ printf '### Exact-head source evidence\n```json\n'; cat \"$RUNNER_TEMP/sdlc.json\"; printf '\n```\n'; } >> \"$GITHUB_STEP_SUMMARY\"\n"
         }
       ],
       "env": {
