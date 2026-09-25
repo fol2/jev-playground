@@ -1,11 +1,11 @@
 {
-  "id": "skyborne-quest-tools-v2",
-  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, and quests from a \"!\" giver on the minimap, within one walk of the player only; kill, collect and use-at quests and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
+  "id": "skyborne-quest-tools-v3",
+  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, and quests from a \"!\" giver on the minimap, within one walk of the player only; a walk stops when a hostile creature's red name comes into view ahead; kill, collect and use-at quests and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
   "root": "quest",
   "nodes": {
     "quest": {
-      "question": "Choose the next quest step toward `goal`. Each offered hand-in walks to that quest's giver and completes the quest; the reward is then picked by the owner's reward rule. Each offered accept walks to a quest giver shown by a \"!\" and takes the quest it offers. You may first read the quest log, the steps already taken or the owner's quest rules. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
-      "skills": ["HAND_IN_1", "HAND_IN_2", "HAND_IN_3", "HAND_IN_4", "ACCEPT_1", "ACCEPT_2", "ACCEPT_3"],
+      "question": "Choose the next quest step toward `goal`. Each offered hand-in walks to that quest's giver and completes the quest; the reward is then picked by the owner's reward rule. Each offered accept walks to a quest giver shown by a \"!\" and takes the quest it offers. RETREAT, offered after a walk stopped for a hostile creature's red name ahead, walks back to where that walk began. You may first read the quest log, the steps already taken or the owner's quest rules. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
+      "skills": ["RETREAT", "HAND_IN_1", "HAND_IN_2", "HAND_IN_3", "HAND_IN_4", "ACCEPT_1", "ACCEPT_2", "ACCEPT_3"],
       "branches": {},
       "reads": ["quest_log", "recent", "owner_rules"]
     }
@@ -13,6 +13,6 @@
   "resources": {
     "quest_log": {"summary": "Read every quest in the log in the owner's zone-first order (level, kind, objective, distance, whether it is in the player's zone) and the minimap's quest givers. Read from this step's screen, not memory.", "keys": ["quest_log", "givers"]},
     "recent": {"summary": "Read the quest steps already taken this run and their outcomes. History, not proof of the present.", "keys": ["recent_steps"]},
-    "owner_rules": {"summary": "Read the owner's direct instructions for questing: zone order, roads, accepting quests, rewards and survival.", "file": "../learning/knowledge/owner-rules.md", "heading": "## Quests"}
+    "owner_rules": {"summary": "Read the owner's direct instructions for questing: survival and danger, zone order, roads, accepting quests and rewards.", "file": "../learning/knowledge/owner-rules.md", "heading": "## Quests"}
   }
 }

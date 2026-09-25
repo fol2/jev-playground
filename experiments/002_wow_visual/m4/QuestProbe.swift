@@ -353,6 +353,7 @@ final class LiveQuestHost: QuestHost {
     let key: String
     let newWalker: () -> LiveNavBody
     var walker: LiveNavBody?
+    var walkedFrom: MapPoint?
     init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody) { self.quester = quester; self.key = key; self.newWalker = newWalker }
 
     func readQuests() async -> QuestRead? {
@@ -362,9 +363,11 @@ final class LiveQuestHost: QuestHost {
 
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
-    func walk(to pin: MapPoint, label: String) async -> String? {
-        guard let at = quester.body.look(), distance((at.x, at.y), pin) > 0.5 else { return nil }
+    func walk(to pin: MapPoint, label: String, retreating: Bool = false) async -> String? {
+        guard let at = quester.body.look() else { return "WALK_HUD_UNREADABLE" }  // never "arrived" unseen
+        guard distance((at.x, at.y), pin) > 0.5 else { return nil }
         guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
+        if !retreating { walkedFrom = (at.x, at.y) }  // the way back from danger: this walk came through it
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
         if walker?.holding == true { return "WALK_KEYS_HELD" }
@@ -381,6 +384,13 @@ final class LiveQuestHost: QuestHost {
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         return outcome
+    }
+
+    /// Back to where the last walk began, which that walk had just passed: the owner, survive first.
+    func retreat() async -> String {
+        guard let back = walkedFrom else { return "NO_WAY_BACK" }
+        emit("retreat", ["to": [back.x, back.y]])
+        return await walk(to: back, label: "retreat", retreating: true) ?? "RETREATED"
     }
 
     func accept(_ giver: Giver) async -> String {

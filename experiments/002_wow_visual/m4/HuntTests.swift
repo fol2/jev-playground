@@ -9,6 +9,7 @@ extension NavTests {
         tracker()
         minimapRings()
         plateBars()
+        redNameStamps()
         huntRules()
         await targeting()
         await attackedFromBehind()
@@ -90,6 +91,30 @@ extension NavTests {
               "the white-outlined (targeted) plate is left to findTargetPlate")
         check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)], width: 100)).isEmpty,
               "a bar narrower than a plate is not one")
+    }
+
+    /// A name drawn as real ones measure (24 Sept): 3 px strokes, 11 px tall, on the dark forest floor.
+    static func redText(_ rgb: (UInt8, UInt8, UInt8), at x0: Int, y0: Int, floor: (UInt8, UInt8, UInt8) = (22, 26, 18)) -> RGBA {
+        let w = 2560, h = 1320
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        func put(_ x: Int, _ y: Int, _ c: (UInt8, UInt8, UInt8)) { let i = (y * w + x) * 4; (px[i], px[i + 1], px[i + 2]) = c }
+        for y in 0..<h { for x in 0..<w { put(x, y, floor) } }
+        for glyph in 0..<16 {  // "Cirrusfly Soldier": a letter every 7 px, strokes 3 px wide
+            let gx = x0 + glyph * 7
+            for y in y0..<y0 + 11 { for x in gx..<gx + 3 { put(x, y, rgb) } }
+            if glyph % 2 == 0 { for x in gx..<gx + 6 { put(x, y0, rgb); put(x, y0 + 10, rgb) } }
+        }
+        return RGBA(width: w, height: h, pixels: px)
+    }
+
+    static func redNameStamps() {
+        let found = redNames(redText((196, 48, 44), at: 848, y0: 220))
+        check(found.count == 1 && abs(found[0].centre - 904) < 12 && abs(viewBearing(found[0].centre, facing: 122, width: 2560) - 109) < 2,
+              "a red name with its dark outline is found; its bearing is the facing plus its angle off centre (the nest walk, f128)")
+        check(redNames(bars([(x: 800, y: 220, rgb: (150, 30, 25), outline: (18, 18, 4))])).isEmpty,
+              "a red plate bar is solid, not text: it is left to nameplates")
+        check(redNames(redText((126, 52, 30), at: 1600, y0: 220)).isEmpty && redNames(redText((196, 48, 44), at: 1600, y0: 220, floor: (150, 150, 140))).isEmpty,
+              "the Juvenile Vuldren's red-brown (green well above blue) is not a name, nor red strokes with no dark outline")
     }
 
     static func minimapRings() {
@@ -572,6 +597,7 @@ extension NavTests {
         func readQuests() async -> QuestRead? { reads.isEmpty ? nil : reads.removeFirst() }
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
+        func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -633,6 +659,20 @@ extension NavTests {
         let combat = await runQuests(host: attacked, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
         check(combat.outcome == "WALK_COMBAT",
               "a walk stopped by combat ends the quest run")
+        let danger = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: []),
+                                 QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: [], player: thendal, missing: [])])
+        danger.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD"]  // slot 1: nearer
+        let wary = CannedGraph(["DO:HAND_IN_1", "DO:RETREAT", "DO:HAND_IN_1"])
+        let survived = await runQuests(host: danger, jev: wary, graph: graph()!)
+        check(danger.handed == ["The Gift of Skysight", "RETREAT", "Harvesting Windstones"] && survived.outcome == "NOTHING_TO_HAND_IN_OR_TAKE"
+              && !wary.offered[0].contains("DO:RETREAT") && wary.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:HAND_IN_1", "DO:RETREAT"]
+              && !wary.offered[2].contains("DO:RETREAT"),
+              "a red name ahead fails only that step: RETREAT is offered next, the step is not offered again, and the run goes on")
+        let cornered = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: [])])
+        cornered.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD", "RETREAT": "WALK_DANGER_AHEAD"]
+        let trapped = await runQuests(host: cornered, jev: CannedGraph(["DO:HAND_IN_1", "DO:RETREAT"]), graph: graph()!)
+        check(trapped.outcome == "RETREAT_WALK_DANGER_AHEAD" && cornered.handed == ["The Gift of Skysight", "RETREAT"],
+              "a retreat that meets a red name too ends the run: no other step is walked from there")
         let wrong = FakeQuests([QuestRead(quests: hub, player: thendal, missing: [])])
         let icons = sortIcons([((43.4, 23.9), false, ["Harvesting Windstones", "18 m"]), ((43.2, 22.4), true, ["Windshaper Boros", "9 m"])])
         check(missingFromLog(icons.tooltips, []) == ["Harvesting Windstones"] && icons.givers.map(\.names) == [["Windshaper Boros"]]

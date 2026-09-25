@@ -16,7 +16,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
 MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 227  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 235  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 

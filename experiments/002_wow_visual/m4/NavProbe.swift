@@ -96,19 +96,24 @@ final class LiveNavBody: NavBody {
     func look() -> NavObs? {
         guard let frame = runtimeFrame(session, feed) else { return nil }
         let image = frame.image
-        if frameNo % 2 == 0 {
+        let pixels = rgba(image)
+        let names = redNames(pixels)
+        if frameNo % 2 == 0 || !names.isEmpty {  // every frame with a red name is kept, for calibration
             write(image, to: directory.appendingPathComponent(String(format: "f%03d.jpg", frameNo)), type: .jpeg)
         }
         frameNo += 1
-        let pixels = rgba(image)
         let text = coordsText(image)
         guard let at = parseCoords(text), let facing = arrowFacing(pixels) else {
             emit("unreadable", ["coords_text": text, "frame": frameNo - 1])
             return nil
         }
         let hud = observe(pixels, plates: false)
-        emit("look", ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
-        return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player)
+        let warnings = names.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
+        var fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
+        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] } }
+        emit("look", fields)
+        return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
+                      warnings: warnings)
     }
 
     var holding: Bool { keys.holding }

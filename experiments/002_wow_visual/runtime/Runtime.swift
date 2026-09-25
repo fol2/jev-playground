@@ -145,7 +145,7 @@ func skillStatus(_ code: String) -> SkillStatus {
     if ["ARRIVED", "OBJECTIVES_COMPLETE", "KILLED_AND_LOOTED", "KILLED_NO_CORPSE"].contains(code) { return .completed }
     if ["NO_FRESH_FRAME", "HUD_UNREADABLE"].contains(code) { return .observationLost }
     if ["OWNER_TOOK_FOCUS", "OWNER_STOP"].contains(code) { return .cancelled }
-    if ["COMBAT", "NO_PROGRESS", "NO_ADMISSIBLE_MOVE", "NO_TARGET_FOUND"].contains(code) { return .blocked }
+    if ["COMBAT", "DANGER_AHEAD", "NO_PROGRESS", "NO_ADMISSIBLE_MOVE", "NO_TARGET_FOUND"].contains(code) { return .blocked }
     if code.contains("FAILED") || code.contains("ERROR") || code == "INVALID_REPLY" { return .failed }
     return .stopped
 }
