@@ -20,11 +20,11 @@ POLICY = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore",
           ".github/workflows/ai-sdlc.yml", ".github/workflows/ai-sdlc-maintain.yml"}
 FISHING = "experiments/001_wow_fishing/"
 FISHING_CODE = {FISHING + name for name in """
-analyse.py background.swift build.sh decision.swift jev.swift live.swift loot.swift motion.swift
+analyse.swift background.swift build.sh decision.swift dotenv.swift jev.swift live.swift loot.swift motion.swift
 probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
 probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
-record.py run_test_a.py self_tests.swift setup_camera.sh setup_camera.swift test_analyse.py
-test_core.sh test_run_test_a.py tests/CoreTests.swift tests/MotionChecks.swift
+record.swift run_test_a.swift self_tests.swift setup_camera.sh setup_camera.swift
+test_core.sh tests/CoreTests.swift tests/MotionChecks.swift tests/RunnerTests.swift
 """.split()} | {"data/001_wow_fishing/pilot_20260921/recorder.swift"}
 
 VISUAL = "experiments/002_wow_visual/"
@@ -47,7 +47,10 @@ MOTOR_PATHS = ({MOTOR + name for name in ("Motor.swift", "MotorTests.swift", "Pr
                                         "README.md")} |
                {VISUAL + "README.md", LEARN + "VideoJev.swift"})
 # Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.
-RETIRED = {VISUAL + "observations.py", VISUAL + "test_observations.py", NAV + "tabletop.py", LEARN + "video_jev.py"}
+RETIRED = {**{path: "motor-offline" for path in (VISUAL + "observations.py", VISUAL + "test_observations.py",
+                                                  NAV + "tabletop.py", LEARN + "video_jev.py")},
+           **{FISHING + name: "fishing-offline" for name in ("analyse.py", "record.py", "run_test_a.py",
+                                                              "test_analyse.py", "test_run_test_a.py")}}
 
 
 def fishing_path(path: str) -> bool:
@@ -89,9 +92,13 @@ def route(changes: list[tuple[str, str]]) -> dict:
             full = True
             motor |= path == "tools/motor_offline.py"  # a changed proof runner must run its own proof
             fishing |= path == "tools/fishing_offline.py"
-        elif path in MOTOR_PATHS or (path in RETIRED and status == "D") or (
+        elif path in RETIRED and status == "D":
+            motor |= RETIRED[path] == "motor-offline"
+            fishing |= RETIRED[path] == "fishing-offline"
+        elif path in MOTOR_PATHS or (
                 path.startswith(LEARN) and PurePosixPath(path).suffix in {".md", ".jsonl"}):
             motor = True
+            fishing |= path == RUNTIME + "JSON.swift"  # the fishing tools compile it too
         elif fishing_path(path):
             fishing = True
         elif path in {"README.md", "experiments/README.md"} or (

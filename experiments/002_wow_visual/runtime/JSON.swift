@@ -75,8 +75,15 @@ indirect enum JSON: Equatable {
         return .object(p)
     }
 
-    /// Python's `json.dumps(value, sort_keys=sorted, ensure_ascii=ascii)`: ", " and ": " separators.
-    func text(sorted: Bool = false, ascii: Bool = true) -> String {
+    /// Python's `json.dumps(value, sort_keys=sorted, ensure_ascii=ascii, indent=indent)`: ", " and ": "
+    /// separators, or with an indent one item a line and "," at its end.
+    func text(sorted: Bool = false, ascii: Bool = true, indent: Int? = nil, depth: Int = 0) -> String {
+        func block(_ open: String, _ items: [String], _ close: String) -> String {
+            if items.isEmpty { return open + close }
+            guard let indent else { return open + items.joined(separator: ", ") + close }
+            let inner = "\n" + String(repeating: " ", count: indent * (depth + 1))
+            return open + inner + items.joined(separator: "," + inner) + "\n" + String(repeating: " ", count: indent * depth) + close
+        }
         switch self {
         case .null: return "null"
         case let .bool(b): return b ? "true" : "false"
@@ -84,11 +91,12 @@ indirect enum JSON: Equatable {
         case let .big(digits): return digits
         case let .double(d): return JSON.pythonRepr(d)
         case let .string(s): return JSON.quoted(s, ascii: ascii)
-        case let .array(a): return "[" + a.map { $0.text(sorted: sorted, ascii: ascii) }.joined(separator: ", ") + "]"
+        case let .array(a): return block("[", a.map { $0.text(sorted: sorted, ascii: ascii, indent: indent, depth: depth + 1) }, "]")
         case let .object(p):
             let ordered = sorted ? p.sorted { $0.0.unicodeScalars.lexicographicallyPrecedes($1.0.unicodeScalars) } : p
-            return "{" + ordered.map { JSON.quoted($0.0, ascii: ascii) + ": " + $0.1.text(sorted: sorted, ascii: ascii) }
-                .joined(separator: ", ") + "}"
+            return block("{", ordered.map {
+                JSON.quoted($0.0, ascii: ascii) + ": " + $0.1.text(sorted: sorted, ascii: ascii, indent: indent, depth: depth + 1)
+            }, "}")
         }
     }
 

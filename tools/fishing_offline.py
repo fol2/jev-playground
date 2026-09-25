@@ -9,7 +9,7 @@ from tools.sdlc import ROOT, FISHING, FISHING_CODE, GateError
 
 
 def run(*command):
-    subprocess.run(command, cwd=ROOT, check=True, timeout=90)
+    subprocess.run(command, cwd=ROOT, check=True, timeout=300)  # build.sh compiles the helper and three tools
 
 
 def main():
@@ -35,7 +35,6 @@ def main():
                 if line.strip():
                     json.loads(line)
     run('sh', FISHING + 'test_core.sh')
-    run(sys.executable, '-m', 'unittest', 'discover', '-s', FISHING, '-p', 'test_*.py')
     run('sh', FISHING + 'build.sh')
     run('sh', FISHING + 'setup_camera.sh', '--self-test')
     run('swiftc', '-parse-as-library', '-typecheck', FISHING + 'background.swift')

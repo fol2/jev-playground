@@ -10,7 +10,7 @@ Keep `TYPESAFE_API_KEY` in the ignored local `.env` or environment, never Git:
 
 ```sh
 sh experiments/001_wow_fishing/build.sh
-caffeinate -di python3 experiments/001_wow_fishing/run_test_a.py --background --jev
+caffeinate -di /tmp/jev-fishing-run --background --jev
 ```
 
 This is a live-input command, not an offline check. Only one controller may run.

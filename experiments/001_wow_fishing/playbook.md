@@ -42,14 +42,14 @@ live trial, from the repository root:
 
 ```sh
 sh experiments/001_wow_fishing/build.sh
-python3 experiments/001_wow_fishing/run_test_a.py --background
+/tmp/jev-fishing-run --background
 # A longer interval; 60 to 1800 seconds, because this dispatches real input.
-python3 experiments/001_wow_fishing/run_test_a.py --background --seconds 600
+/tmp/jev-fishing-run --background --seconds 600
 ```
 
-The build writes `/tmp/jev-fishing-live` and runs native offline checks. Rebuild
+The build writes `/tmp/jev-fishing-live` and `/tmp/jev-fishing-run` and runs native offline checks. Rebuild
 after source changes or removal of that binary. Keep the checkout available for
-reference images. To keep the Mac awake, prefix the Python command with
+reference images. To keep the Mac awake, prefix the run command with
 `caffeinate -di`. Run only one controller and do not edit/rebuild it during a trial.
 
 Pre-go runs once: verify/equip the rod, handle the known beta character dialogue,
