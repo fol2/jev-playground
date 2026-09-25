@@ -96,7 +96,7 @@ struct FightTests {
         paint(&white, x0: HUD.rangeX0, x1: HUD.rangeX0 + 6, y0: HUD.rangeY0, y1: HUD.rangeY0 + 2, r: 220, g: 220, b: 220)
         check(!observe(white, plates: false).rangeRed, "range absent: a white digit is not the dark-red rule")
         var held = blank()
-        paint(&held, x0: HUD.rangeX0 - 8, x1: HUD.rangeX0 - 4, y0: HUD.rangeY0, y1: HUD.rangeY1, r: 243, g: 174, b: 145)
+        paint(&held, x0: 708, x1: 712, y0: HUD.rangeY0, y1: HUD.rangeY1, r: 243, g: 174, b: 145)  // key 2's left edge
         check(HUD.darkRedDigit(243, 174, 145) && !observe(held, plates: false).rangeRed,
               "a held key's orange edge, left of the digit, is not read (24 Sept: 20 frames mid-cast read it as red)")
         var shockDigit = blank()
