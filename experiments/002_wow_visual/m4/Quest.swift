@@ -131,21 +131,25 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) ->
     let blobs = yellowBlobs(image, box: box)
     let cx = Double(image.width) / 2, cy = Double(image.height) / 2
     func greenBelow(_ x: Int, _ y: Int, reach: Int) -> (n: Int, top: Int, bottom: Int, x: Double) {
-        var n = 0, first = y, bottom = y, sx = 0
         // Names are in the world: the search stays in the box, never down into the HUD (25 Sept: a wider reach
         // from a yellow glow above the unit frame found the player's green health bar).
         let top = max(0, y + 8), end = min(image.height, y + reach, box.3)
         guard top < end else { return (0, y, y, Double(x)) }
+        var rows = [(n: Int, sx: Int)](repeating: (0, 0), count: end - top)
         for yy in top..<end {
             for xx in max(0, x - 50)..<min(image.width, x + 50) {
                 let i = (yy * image.width + xx) * 4
                 if nameGreen(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) {
-                    if n == 0 { first = yy }
-                    n += 1; bottom = yy; sx += xx
+                    rows[yy - top].n += 1; rows[yy - top].sx += xx
                 }
             }
         }
-        return (n, first, bottom, n > 0 ? Double(sx) / Double(n) : Double(x))
+        guard let first = rows.firstIndex(where: { $0.n > 0 }), let last = rows.lastIndex(where: { $0.n > 0 }) else { return (0, y, y, Double(x)) }
+        // The centre is the name's own line, the green rows from the first down to a row without any: a
+        // subtitle or another name further down does not pull it.
+        let line = rows[first...].prefix { $0.n > 0 }
+        let centre = Double(line.reduce(0) { $0 + $1.sx }) / Double(line.reduce(0) { $0 + $1.n })
+        return (rows.reduce(0) { $0 + $1.n }, top + first, top + last, centre)
     }
     return blobs.compactMap { b -> QuestMark? in
         let w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1
@@ -259,21 +263,39 @@ func stoodStill(_ track: [(t: Double, at: MapPoint?)], for window: Double) -> Bo
 }
 
 /// Whether the game's unit tooltip names the NPC whose green name was read in the world. OCR can drop a
-/// letter at an end ("alia the Collector", live 25 Sept), so one key may hold the other; five letters at least.
+/// letter or two at the ends ("alia the Collector", live 25 Sept); a part of the name ("Dalia", "Collector")
+/// or a neighbour's name is not the NPC. Five letters at least.
 func sameUnit(_ tooltip: String, _ name: String) -> Bool {
     let a = nameKey(tooltip), b = nameKey(name)
-    guard min(a.count, b.count) >= 5 else { return false }
-    return a == b || a.contains(b) || b.contains(a)
+    let (short, long) = a.count <= b.count ? (a, b) : (b, a)
+    guard short.count >= 5, long.count - short.count <= 2 else { return false }
+    return long.contains(short)
 }
 
-/// Where to rest the pointer on the NPC under a mark, best first: below the name's centre, at the waist,
-/// the chest and the legs, then half a mark height to each side, all in the mark's own scale; last, below
-/// the "?" itself, where the click went before 25 Sept.
+/// The NPC's own name among the OCR lines of the box around it: level with the green name's top (within
+/// one line of UI text) and starting left of the name's centre, the nearest such start. A name beside it at
+/// the same depth starts right of the centre, or further left than this one.
+func nameLine(_ lines: [TipLine], nameX: Double, nameTop: Double) -> TipLine? {
+    lines.filter { abs($0.y - nameTop) <= 8 && $0.x <= nameX }.max { $0.x < $1.x }
+}
+
+/// Where to rest the pointer on the NPC under a mark, best first, all in the mark's own scale: below the
+/// name's centre at the chest, the waist and the legs, then half a mark height and a whole one to each
+/// side (live, 25 Sept: Dalia's body stood 17 px left of her name's centre under a 33 px "?"); last, below
+/// the "?" itself, where the click went before.
 func hoverPoints(_ m: QuestMark) -> [(x: Double, y: Double)] {
     let name = m.body - 2.4 * m.h  // the name's bottom
-    let rows = [m.body, name + 1.4 * m.h, name + 3.4 * m.h]
-    let columns = [m.nameX, m.nameX - m.h / 2, m.nameX + m.h / 2]
+    let rows = [name + 1.4 * m.h, m.body, name + 3.4 * m.h]
+    let columns = [0, -0.5, 0.5, -1, 1].map { m.nameX + $0 * m.h }
     return columns.flatMap { x in rows.map { (x, $0) } } + [(m.x, m.body)]
+}
+
+/// Whether an unconfirmed click would repeat the last unconfirmed one: within half a mark height of it
+/// (live run 4: three clicks at one point below Dalia's "?" found the ground). A new mark after
+/// Click-to-Move has moved the character is a new point.
+func repeatsClick(_ p: (x: Double, y: Double), _ last: (x: Double, y: Double)?, h: Double) -> Bool {
+    guard let last else { return false }
+    return abs(p.x - last.x) <= h / 2 && abs(p.y - last.y) <= h / 2
 }
 
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other

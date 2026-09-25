@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 208  // the current count: removing a check must lower this on purpose
-let minNavChecks = 264  // the current count: removing a check must lower this on purpose
+let minNavChecks = 268  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"

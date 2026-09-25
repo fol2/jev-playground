@@ -488,13 +488,24 @@ extension NavTests {
         check(abs(marks[0].nameX - 304.5) < 0.01 && marks[0].nameTop == 235, "the name's centre and top: where the body stands and the OCR box")
         // Live, 25 Sept: Dalia's "?" (h 33) stood 30 px right of her; the name's centre was nearer her body.
         let dalia: QuestMark = (x: 1906, y: 167, h: 33, body: 313, nameX: 1891, nameTop: 222)
-        let points = hoverPoints(dalia)
-        check(points.count == 10 && points[0] == (1891, 313) && points[1] == (1891, 313 - 2.4 * 33 + 1.4 * 33)
-              && points[3] == (1891 - 16.5, 313) && points.last! == (1906, 313),
-              "the pointer rests below the name's centre first, in the mark's scale, and below the \"?\" last")
+        let points = hoverPoints(dalia), chest = 313 - 2.4 * 33 + 1.4 * 33
+        check(points.count == 16 && points[0] == (1891, chest) && points[1] == (1891, 313) && points[3] == (1891 - 16.5, chest)
+              && points[9] == (1891 - 33, chest) && points.last! == (1906, 313),
+              "the pointer rests below the name's centre first, then half and a whole mark height aside, and below the \"?\" last")
         check(sameUnit("Dalia the Collector", "alia the Collector") && sameUnit("Ventaari Brightwish", "Ventaari Brightwish")
               && !sameUnit("Strogruid Noc", "Dalia the Collector") && !sameUnit("", "Dalia the Collector") && !sameUnit("Noc", "Noc"),
               "the unit tooltip confirms the NPC by its name, a letter lost at an end allowed; never a neighbour or a blank")
+        check(!sameUnit("Dalia", "Dalia the Collector") && !sameUnit("Collector", "Dalia the Collector")
+              && !sameUnit("Dalia the Collector", "Dalia the Collectors Apprentice"),
+              "a part of the name, or a longer name holding it, is someone else")
+        let row = tip([("Strogruid Noc", 1905, 224), ("Dalia the Collector", 1858, 225), ("Jolee Brightmeadows", 1700, 223),
+                       ("<Cloth & Leather Armor>", 1870, 238)])
+        check(nameLine(row, nameX: 1901, nameTop: 224)?.text == "Dalia the Collector" && nameLine(row, nameX: 1850, nameTop: 224)?.text == "Jolee Brightmeadows"
+              && nameLine(row, nameX: 1901, nameTop: 300) == nil,
+              "the name read is the line level with the green name that starts nearest left of its centre, never a neighbour's")
+        check(repeatsClick((1906, 313), (1907, 313), h: 33) && !repeatsClick((1880, 290), (1906, 313), h: 33)
+              && !repeatsClick((1906, 313), nil, h: 33),
+              "an unconfirmed click is not repeated at the same point; a new point after Click-to-Move may be tried")
         // 25 Sept, the owner's zoom: a 15 x 19 "?" and its dot 11 px under it, the name 54-63 px below the centre.
         var near = RGBA(width: 400, height: 300, pixels: [UInt8](repeating: 30, count: 400 * 300 * 4))
         func dab(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ rgb: (UInt8, UInt8, UInt8)) {
@@ -508,6 +519,10 @@ extension NavTests {
         check(questMarks(near, box: (0, 0, 400, 300)).isEmpty, "but not a name beyond 2.5 mark heights")
         dab(160, 160, 100, 9, (30, 30, 30)); dab(160, 107, 100, 9, (60, 190, 40))
         check(questMarks(near, box: (0, 0, 400, 105)).isEmpty, "nor a name below the world box, where the HUD is")
+        dab(215, 118, 40, 8, (60, 190, 40))  // a subtitle, right of centre, two rows under the name (the search keeps x 156-255)
+        let titled = questMarks(near, box: (0, 0, 400, 300))
+        check(titled.count == 1 && abs(titled[0].nameX - 207.5) < 0.01 && titled[0].nameTop == 107 && titled[0].body == 125 + 2.4 * titled[0].h,
+              "the name's centre is its own line: a subtitle below does not pull it, though the click goes below both")
         // The three minimap "?" of 24 Sept, from the live mask: A's dot is 3 rows from C's hook, as from its own.
         let mask = [(161, "..#####"), (162, ".######"), (163, ".##..###"), (164, ".....###"), (165, ".....##"), (166, "....###"),
                     (167, "...###"), (168, "...##"), (171, "...##"), (172, "...##")]
