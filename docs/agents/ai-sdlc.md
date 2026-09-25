@@ -128,7 +128,7 @@ not a global competence label. "Runtime-qualified" for a supervised probe is not
 unattended qualification. These are contract terms, not a new implemented registry.
 
 Name the actual consumer before claiming learning has reached JEV: e.g. the replay
-request constructor in `learning/video_jev.py`, or M3/M4 state/question construction
+request constructor in `learning/VideoJev.swift`, or M3/M4 state/question construction
 in `m3/Fight.swift` / `m4/Hunt.swift`. A file in `learning/knowledge/` is not automatically
 read by those live consumers. Prove the selected fact IDs/version appear in the real
 request, or that the intended scripted skill is actually executed. Changes to learned
@@ -149,7 +149,7 @@ Choose the cheapest decisive evidence for the affected claim; not every change n
 a live run. Keep these claims distinct:
 
 - **Structure/integrity:** schema, source IDs/hashes, valid timestamps, complete rows,
-  counts and input construction. Existing `video_jev.py --check` proves this scope,
+  counts and input construction. Existing `VideoJev.swift --check` proves this scope,
   not visual truth, provider acceptance or gameplay improvement.
 - **Perception:** labelled source frames and temporal sequences, including occlusion,
   unknowns, stale/out-of-order frames, UI changes and target/quest identity. Missing
@@ -215,8 +215,8 @@ unrun tests passed, or a source-only merge launched autonomous gameplay.
 
 `tools/sdlc.py` owns the exact-diff route. It requires a clean committed tree, resolved
 ancestor base/head and regular registered files; renames expose deletion and addition.
-Unknown paths fail closed. It now registers governance Python/Node, `fishing-offline`,
-`visual-offline` and `motor-offline` (M0–M4 plus learning corpus checks). Preserve these
+Unknown paths fail closed. It now registers governance Python/Node, `fishing-offline`
+and `motor-offline` (the runtime, M0–M4, the tabletop and learning corpus checks). Preserve these
 routes; do not substitute governance success for gameplay evidence. Registered learning
 Markdown/JSONL changes take the motor-learning lane, not a generic docs-only shortcut.
 New executable/consumer boundaries need explicit proof registration in the same change.

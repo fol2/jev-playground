@@ -5,6 +5,9 @@ own architectural roles. `Runtime.swift` keeps task/evidence contracts, `Input.s
 keeps input ownership, `DecisionGraph.swift` lets Jev choose **information,
 branching, or skills**, and `Experience.swift` retains bounded pre/post outcomes for
 optional later recall. The existing Fight/Nav/Hunt implementations remain tools.
+`JSON.swift` is a JSON value that keeps key order and parses strictly, for the offline
+tools that ask Jev (`m4/Tabletop.swift`, `learning/VideoJev.swift`); it writes the bytes
+Python's `json.dumps` wrote, so those tools send what their Python versions sent.
 
 ## Implemented slice
 

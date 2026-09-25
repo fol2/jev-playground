@@ -15,7 +15,7 @@ Start with the [peer review](review_20260924.md) and the
 | Video annotations | [brief](zerocks1/brief.md), `zerocks1/part{1,2,3}_decisions.jsonl`, companion techniques | 93 + 75 + 68 annotated decisions. State and human choices were model-read, not independently certified labels. |
 | Selected probe inputs | [regen_probe.jsonl](zerocks1/regen_probe.jsonl) | Five selected questions. This file has no before/after Jev predictions. |
 | Other video notes | [episode 4](zerocks4_frames.md), [caption notes](stream_captions_techniques.md) | Secondary observations. Caption notes include invalid timestamps such as `0:88:00`. |
-| Evaluator | [video_jev.py](video_jev.py) | Offline structural validation, or an explicitly invoked provider-backed replay. |
+| Evaluator | [VideoJev.swift](VideoJev.swift) | Offline structural validation, or an explicitly invoked provider-backed replay. |
 
 The original work was recorded on 23-24 September 2026. Zerocks episode #1 is
 *Skyborne Shaman: Zephras Isle, WoW Forever Beta Launch Day, No Commentary #1*,
@@ -60,7 +60,8 @@ Human agreement can penalise sensible alternatives and reward an unsafe imitatio
 `--check` now fails on missing or unregistered decision files, changed per-file
 counts, any invalid row, duplicate JSON keys or action IDs, empty states/evidence,
 invalid timestamps, and non-finite values. It constructs requests offline, checks
-at least 100 flat knowledge facts, and runs 67 counted synthetic regression checks.
+at least 100 flat knowledge facts, and runs 80 counted synthetic regression checks (67 on
+the evaluator, 13 on the JSON format; the suite and the gate both hold at fewer than 80).
 It never contacts Jev. This proves structure and request construction, **not**
 visual accuracy, truth of facts, provider acceptance, or gameplay skill.
 
@@ -70,7 +71,7 @@ new prompt variant: historical KB totals must not be assigned to it. The legacy
 hand-written `FACTS` string is retained for compatibility, not endorsed; its numeric
 regeneration, fight-cost and chase assumptions still need scoped verification.
 
-Importing the module is side-effect free. A live replay validates every input before
+The offline modes make no request. A live replay validates every input before
 its first request, emits evaluator/fact/input hashes to stderr, and emits every
 prediction with source, decision index and unrounded probabilities to stdout.
 The final stdout line remains `agreement N/M`, so the complete stream is a log,
@@ -79,13 +80,17 @@ not pure JSONL. The legacy mismatch file is still written beside the first input
 ## Reproduce
 
 ```sh
-python3 experiments/002_wow_visual/learning/video_jev.py --self-test
-python3 -O experiments/002_wow_visual/learning/video_jev.py --self-test
-python3 experiments/002_wow_visual/learning/video_jev.py --check
+swiftc -parse-as-library experiments/002_wow_visual/learning/VideoJev.swift \
+  experiments/002_wow_visual/runtime/JSON.swift -o /tmp/video-jev
+/tmp/video-jev --self-test
+/tmp/video-jev --check
 python3 tools/sdlc.py check --base origin/main --head HEAD
 ```
 
-For this review, the first two commands passed locally with 67 checks each. The
+On 25 Sept the evaluator moved from Python (`video_jev.py`) to Swift. Before the Python
+file was deleted, both built byte-identical requests for all 236 decisions in both facts
+modes, and the same facts hashes; the 67 checks are explicit, so an optimised build runs
+them too. For the 24 Sept review, the Python self-test passed locally with 67 checks. The
 complete committed corpus and macOS Focus Gate were **not** run in the review
 environment. Run them on the published exact head before source acceptance.
 No live replay was performed and no higher Jev score is claimed.
@@ -97,7 +102,7 @@ existing replay interface and retain complete streams:
 # TYPESAFE_API_KEY must already be supplied securely; do not paste it into source.
 # Use a fresh output directory. This invocation makes real provider requests.
 mkdir -p runs/002_wow_visual/learning-review
-KB=1 python3 experiments/002_wow_visual/learning/video_jev.py \
+KB=1 /tmp/video-jev \
   experiments/002_wow_visual/learning/zerocks1/part1_decisions.jsonl \
   > runs/002_wow_visual/learning-review/predictions.log \
   2> runs/002_wow_visual/learning-review/manifest-errors.log
@@ -111,7 +116,7 @@ and register their proof; do not invent or reconstruct missing historical output
 
 The owner's earlier demo informed M4b: no mana gate before pulling, recovery
 choices, melee/casting costs, tapped targets and hotkey range cues. See
-`../m4/Hunt.swift` and `../m4/tabletop.py`. The tabletop was re-run against live Jev on
+`../m4/Hunt.swift` and `../m4/Tabletop.swift`. The tabletop was re-run against live Jev on
 24 Sept after the chase fact became conditional: 13/13.
 
 The [review](review_20260924.md) found two runtime issues: a vanished tracker line counted

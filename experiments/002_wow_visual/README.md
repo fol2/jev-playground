@@ -1,6 +1,6 @@
 # 002 — Screen evidence for a Shaman decision experiment
 
-Status: **an offline evidence contract plus bounded, owner-supervised live probes (M0–M4a);
+Status: **bounded, owner-supervised live probes (M0–M4) on one Swift runtime;
 not an unattended game-playing agent**. M3 calibrates one UI layout at one window size and
 verifies a four-slot capability catalogue live; client build and specialisation remain
 unverified. No new dependency, service or database. Only M3 and M4a call a model (Jev) at
@@ -9,41 +9,40 @@ runtime, under the owner's supervision.
 ## The smallest useful boundary
 
 ```text
-screen pixels -> calibrated local measurements -> evidence packet
+screen pixels -> calibrated local measurements -> evidence stamp
                                                    |
-                                      freshness/identity/ROI validation
+                                      freshness/identity validation
                                                    |
                               identical observations for Rules / Jev
                                                    |
                                           logged suggestion only
 ```
 
-Only the packet validation is implemented here. `observations.policy_state` checks
-schema, stream and geometry identity, a caller-supplied freshness deadline, bounded
-values and source ROIs. It preserves `unknown` instead of inventing false/zero and
-returns a detached copy. Coordinates are capture pixels, not desktop click points.
-All times use one monotonic clock. Renew `stream_id` on a new capture session and
-`geometry_id` on window/scale/calibration changes; those changes are detected by a
-future adapter, not by this stateless function. The future consumer must also reject
-reordered frames and bind every proposal to its originating frame and target.
+The Swift runtime checks evidence identity, not a packet. `ObservationStamp` in
+[runtime/Runtime.swift](runtime/Runtime.swift) carries the stream and geometry identity, the
+capture time on one monotonic clock and the target cue, and `RuntimeExecutive` rejects a reply
+whose frame is stale, reordered, or from a changed stream, geometry or target cue
+([runtime/README.md](runtime/README.md)). Coordinates are capture pixels, not desktop click points.
+
+The first prototype of a packet format, Python `screen-evidence/v1` (`observations.py`), also
+validated each fact: an exact schema, a frame ID, the capture size, at most 64 facts, a method of
+pixels, OCR or motion, a source ROI inside the capture, and `unknown` never carrying a value. No
+reader or policy ever produced or consumed such a packet, so on 25 Sept 2026, when the repository
+moved to Swift only, it was retired with its tests, not ported. Those per-fact checks do not exist
+in the runtime; a future structured-evidence adapter would need its own, with tests.
 
 An `observed` measurement is not proof that its interpretation is correct. A tracked
 patch may not be a bobber; correlation is not identity/bite confidence. Field-specific
 extraction, semantic validation and calibration still require labelled screenshots.
-Pixels, OCR and motion are the only methods admitted by this prototype. Audio is a
+Pixels, OCR and motion are the only methods admitted here. Audio is a
 later, separately authorised and timestamped observation source, not implemented here.
 No hidden game state, memory reading, packet parsing or injected telemetry is used.
 
 ## Reproduce offline
 
 ```sh
-python3 -S -m unittest discover -s experiments/002_wow_visual -p 'test_*.py' -v
+python3 -m tools.motor_offline   # builds and checks the runtime, M0-M4, the tabletop and the learning corpus
 ```
-
-`test_observations.py` contains synthetic packets: schema/identity failures, future
-and expired frames, ROI bounds, invalid numerics, unknown versus false and size limits.
-They demonstrate the interface, not HUD-reading accuracy. The existing Focus Gate
-selects these tests for this experiment and still rejects unknown executable paths.
 
 ## Shaman first, but verify the actual profile
 
