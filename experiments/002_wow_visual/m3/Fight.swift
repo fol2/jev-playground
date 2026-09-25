@@ -40,7 +40,7 @@ enum HUD {
     static func darkRedDigit(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 80 && r > g + 60 && r > b + 60 }
     /// Earth Shock's digit, 24 Sept: a muted red (about 125, 80, 75) over a yellow icon, which darkRedDigit misses;
     /// its green and blue stay level, the icon's yellows and browns' do not. On the 24 Sept frames it counts
-    /// 0 pixels on all 407 without a target, and 0 or 8-20 on the 518 with one.
+    /// at most 1 pixel on the 407 without a target, and 0-2 or 13-14 on the 518 with one.
     static func mutedRedDigit(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 80 && r > g + 30 && abs(g - b) < 20 }
     static func buffGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 120 && g > r + 20 && g > b + 20 }
     static func errorRed(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 180 && r > g + 70 && r > b + 70 && g > 50 }

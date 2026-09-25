@@ -222,9 +222,9 @@ a melee step until contact waits for the swings to land before shock-melee's sho
 an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/motor_offline.py` runs the chain
 dry-run in the gate. Not built: reading the character's level (the portrait badge defeats Vision OCR;
 the portrait's tooltip is next) and the frame's absolute health and mana numbers; fight experience
-that proposes candidate chains; several attackers. Found, not fixed here: on the 24 Sept bar the
-bolt's digit rule reads the held key's orange highlight as red (20 frames mid-cast) and missed a red
-"2" on the approach; a chain's second bolt then breaks to Jev. Nothing here has run live.
+that proposes candidate chains; several attackers. Found, not fixed here: the bolt's digit box takes
+in the held key's highlight at the icon's edge, which reads as red (20 frames of 24 Sept mid-cast, the
+Earth Shock digit white); a chain's second bolt then breaks to Jev. Nothing here has run live.
 
 ## Reproduce
 
