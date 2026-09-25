@@ -18,7 +18,7 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
-MIN_FIGHT_CHECKS = 197  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 207  # the current count: removing a check must lower this on purpose
 MIN_NAV_CHECKS = 244  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
@@ -315,11 +315,11 @@ def main(update: bool = False):
         chain_summary = chain_rows[-1] if chain_rows else {}
         performed = chain_summary.get("performed", [])
         if (chain_summary.get("outcome") != "KILLED_AND_LOOTED" or chain_summary.get("policy") != "skyborne-fight-v1"
-                or not chain_summary.get("chain_steps") or chain_summary.get("holding") is not False
+                or chain_summary.get("chain_steps", 0) < 3 or chain_summary.get("holding") is not False
                 or chain_summary.get("provider_calls") != 0 or "CAST_LIGHTNING_BOLT" not in performed
                 or "START_MELEE" not in performed or performed.index("CAST_LIGHTNING_BOLT") > performed.index("START_MELEE")
                 or chain_summary.get("decisions", 99) >= fight_summary.get("decisions", 0)):
-            raise GateError("M3b dry-run did not kill and loot through a chain, bolt before melee, in fewer Jev decisions")
+            raise GateError("M3b dry-run did not kill and loot through a chain of 3+ unasked steps, bolt before melee, in fewer Jev decisions")
         fight_trap()
         interrupted_dry([fight, "--dry-run"])
 

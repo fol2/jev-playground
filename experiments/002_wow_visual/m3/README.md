@@ -199,7 +199,14 @@ runs this way; without it, the legacy flat policy above runs unchanged.
 - **The shock.** An instant damage spell with a cooldown on the bar is now a role (Earth Shock on the
   24 Sept bar). It is offered while its own hotkey digit is white and its tooltip cooldown has run,
   and the live shell waits out a cast in flight, taps it once, and reads its mana drop or a new red
-  error. The perception set gained the shock digit: 11 saved frames read it red.
+  error. A cast that did not go off while the game's facing error shows turns with F9 and retries once,
+  for the bolt and the shock alike (`turnAndRetry`); a chain then judges the step by the retry.
+  Earth Shock's digit is a muted red (about 125, 80, 75) over a yellow icon, which the bolt's
+  dark-red rule missed on every 24 Sept frame; `mutedRedDigit` reads it. On the 24 Sept frames (Earth
+  Shock on key 3) it reads red on none of the 407 without a target and on 30 of the 518 with one, all
+  while the creature was still being approached; two red and three white were checked by eye. Below
+  30% health the screen's red tint reads as red too (26 frames on 23 Sept, all at 29% or less): the
+  shock is then left out, and in combat only HEAL is offered there anyway.
 - **Calculations.** Measured from the frames, per skill: uses this fight, the target's and the mana's
   percentage change per use, uses affordable and uses to kill; melee's target percentage per second;
   the shock's time to ready; the character's health lost per second since combat began. A value no
@@ -208,13 +215,16 @@ runs this way; without it, the legacy flat policy above runs unchanged.
   bar's heal on key 3 (Earth Shock by 24 Sept) and buff on key 4 (Healing Wave). `--quests` now reads
   the tooltips first, as a hunt does. `--quests` and `--hunt` take `--fight-graph PATH`.
 
-Proof, simulation only: 56 new fight checks (197). In SimFight the chain fight kills and loots in 5
+Proof, simulation only: 66 new fight checks (207). In SimFight the chain fight kills and loots in 5
 Jev decisions and 3 unasked steps, against 8 decisions for the legacy policy; a fast health loss breaks
 a chain and Jev can heal; a long fight checks in and Jev can go on; below 30% only HEAL is offered;
+a melee step until contact waits for the swings to land before shock-melee's shock;
 an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/motor_offline.py` runs the chain
 dry-run in the gate. Not built: reading the character's level (the portrait badge defeats Vision OCR;
 the portrait's tooltip is next) and the frame's absolute health and mana numbers; fight experience
-that proposes candidate chains; several attackers. Nothing here has run live.
+that proposes candidate chains; several attackers. Found, not fixed here: on the 24 Sept bar the
+bolt's digit rule reads the held key's orange highlight as red (20 frames mid-cast) and missed a red
+"2" on the approach; a chain's second bolt then breaks to Jev. Nothing here has run live.
 
 ## Reproduce
 

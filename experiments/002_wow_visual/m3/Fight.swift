@@ -22,8 +22,9 @@ enum HUD {
     /// The bolt slot's hotkey digit: dark-red when Lightning Bolt is out of range (x for key 2; applyRoles moves it).
     static var rangeX0 = 708, rangeX1 = 734
     static let rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
-    /// The shock slot's hotkey digit, read the same way (the owner, 23 Sept: each spell's digit gives a range band).
-    static var shockRangeX0 = 859, shockRangeX1 = 885
+    /// The shock slot's hotkey digit, read the same way (the owner, 23 Sept: each spell's digit gives a range band);
+    /// x for key 3, Earth Shock's slot since 24 Sept (on the 23 Sept bar key 3 was Healing Wave).
+    static var shockRangeX0 = 758, shockRangeX1 = 784
     /// Weapon-buff icon: green glow on the top-right buff row.
     static let buffX0 = 2215, buffX1 = 2300, buffY0 = 30, buffY1 = 75, buffMin = 100
     /// Red error text: the floating red game-error line.
@@ -37,6 +38,10 @@ enum HUD {
         castYellow(r, g, b) || (abs(r - g) < 15 && abs(g - b) < 15 && r > 70 && r < 150)
     }
     static func darkRedDigit(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 80 && r > g + 60 && r > b + 60 }
+    /// Earth Shock's digit, 24 Sept: a muted red (about 125, 80, 75) over a yellow icon, which darkRedDigit misses;
+    /// its green and blue stay level, the icon's yellows and browns' do not. On the 24 Sept frames it counts
+    /// 0 pixels on all 407 without a target, and 0 or 8-20 on the 518 with one.
+    static func mutedRedDigit(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 80 && r > g + 30 && abs(g - b) < 20 }
     static func buffGreen(_ r: Int, _ g: Int, _ b: Int) -> Bool { g > 120 && g > r + 20 && g > b + 20 }
     static func errorRed(_ r: Int, _ g: Int, _ b: Int) -> Bool { r > 180 && r > g + 70 && r > b + 70 && g > 50 }
 }
@@ -64,11 +69,12 @@ enum FightLimits {
     static let boltFill = 0.75
     static let fillDrop = 0.3
     static let tab: UInt16 = 48
-    // ponytail: set once from the bar's tooltips before a live run (applyRoles); sims keep these defaults.
+    // ponytail: set once from the bar's tooltips before a live run (applyRoles); sims keep these defaults,
+    // the 24 Sept bar (keys 2, 3, 4 and 8).
     static var bolt: UInt16 = 19
-    static var heal: UInt16 = 20
-    static var buff: UInt16 = 21
-    static var shock: UInt16 = 23
+    static var shock: UInt16 = 20
+    static var heal: UInt16 = 21
+    static var buff: UInt16 = 28
     static let turnLeft: UInt16 = 12
     static let forward: UInt16 = 13
     static let turnRight: UInt16 = 14
@@ -121,7 +127,7 @@ func observe(_ image: RGBA, plates: Bool) -> Obs {
     o.castFill = o.casting ? Double(yellow) / Double(HUD.castFillSpan) : 0
     o.rangeRed = hudCount(image, x0: HUD.rangeX0, x1: HUD.rangeX1, y0: HUD.rangeY0, y1: HUD.rangeY1, HUD.darkRedDigit) > HUD.rangeMin
     o.shockRangeRed = hudCount(image, x0: HUD.shockRangeX0, x1: HUD.shockRangeX1, y0: HUD.rangeY0, y1: HUD.rangeY1,
-                               HUD.darkRedDigit) > HUD.rangeMin
+                               HUD.mutedRedDigit) > HUD.rangeMin
     o.buff = hudCount(image, x0: HUD.buffX0, x1: HUD.buffX1, y0: HUD.buffY0, y1: HUD.buffY1, HUD.buffGreen) > HUD.buffMin
     o.errorRed = hudCount(image, x0: HUD.errorX0, x1: HUD.errorX1, y0: HUD.errorY0, y1: HUD.errorY1, HUD.errorRed) > HUD.errorMin
     if plates {
@@ -1011,6 +1017,12 @@ enum SkillHUD {
 func facingError(_ errorText: String?) -> Bool {
     guard let text = errorText?.lowercased() else { return false }
     return text.contains("in front of you") || text.contains("facing")
+}
+
+/// Both casts' rule for that reflex: a cast that did not go off (no 75 % bolt, no shock mana spent) while the
+/// game's facing error is on screen turns with F9 and tries once more.
+func turnAndRetry(_ result: String, _ errorText: String?) -> Bool {
+    !(result.contains("cast at 75") || result.contains("cast (mana")) && facingError(errorText)
 }
 
 /// The beta client's tooltip footer ("Press F6 to submit an issue for this Item"); OCR once read "Press Forto".

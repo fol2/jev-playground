@@ -177,10 +177,12 @@ struct ChainRun {
     mutating func resume(at now: Double, health: Double) { askedAt = now; askedHealth = health; ran = 0 }
 }
 
-/// Results that mean a step did not do what it was for (the hosts' own wording); a break asks Jev.
+/// Results that mean a step did not do what it was for (the hosts' own wording); a break asks Jev. After the
+/// F9 turn only the retry counts: a first "not cast" the turn put right is not a failure.
 func stepFailed(_ result: String) -> Bool {
-    ["not cast", "did not start", "not seen", "still out of range", "budget spent", "failed", "not done:"].contains {
-        result.lowercased().contains($0)
+    let last = result.lowercased().components(separatedBy: "retried: ").last ?? ""
+    return ["not cast", "did not start", "not seen", "still out of range", "budget spent", "failed", "not done:"].contains {
+        last.contains($0)
     }
 }
 

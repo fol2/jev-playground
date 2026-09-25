@@ -54,7 +54,7 @@ struct FightTests {
     static func detectors() {
         let empty = observe(blank(), plates: false)
         check(empty.player == 0 && empty.target == 0 && empty.mana == 0 && !empty.combat && !empty.casting
-              && empty.castFill == 0 && !empty.rangeRed && !empty.buff && !empty.errorRed && empty.plate == nil,
+              && empty.castFill == 0 && !empty.rangeRed && !empty.shockRangeRed && !empty.buff && !empty.errorRed && empty.plate == nil,
               "absent HUD: every detector is off on a black frame")
 
         var health = blank()
@@ -95,6 +95,13 @@ struct FightTests {
         var white = blank()
         paint(&white, x0: HUD.rangeX0, x1: HUD.rangeX0 + 6, y0: HUD.rangeY0, y1: HUD.rangeY0 + 2, r: 220, g: 220, b: 220)
         check(!observe(white, plates: false).rangeRed, "range absent: a white digit is not the dark-red rule")
+        var shockDigit = blank()
+        paint(&shockDigit, x0: HUD.shockRangeX0, x1: HUD.shockRangeX0 + 6, y0: HUD.rangeY0, y1: HUD.rangeY0 + 2, r: 160, g: 40, b: 40)
+        check(observe(shockDigit, plates: false).shockRangeRed && !observe(shockDigit, plates: false).rangeRed,
+              "shock range: a dark-red key-3 digit, read apart from the bolt's")
+        check(HUD.mutedRedDigit(125, 80, 75) && !HUD.darkRedDigit(125, 80, 75) && !HUD.mutedRedDigit(237, 215, 95)
+              && !HUD.mutedRedDigit(58, 30, 0) && !HUD.mutedRedDigit(220, 220, 220),
+              "the shock digit's muted red counts; Earth Shock's yellows and browns, and a white digit, do not")
 
         var glow = blank()
         paint(&glow, x0: HUD.buffX0, x1: HUD.buffX0 + 20, y0: HUD.buffY0, y1: HUD.buffY0 + 10, r: 40, g: 180, b: 40)
@@ -231,6 +238,21 @@ struct FightTests {
         check(FightLimits.bolt == 20 && HUD.rangeX0 == 758, "the range digit box follows the bolt's slot")
         applyRoles([.bolt: saved.0])
         check(HUD.rangeX0 == saved.1, "and returns with it")
+        let savedShock = (FightLimits.shock, HUD.shockRangeX0)
+        check(savedShock == (20, 758), "the shock's default is key 3, Earth Shock's slot on the 24 Sept bar")
+        applyRoles([.shock: 23])
+        check(FightLimits.shock == 23 && HUD.shockRangeX0 == 859 && HUD.shockRangeX1 == 885, "the shock's digit box follows its slot")
+        applyRoles([.shock: savedShock.0])
+        check(HUD.shockRangeX0 == savedShock.1, "and returns with it")
+        let facing = "Target needs to be in front of you."
+        check(turnAndRetry("the shock spell not seen: no mana was spent", facing)
+              && turnAndRetry("the shock spell not cast: a new red error message appeared", facing)
+              && turnAndRetry("Lightning Bolt did not start (key released)", facing),
+              "a bolt or shock that did not go off, with the facing error on screen, turns and retries")
+        check(!turnAndRetry("the shock spell cast (mana 80% to 60%)", facing)
+              && !turnAndRetry("Lightning Bolt cast at 75 %; the key stays held", facing)
+              && !turnAndRetry("the shock spell not seen: no mana was spent", "Out of range."),
+              "a cast that went off, or another error, does not")
     }
 
     static func episode() {
@@ -532,10 +554,18 @@ struct FightTests {
         var dead = ChainRun(pull, at: 0, health: 1)
         dead.observe(before: a, after: b, killed: true)
         check(dead.step == nil, "a kill ends the chain")
-        var closing = ChainRun(kit.chains[3], at: 0, health: 1)  // shock-melee: melee until contact first
-        b.player = 1
+        let walkIn = FightChain(id: "walk-in", className: "shaman", levels: [1, 20], requires: ["melee", "shock"],
+                                steps: [.init(skill: "melee", until: "contact", max: nil), .init(skill: "shock", until: "once", max: nil)],
+                                summary: "s", source: "t", status: "accepted")
+        var closing = ChainRun(walkIn, at: 0, health: 1)
+        b.player = 1; b.target = 1
+        closing.observe(before: a, after: b, killed: false)
+        check(closing.stage == 0, "melee until contact: no hit either way, still walking in")
+        b.target = 0.7
         closing.observe(before: a, after: b, killed: false)
         check(closing.stage == 1, "for melee, the creature losing health to the swings is contact too")
+        check(kit.chains.first { $0.id == "shock-melee" }?.steps.first == .init(skill: "melee", until: "contact", max: 6),
+              "the book's shock-melee walks in until contact, not one press, before the shock")
 
         var o = Obs()
         o.player = 1; o.target = 0.8; o.combat = true
@@ -547,6 +577,11 @@ struct FightTests {
         ran.ran = 1
         check(chainBreak(ran, o, Episode(), allowed: allowed, lastResult: "Lightning Bolt did not start (key released)", now: 1)?
               .contains("did not work") == true, "a failed step returns the chain to Jev")
+        let turned = "the shock spell not cast: a new red error message appeared; the game said the target was not in front, "
+            + "so Interact With Target turned to it (facing failed); retried: "
+        check(chainBreak(ran, o, Episode(), allowed: allowed, lastResult: turned + "the shock spell cast (mana 80% to 60%)", now: 1) == nil
+              && stepFailed(turned + "the shock spell not seen: no mana was spent"),
+              "after the F9 turn only the retry counts: a cast that then went off keeps the chain")
         check(chainBreak(fresh, o, Episode(), allowed: allowed, lastResult: "Lightning Bolt did not start (key released)", now: 1) == nil,
               "but not a failure from before the chain began")
         var far = o
