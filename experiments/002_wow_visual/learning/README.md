@@ -84,7 +84,7 @@ swiftc -parse-as-library experiments/002_wow_visual/learning/VideoJev.swift \
   experiments/002_wow_visual/runtime/JSON.swift -o /tmp/video-jev
 /tmp/video-jev --self-test
 /tmp/video-jev --check
-python3 tools/sdlc.py check --base origin/main --head HEAD
+tools/sdlc check --base origin/main --head HEAD
 ```
 
 On 25 Sept the evaluator moved from Python (`video_jev.py`) to Swift. Before the Python

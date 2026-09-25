@@ -109,7 +109,7 @@ removes M0's entry point. M0 changed in three small ways:
 ## Reproduce offline
 
 ```sh
-python3 -m tools.motor_offline      # M0 + M1 suites, both dry-runs, refusals, SIGINT
+tools/sdlc motor      # M0 + M1 suites, both dry-runs, refusals, SIGINT
 ```
 
 Or by hand, from the repository root:

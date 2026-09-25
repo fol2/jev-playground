@@ -13,14 +13,14 @@ Raw historical evidence is preserved; interpretation corrections are annotated.
 From the repository root, without WoW or a provider key:
 
 ```sh
-python3 -m tools.fishing_offline
+tools/sdlc fishing
 # or to run individual checks:
 sh experiments/001_wow_fishing/test_core.sh
 # macOS only: compile the real helper and the tools, and run retained image/decision fixtures.
 sh experiments/001_wow_fishing/build.sh
 ```
 
-The `tools.fishing_offline` module is the superset entry point that CI now runs; it
+`tools/sdlc fishing` is the superset entry point that CI runs; it
 performs the core suite, the Test A/B runner checks, Swift typechecks and offline fixture
 validation. The core suite uses synthetic pixels, fake monotonic time and fake HTTP.
 Native checks also use eight retained development image pairs, not held-out data:

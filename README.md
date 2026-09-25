@@ -58,13 +58,13 @@ to the decoder/learning pipeline, not a supposed video input to JEV.
 
 ## Offline repository checks
 
-Python 3.11+, Git and Node.js 22+ cover governance checks. The registered native
-fishing/motor lanes additionally require macOS and Swift; offline checks never need
-a Jev key or contact its provider. Use a clean committed topic branch:
+macOS with Swift and Git cover every check; Node.js 22+ runs the maintenance workflow's
+test. Offline checks never need a Jev key or contact its provider. Use a clean committed
+topic branch:
 
 ```sh
-python3 tools/sdlc.py route --base origin/main --head HEAD
-python3 tools/sdlc.py check --base origin/main --head HEAD
+tools/sdlc route --base origin/main --head HEAD
+tools/sdlc check --base origin/main --head HEAD
 ```
 
 `Focus Gate` selects registered evidence for the exact diff. Unknown executable paths

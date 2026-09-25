@@ -77,10 +77,10 @@ Do not leak answers/future frames into decision input or tune against the held-o
 ## Evidence, integration and maintenance
 
 ```sh
-python3 tools/sdlc.py route --base origin/main --head HEAD
-python3 tools/sdlc.py check --base origin/main --head HEAD
-python3 tools/merge_pr.py PR_NUMBER FULL_HEAD_SHA          # read-only
-python3 tools/merge_pr.py PR_NUMBER FULL_HEAD_SHA --execute
+tools/sdlc route --base origin/main --head HEAD
+tools/sdlc check --base origin/main --head HEAD
+tools/sdlc merge PR_NUMBER FULL_HEAD_SHA          # read-only
+tools/sdlc merge PR_NUMBER FULL_HEAD_SHA --execute
 ```
 
 Use a clean committed tree. F0 integrity, F1 direct behaviour and F2 affected consumers

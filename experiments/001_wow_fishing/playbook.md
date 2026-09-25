@@ -14,7 +14,7 @@ preset; pre-go only restores it, and never rebinds or re-saves.
 
 ## Starting conditions
 
-Use the tested Mac with Swift and Python 3. Screen Recording and Accessibility
+Use the tested Mac with Swift. Screen Recording and Accessibility
 permissions must already be granted to the executing environment. Handle permission
 dialogues manually; this experiment does not install services or change Keychain.
 

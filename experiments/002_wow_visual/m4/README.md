@@ -16,7 +16,7 @@ stops on safety rules. Jev chooses every move. The owner supervises every live w
 | File | Role | Proof |
 |---|---|---|
 | `Nav.swift` | Pure core: arrow and coordinate readers, map geometry, moves, admissibility, state packet, the walk skill, `runNav`, `SimNav`, argument parsing | `NavTests.swift` |
-| `NavProbe.swift` | Native shell: capture, coordinates OCR, pid keys, Jev HTTP, run files; `--replay` and `--sim-jev` rehearsals | `--preflight`, `--dry-run` in `tools/motor_offline.py` |
+| `NavProbe.swift` | Native shell: capture, coordinates OCR, pid keys, Jev HTTP, run files; `--replay` and `--sim-jev` rehearsals | `--preflight`, `--dry-run` in `tools/MotorProof.swift` |
 | `NavTests.swift` | Counted offline checks on synthetic arrows, rules, rejections and simulated walks | Focus Gate `motor-offline` |
 
 Shared with M3: the question/response helpers remain in `m3/Fight.swift`; the input
@@ -156,7 +156,7 @@ only.
 - **The gate.** In the local gate, the motor proof replays the set from the clone's `runs/`, from any
   worktree. It holds on any reader that reads a frame differently, and on a missing or changed frame.
   Each hold names the reader and up to three example frames. After reviewing those frames, accept the new
-  readings with `python3 -m tools.motor_offline --update-perception`, and commit the file with the change.
+  readings with `tools/sdlc motor --update-perception`, and commit the file with the change.
   The file's diff is then the review record: it shows which frames each reader now reads differently.
 - **Proof.** Loosening the red-name cell threshold from 4 to 3 pixels held on 122 frames' red names.
 - **What CI can check.** The frames are private captures and stay local, so a hosted runner checks less:
@@ -492,8 +492,8 @@ swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/0
   experiments/002_wow_visual/runtime/Experience.swift -o /tmp/nav-tests && /tmp/nav-tests
 swiftc -parse-as-library experiments/002_wow_visual/m4/Tabletop.swift experiments/002_wow_visual/runtime/JSON.swift \
   -o /tmp/tabletop && /tmp/tabletop --check   # offline; without --check it asks live Jev
-python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
-python3 -m tools.motor_offline --update-perception   # accept the pixel readers' new readings on the saved frames
+tools/sdlc motor   # builds and checks M0, M1/M2, M3 and M4 with no live effect
+tools/sdlc motor --update-perception   # accept the pixel readers' new readings on the saved frames
 ```
 
 `--replay DIR` needs saved frames. `--sim-jev` and `--execute` need `TYPESAFE_API_KEY` in the
