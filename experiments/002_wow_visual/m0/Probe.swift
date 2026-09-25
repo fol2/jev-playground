@@ -26,7 +26,6 @@ let usage = """
     """
 
 func hostNow() -> Double { CMClockGetTime(CMClockGetHostTimeClock()).seconds }
-func orNull(_ value: Any?) -> Any { value ?? NSNull() }
 
 final class Log {
     private let lock = NSLock()

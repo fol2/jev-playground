@@ -219,7 +219,13 @@ struct NavTests {
               && (try? parseNav(["--execute", "--keys", "wqe", "--ghost", "--ghost", "--to", "47.2,20.5"])) == nil
               && (try? parseNav(["--sim-jev", "--ghost"])) == nil,
               "--ghost is a flag of --execute only, once")
+        let fighting = try? parseNav(["--quests", "--graph", "q.json", "--keys", "wqe", "--fight-graph", "f.json"])
+        check(fighting?.fightGraph == "f.json" && fighting?.graph == "q.json"
+              && (try? parseNav(["--hunt", "--keys", "wqe", "--fight-graph", "f.json"]))?.fightGraph == "f.json",
+              "a live quest run or hunt takes M3b's fight graph beside its own")
         let refused: [[String]] = [
+            ["--hunt-dry-run", "--fight-graph", "f.json"], ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--fight-graph", "f.json"],
+            ["--quests", "--graph", "q.json", "--keys", "wqe", "--fight-graph"],
             ["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--replay", "a", "b"], ["--replay", "-x"], ["--pixels"], ["--pixels", "a", "b"], ["--pixels", "-x"],
             ["--sim-jev"], ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
             ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],

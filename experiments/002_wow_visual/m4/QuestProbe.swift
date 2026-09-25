@@ -358,8 +358,10 @@ final class LiveQuestHost: QuestHost {
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var fights = 0
-    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost) {
-        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter
+    let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
+    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
+         tactics: FightTactics? = nil) {
+        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter; self.tactics = tactics
     }
 
     var holding: Bool { (walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false } }
@@ -381,7 +383,7 @@ final class LiveQuestHost: QuestHost {
         let host = newFighter(folder, child)
         lock.withLock { fighting = host }
         emit("fight_start", ["fight": fights, "in_combat": true, "controller": "SAFETY"])
-        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout), startHealth: 0)
+        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout), startHealth: 0, tactics: tactics)
         emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
         guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
         lock.withLock { fighting = nil }
@@ -440,7 +442,7 @@ final class LiveQuestHost: QuestHost {
 /// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
 /// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
 @MainActor
-func questsExecute(graph: GraphSession) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -461,10 +463,16 @@ func questsExecute(graph: GraphSession) async throws -> Int32 {
         throw ProbeError("Jev did not answer a warm-up question within 30 s")
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
+    // A fight back presses the bar's keys, so they come from its tooltips, as a hunt's: the defaults were
+    // the 23 Sept bar, where key 3 was the heal (Earth Shock by 24 Sept) and key 4 the buff (Healing Wave).
+    let bar = try await readSkillBar(session, feed, log, required: fightRoles)
+    applyRoles(bar.keys)
+    let tactics = try fightTactics(fightGraph, bar, log)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
                              newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log) },
-                             newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) })
+                             newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) },
+                             tactics: tactics)
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },

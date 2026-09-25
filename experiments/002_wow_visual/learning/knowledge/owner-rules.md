@@ -11,3 +11,11 @@ a later owner instruction replaces an earlier one. Dates are when the owner gave
 - Walk on roads by preference, especially between zones. [owner] 24 Sept 2026
 - Always accept quests. [owner] 24 Sept 2026
 - A reward that is better than what is worn (for example more armour) is taken and equipped; otherwise take the one with the highest sell value, to sell. [owner] 24 Sept 2026
+
+## Fighting
+
+- Buff the weapon before each fight. Pull with one or two Lightning Bolts while the creature closes; once it is in melee, fight in melee: its hits push a cast back or break it. [owner] 23 Sept 2026
+- Low health in a fight: heal and fight on; a stop hands the fight to an owner who may be away. [owner] 23 Sept 2026
+- Leave creatures with a grey plate: another player has tagged them, and they give no credit. [owner] 23 Sept 2026
+- A red plate is aggressive, a yellow plate neutral; a creature with no nameplate is far away. [owner] 23 Sept 2026
+- Interact With Target (F9) turns to the target wherever it is, and starts melee. [owner] 24 Sept 2026

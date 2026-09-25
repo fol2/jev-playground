@@ -215,8 +215,6 @@ enum NavAction: String, JevAction {
 
 let navInstructions = "Which move is most likely to get the character to `destination`, given `position`, `recent_moves` and `blocked_headings_near_here`?"
 
-func roundTo(_ value: Double, _ places: Double = 100) -> Double { (value * places).rounded() / places }
-
 struct NavAttempt {
     let action: NavAction
     let from: NavObs
@@ -639,6 +637,7 @@ struct NavCommand: Equatable {
     var quest: String?
     var graph: String?
     var experience: String?
+    var fightGraph: String?  // M3b's fight graph for a live hunt's or quest run's fights
 }
 
 let navScenarios: Set<String> = ["open", "wall", "pocket"]
@@ -672,6 +671,8 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
             command.graph = value
         case (.hunt, "--experience"), (.huntDryRun, "--experience"), (.huntSimJev, "--experience"):
             command.experience = value
+        case (.hunt, "--fight-graph"), (.quests, "--fight-graph"):
+            command.fightGraph = value
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value

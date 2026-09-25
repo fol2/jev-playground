@@ -141,7 +141,7 @@ Each reader above was calibrated once, on its own frames. Nothing re-ran them af
 change to one threshold could shift readings elsewhere without anyone seeing it. `m4-nav --pixels DIR`
 now runs every pixel reader on every saved frame at this layout: the M3 bars and flags, the target
 plate and the ground under it, the facing, the quest area, nameplates, red names, minimap icons, world
-map pins and quest marks. It writes one line per frame. [perception.jsonl](perception.jsonl) holds the
+map pins and quest marks, and (M3b) the shock's range digit. It writes one line per frame. [perception.jsonl](perception.jsonl) holds the
 accepted readings: the frame's path under `runs/002_wow_visual/`, the SHA-256 of its bytes, and numbers
 only.
 
@@ -467,9 +467,9 @@ V=experiments/002_wow_visual
 C=experiments/001_wow_fishing/probes/background-click
 swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
   $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift $V/m1/Plate.swift $V/m1/SeekProbe.swift \
-  $V/m3/Fight.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
+  $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
   $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift \
-  $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
+  $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
   -o /tmp/m4-nav
 /tmp/m4-nav --hunt-dry-run --graph "$V/runtime/skyborne-hunt.graph.json" \
@@ -485,10 +485,11 @@ live result below/above certifies the new graph policy.
 
 ```sh
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
-  experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m4/Nav.swift \
+  experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m3/Tactics.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
   experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
-  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift -o /tmp/nav-tests && /tmp/nav-tests
+  experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift \
+  experiments/002_wow_visual/runtime/Experience.swift -o /tmp/nav-tests && /tmp/nav-tests
 python3 experiments/002_wow_visual/m4/tabletop.py --check   # offline; without --check it asks live Jev
 python3 -m tools.motor_offline   # builds and checks M0, M1/M2, M3 and M4 with no live effect
 python3 -m tools.motor_offline --update-perception   # accept the pixel readers' new readings on the saved frames
