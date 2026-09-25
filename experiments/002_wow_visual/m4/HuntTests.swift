@@ -503,6 +503,10 @@ extension NavTests {
         check(nameLine(row, nameX: 1901, nameTop: 224)?.text == "Dalia the Collector" && nameLine(row, nameX: 1850, nameTop: 224)?.text == "Jolee Brightmeadows"
               && nameLine(row, nameX: 1901, nameTop: 300) == nil,
               "the name read is the line level with the green name that starts nearest left of its centre, never a neighbour's")
+        check(sameTitle("HARVEStinG WinostonES", "Harvesting Windstones") && sameTitle("The Gift of Skysight", "The Gift of Skysight")
+              && !sameTitle("The Gift of Skysight", "Harvesting Windstones") && !sameTitle("Harvesting", "Harvesting Windstones")
+              && !sameTitle("Required Items:", "Harvesting Windstones") && !sameTitle("", "Harvesting Windstones") && !sameTitle("Shoal", "Shoals"),
+              "the dialogue's decorative title is the quest's with a letter in eight misread (live run 5); another title or a part is not")
         check(tooltipGone([false, false]) && tooltipGone([true, nil, false, false]) && !tooltipGone([false]) && !tooltipGone([nil, false])
               && !tooltipGone([false, nil]) && !tooltipGone([false, true]) && !tooltipGone([]),
               "a tooltip has gone only after two fresh reads in a row without the name; an unreadable frame proves nothing")

@@ -272,6 +272,24 @@ func sameUnit(_ tooltip: String, _ name: String) -> Bool {
     return long.contains(short)
 }
 
+/// Whether a line read in the quest dialogue is the quest's title. The title is drawn in a decorative
+/// capital face that OCR misreads a letter at a time (live run 5, 25 Sept: "HARVEStinG WinostonES" for
+/// Harvesting Windstones, and the open page was taken for another quest's and closed). One letter in
+/// eight may differ, as an edit; a title under eight letters must match exactly.
+func sameTitle(_ line: String, _ title: String) -> Bool {
+    let a = Array(nameKey(line)), b = Array(nameKey(title)), slack = b.count / 8
+    guard !a.isEmpty, !b.isEmpty, abs(a.count - b.count) <= slack else { return false }
+    var previous = Array(0...b.count)
+    for (i, ca) in a.enumerated() {
+        var current = [i + 1]
+        for (j, cb) in b.enumerated() {
+            current.append(min(previous[j + 1] + 1, current[j] + 1, previous[j] + (ca == cb ? 0 : 1)))
+        }
+        previous = current
+    }
+    return previous[b.count] <= slack
+}
+
 /// The NPC's own name among the OCR lines of the box around it: level with the green name's top (within
 /// one line of UI text) and starting left of the name's centre, the nearest such start. A name beside it at
 /// the same depth starts right of the centre, or further left than this one.
