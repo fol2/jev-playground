@@ -44,9 +44,12 @@ final class LiveHuntHost: HuntHost {
     private var fights = 0
     private var lastTarget: String?
     let fightJev: JevClient  // M3's 4 s timeout, whatever the hunt's own decisions wait
+    let fightTactics: FightTactics?  // M3b's chains for each fight; nil: the legacy flat policy
 
-    init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log, fightJev: JevClient) {
+    init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log, fightJev: JevClient,
+         fightTactics: FightTactics? = nil) {
         self.fightJev = fightJev
+        self.fightTactics = fightTactics
         self.session = session
         self.feed = feed
         self.sink = sink
@@ -164,7 +167,7 @@ final class LiveHuntHost: HuntHost {
         lock.withLock { fighting = host }
         defer { lock.withLock { fighting = nil } }
         emit("fight_start", ["fight": fights, "target": orNull(lastTarget), "in_combat": inCombat])
-        var result = await runFight(host: host, jev: fightJev, startHealth: inCombat ? 0 : FightLimits.startHealth)
+        var result = await runFight(host: host, jev: fightJev, startHealth: inCombat ? 0 : FightLimits.startHealth, tactics: fightTactics)
         if !keys.resume(after: childKeys) {
             result.outcome = "INPUT_HANDOFF_FAILED"
             result.runtime = SkillResult(skill: "combat", status: .failed, code: result.outcome,
@@ -302,7 +305,7 @@ func huntSimJev(graph: GraphSession? = nil, experience: ExperienceStore? = nil) 
 }
 
 @MainActor
-func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil) async throws -> Int32 {
+func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil, fightGraph: String? = nil) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -323,11 +326,12 @@ func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil)
         throw ProbeError("Jev did not answer a warm-up question within 30 s")
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
-    let roles = try await readSkillBar(session, feed, log, required: huntRoles)
-    applyRoles(roles)
-    HuntLimits.drink = roles[.drink] ?? HuntLimits.drink
-    HuntLimits.eat = roles[.food] ?? HuntLimits.eat
-    let host = LiveHuntHost(session: session, feed: feed, sink: sink, directory: run.url, log: log, fightJev: LiveJev(key: key))
+    let bar = try await readSkillBar(session, feed, log, required: huntRoles)
+    applyRoles(bar.keys)
+    HuntLimits.drink = bar.keys[.drink] ?? HuntLimits.drink
+    HuntLimits.eat = bar.keys[.food] ?? HuntLimits.eat
+    let host = LiveHuntHost(session: session, feed: feed, sink: sink, directory: run.url, log: log, fightJev: LiveJev(key: key),
+                            fightTactics: try fightTactics(fightGraph, bar, log))
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holding })

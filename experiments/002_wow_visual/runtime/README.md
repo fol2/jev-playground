@@ -181,7 +181,10 @@ actual tool and meaningful task observation exist:
 - Travel: route selection, local approach, obstacle recovery and location-specific
   references. Existing calibrated walks are connected; bridge/cliff geometry is NOT solved.
 - Combat: tactical choices, learned abilities, movement, adds, buffs/debuffs and party
-  context. M3 remains its existing Jev loop. It has no general party/debuff interpreter.
+  context. M3's legacy loop remains the default. [The fight graph](skyborne-fight.graph.json) (M3b, opt-in with
+  `--graph` or `--fight-graph`) is one flat node: chains from the chain book, single skills and CONTINUE, with
+  the bar's skills, combat mechanics, the owner's fighting rules and the fight's steps to read. It names its
+  skills dictionary and chain book beside it. It has no party, debuff or several-attacker interpreter.
 - Professions: fishing, skinning, mining, crafting. Fishing exists separately; none
   is made a selectable graph tool merely by listing it in this roadmap.
 - Memory/tools: last observed inventory/equipment, visited map, skill/reference index,

@@ -9,6 +9,10 @@ struct ProbeError: Error, Equatable, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+// Shared by every M0-M4 core and shell: a missing value as JSON null, and a rounded number for logs and Jev.
+func orNull(_ value: Any?) -> Any { value ?? NSNull() }
+func roundTo(_ value: Double, _ places: Double = 100) -> Double { (value * places).rounded() / places }
+
 enum Primitive: String, CaseIterable {
     case turnLeft = "turn-left", turnRight = "turn-right", forward
 }

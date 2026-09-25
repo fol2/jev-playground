@@ -22,6 +22,8 @@ enum HUD {
     /// The bolt slot's hotkey digit: dark-red when Lightning Bolt is out of range (x for key 2; applyRoles moves it).
     static var rangeX0 = 708, rangeX1 = 734
     static let rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
+    /// The shock slot's hotkey digit, read the same way (the owner, 23 Sept: each spell's digit gives a range band).
+    static var shockRangeX0 = 859, shockRangeX1 = 885
     /// Weapon-buff icon: green glow on the top-right buff row.
     static let buffX0 = 2215, buffX1 = 2300, buffY0 = 30, buffY1 = 75, buffMin = 100
     /// Red error text: the floating red game-error line.
@@ -41,6 +43,7 @@ enum HUD {
 
 enum FightLimits {
     static let maxDecisions = 40
+    static let maxSteps = 120  // Jev's decisions plus the steps its chains run without a call
     static let maxSeconds = 150.0
     static let playerSafety = 0.3
     static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
@@ -65,6 +68,7 @@ enum FightLimits {
     static var bolt: UInt16 = 19
     static var heal: UInt16 = 20
     static var buff: UInt16 = 21
+    static var shock: UInt16 = 23
     static let turnLeft: UInt16 = 12
     static let forward: UInt16 = 13
     static let turnRight: UInt16 = 14
@@ -72,7 +76,7 @@ enum FightLimits {
     static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
     static let zoomOut: UInt16 = 109  // F10, Camera Zoom Out (owner-consented bind, 24 Sept)
     static let zoomSeconds = 2.5
-    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, turnLeft, forward, turnRight, interact, zoomOut] }
+    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut] }
 }
 
 
@@ -80,6 +84,7 @@ struct Obs {
     var stamp: ObservationStamp? = nil
     var player = 0.0, mana = 0.0, target = 0.0
     var combat = false, casting = false, castFill = 0.0, rangeRed = false, buff = false, errorRed = false
+    var shockRangeRed = false
     var plate: Plate? = nil
     var ground: Int? = nil
     var fresh = true  // false: no frame newer than maxFrameAge, so nothing above was seen
@@ -115,6 +120,8 @@ func observe(_ image: RGBA, plates: Bool) -> Obs {
     o.casting = track > HUD.castTrackMin
     o.castFill = o.casting ? Double(yellow) / Double(HUD.castFillSpan) : 0
     o.rangeRed = hudCount(image, x0: HUD.rangeX0, x1: HUD.rangeX1, y0: HUD.rangeY0, y1: HUD.rangeY1, HUD.darkRedDigit) > HUD.rangeMin
+    o.shockRangeRed = hudCount(image, x0: HUD.shockRangeX0, x1: HUD.shockRangeX1, y0: HUD.rangeY0, y1: HUD.rangeY1,
+                               HUD.darkRedDigit) > HUD.rangeMin
     o.buff = hudCount(image, x0: HUD.buffX0, x1: HUD.buffX1, y0: HUD.buffY0, y1: HUD.buffY1, HUD.buffGreen) > HUD.buffMin
     o.errorRed = hudCount(image, x0: HUD.errorX0, x1: HUD.errorX1, y0: HUD.errorY0, y1: HUD.errorY1, HUD.errorRed) > HUD.errorMin
     if plates {
@@ -135,6 +142,7 @@ enum FightAction: String, JevAction {
     case faceTarget = "FACE_TARGET"
     case approachToRange = "APPROACH_TO_RANGE"
     case castLightningBolt = "CAST_LIGHTNING_BOLT"
+    case castShock = "CAST_SHOCK"
     case startMelee = "START_MELEE"
     case heal = "HEAL"
     case lootCorpse = "LOOT_CORPSE"
@@ -154,6 +162,8 @@ enum FightAction: String, JevAction {
             return "Walk towards the target in short steps and stop as soon as it is within Lightning Bolt range, at the farthest distance the spell can be cast from."
         case .castLightningBolt:
             return "Cast Lightning Bolt at the target: about a 2-second cast from up to its range, roughly a third of a level-1 beast's health, costs about 15% mana. Once the target is adjacent, each hit taken pushes the cast back about 0.5-1 s, so a bolt in melee often takes 4 s or breaks and its mana is wasted. Choosing it while a cast is finishing queues the next cast without a gap."
+        case .castShock:
+            return "Cast the bar's shock spell at the target: instant, so hits cannot push it back; a shorter range than Lightning Bolt, and a cooldown after each use."
         case .startMelee:
             return "Press Interact With Target: turn on automatic weapon swings at the target, walking up to it if it is not adjacent. Swings land only while the target is adjacent to the character, continue with no further key presses, and with the weapon enchant each takes about a quarter of a level-1 beast's health. Costs no mana. A melee creature runs as fast as the character, so walking away from it only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range."
         case .heal:
@@ -170,7 +180,7 @@ enum FightAction: String, JevAction {
 
     static let preference: [FightAction] = [
         .buffWeapon, .selectTarget, .faceTarget, .approachToRange,
-        .castLightningBolt, .startMelee, .heal, .lootCorpse, .wait, .stop,
+        .castLightningBolt, .castShock, .startMelee, .heal, .lootCorpse, .wait, .stop,
     ]
 }
 
@@ -180,6 +190,7 @@ struct Episode: Equatable {
     var looted = false
     var meleeOn = false
     var oldCorpse = false
+    var lastShock: Double?  // when the shock was last cast: its cooldown runs from there
 
     static func alive(_ o: Obs) -> Bool { o.target > 0.005 || o.plate != nil }
 
@@ -195,7 +206,9 @@ func offset(_ o: Obs) -> Double? {
 
 /// Below playerSafety in combat the fight goes on and healing comes first (the owner, 23 Sept: a stop
 /// there handed a fight to an owner who was away, and the character died standing still).
-func admissible(_ o: Obs, _ e: Episode) -> [FightAction] {
+/// `kit` (the chain policy's bar) adds the shock while it is in range and its cooldown has run; the legacy
+/// policy passes none and is offered what it always was.
+func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -> [FightAction] {
     if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
         return o.casting ? [.wait] : [.heal]
     }
@@ -207,6 +220,9 @@ func admissible(_ o: Obs, _ e: Episode) -> [FightAction] {
         if offset(o).map({ abs($0) > FightLimits.faceTolerance }) ?? true { out.append(.faceTarget) }  // no plate: maybe behind
         if o.rangeRed { out.append(.approachToRange) } else { out.append(.castLightningBolt) }
         if !e.meleeOn { out.append(.startMelee) }
+        if let card = kit?.cards[.shock], !o.shockRangeRed, e.lastShock.map({ now - $0 >= card.cooldown ?? 6 }) ?? true {
+            out.append(.castShock)
+        }
     }
     if o.player < 0.95 { out.append(.heal) }
     if e.killed && !e.looted { out.append(.lootCorpse) }
@@ -372,6 +388,7 @@ struct FightCommand: Equatable {
     }
     let mode: Mode
     var profile: KeyProfile?
+    var graph: String?  // the fight graph (M3b); none: the legacy flat policy
 }
 
 /// Parses everything before any effect. Missing or unknown arguments never default to input.
@@ -384,12 +401,14 @@ func parseFight(_ arguments: [String]) throws -> FightCommand {
     var seen: Set<String> = []
     var rest = arguments.dropFirst()
     while let option = rest.popFirst() {
-        guard mode == .execute else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        guard mode != .preflight else { throw ProbeError("\(mode.rawValue) takes no arguments") }
         guard seen.insert(option).inserted, let value = rest.popFirst(), !value.hasPrefix("-") else {
             throw ProbeError("'\(option.prefix(40))' is repeated or has no value")
         }
         switch option {
-        case "--keys":
+        case "--graph":
+            command.graph = value
+        case "--keys" where mode == .execute:
             guard value == "wqe", let profile = KeyProfile(rawValue: value) else {
                 throw ProbeError("--keys needs wqe, confirmed in-game")
             }
@@ -447,6 +466,7 @@ struct FightResult {
     var codesPosted: [UInt16]
     var jevRecords: [[String: Any]]
     var runtime: SkillResult? = nil
+    var chainSteps = 0  // steps a chain Jev chose ran without a call (M3b)
 }
 
 func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
@@ -469,17 +489,37 @@ func freshObservation(_ host: FightHost) async -> Obs? {
     return observation.value
 }
 
+/// A fight-graph failure as the fight's outcome, as the legacy policy names its own.
+func fightGraphOutcome(_ error: Error) -> String {
+    guard let error = error as? GraphError else { return "JEV_ERROR" }
+    switch error {
+    case .ownerStop: return "OWNER_TOOK_FOCUS"
+    case .deadline: return "DECISION_EXPIRED"
+    case .invalidReply: return "JEV_STOP"
+    case .callLimit: return "DECISION_LIMIT"
+    default: return "GRAPH_\(error)"
+    }
+}
+
 /// `startHealth`: the least health a fight may start with. A hunt that is attacked passes 0.
-func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth) async -> FightResult {
+/// `tactics` (M3b): Jev chooses a chain, a single skill or CONTINUE through the fight graph, and a chain's
+/// steps then run without a call until a break returns it to Jev (Tactics.swift). Without it, the legacy
+/// flat policy asks Jev before every step, as before. Both share every safety rule and check below.
+func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth,
+              tactics: FightTactics? = nil) async -> FightResult {
     var episode = Episode()
     var lastAction = "none", lastResult = "episode start"
-    var decisions = 0, jevCalls = 0
+    var decisions = 0, jevCalls = 0, steps = 0, chainSteps = 0
     var latencies: [Double] = []
     var records: [[String: Any]] = []
     var outcome = "DECISION_LIMIT"
     var executive = RuntimeExecutive(goal: "one supervised fight")
     executive.begin("combat")
     var lastStamp: ObservationStamp?
+    var running: ChainRun?            // the chain Jev chose, while it runs
+    var tally = FightTally()
+    var recent: [[String: Any]] = []  // this fight's steps, for READ:recent
+    var ranOn: (obs: Obs, action: FightAction, at: Double)?  // the last step, until a newer frame shows what it did
 
     func finish(_ outcome: String) -> FightResult {
         host.releaseBolt()
@@ -490,9 +530,12 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         host.emit("skill_result", skill.json)
         return FightResult(outcome: outcome, decisions: decisions, jevCalls: jevCalls, latencies: latencies,
                            episode: episode, walkedMs: host.walkedMs, turnedMs: host.turnedMs,
-                           holdingKeys: host.holdingKeys, codesPosted: host.codesPosted, jevRecords: records, runtime: skill)
+                           holdingKeys: host.holdingKeys, codesPosted: host.codesPosted, jevRecords: records, runtime: skill,
+                           chainSteps: chainSteps)
     }
 
+    let graph: GraphSession?
+    do { graph = try tactics?.session() } catch { return finish("GRAPH_DEFINITION") }
     if host.refreshNotice() { return finish("HOLD_REFRESH_NOTICE") }
     if host.startCorpseVisible() { episode.killed = true; episode.oldCorpse = true }
 
@@ -500,64 +543,138 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
 
-    loop: while decisions < FightLimits.maxDecisions && host.now() < FightLimits.maxSeconds {
+    loop: while decisions < FightLimits.maxDecisions && steps < FightLimits.maxSteps && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         lastStamp = o.stamp
         episode.update(o)
+        if let step = ranOn {  // what the last step did, now that a newer frame shows it
+            tally.record(step.action, before: step.obs, after: o, seconds: host.now() - step.at, meleeOn: episode.meleeOn)
+            running?.observe(before: step.obs, after: o, killed: episode.killed)
+            ranOn = nil
+        }
+        tally.engage(o, now: host.now())
         if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
 
         let ev = events(previous: prev, current: o, errorText: o.errorRed ? host.errorText() : nil)
-        let allowed = admissible(o, episode)
-        let state = statePacket(obs: o, episode: episode, lastAction: lastAction, lastResult: lastResult, events: ev)
-        let question = actionQuestion(allowed)
+        let allowed = admissible(o, episode, kit: tactics?.kit, now: host.now())
+        let action: FightAction
+        let context: DecisionContext
+        var controller = "JEV"
+        var invalid = false
         let asked = host.now()
-        guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
-                policy: "fight-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
-                deadline: min(asked + FightLimits.jevTimeout, FightLimits.maxSeconds)) else { return finish("NO_FRESH_FRAME") }
-        let reply: [String: Any]
-        do {
-            reply = try await jev.ask(state: state, question: question)
-            jevCalls += 1
-        } catch {
-            jevCalls += 1
-            host.emit("jev_error", ["error": "\(error)"])
-            outcome = "JEV_ERROR"
-            break
+        let deadline = min(asked + FightLimits.jevTimeout, FightLimits.maxSeconds)
+        if let tactics, let graph {
+            guard let stamp = o.stamp else { return finish("NO_FRESH_FRAME") }
+            let reason = running.flatMap { chainBreak($0, o, episode, allowed: allowed, lastResult: lastResult, now: asked) }
+            if let run = running, reason == nil, let step = run.step {
+                // Jev's chain goes on: the script runs its next step without a call.
+                action = stepAction(step, episode)
+                controller = "CHAIN"
+                guard let c = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue), policy: "chain:" + run.chain.id,
+                        now: asked, maximumAge: FightLimits.maxFrameAge, deadline: deadline) else { return finish("NO_FRESH_FRAME") }
+                context = c
+            } else {
+                let offers = fightOffers(o, episode, allowed: allowed, kit: tactics.kit, running: running)
+                var state = statePacket(obs: o, episode: episode, lastAction: lastAction, lastResult: lastResult, events: ev)
+                state["calculations"] = fightCalculations(o, episode, kit: tactics.kit, tally: tally, now: asked)
+                state["chain"] = chainState(running, reason: reason)
+                state["skills"] = tactics.kit.cards.values.sorted { $0.slot < $1.slot }.map(\.json)
+                state["recent_steps"] = Array(recent.suffix(ChainLimits.recent))
+                guard let c = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue), policy: graph.graph.id,
+                        now: asked, maximumAge: FightLimits.maxFrameAge, deadline: deadline) else { return finish("NO_FRESH_FRAME") }
+                context = c
+                let decision: GraphDecision
+                do {
+                    decision = try await graph.next(state: state, skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.name, $0.text) }),
+                                                    jev: jev, now: { host.now() }, deadline: deadline, stopped: { host.wowFrontmost() })
+                } catch {
+                    jevCalls += graph.lastTrace.count
+                    host.emit("graph_error", ["error": "\(error)", "trace": graph.lastTrace])
+                    outcome = fightGraphOutcome(error)
+                    break
+                }
+                jevCalls += graph.lastTrace.count
+                latencies += graph.lastTrace.compactMap { $0["latency_s"] as? Double }
+                decisions += 1
+                guard let offer = offers.first(where: { $0.name == decision.action }) else { outcome = "JEV_STOP"; break }
+                if offer.name == "CONTINUE" { running?.resume(at: asked, health: o.player) }
+                else { running = offer.chain.map { ChainRun($0, at: asked, health: o.player) } }
+                guard let chosen = offer.action ?? running?.step.map({ stepAction($0, episode) }) else { outcome = "JEV_STOP"; break }
+                action = chosen
+                let record: [String: Any] = [
+                    "decision": decisions, "t": asked, "offers": offers.map(\.name), "chosen": offer.name, "action": chosen.rawValue,
+                    "asked_because": orNull(reason), "admissible": allowed.map(\.rawValue), "trace": graph.lastTrace, "context": c.json,
+                ]
+                records.append(record)
+                host.emit("decision", record)
+            }
+        } else {
+            let state = statePacket(obs: o, episode: episode, lastAction: lastAction, lastResult: lastResult, events: ev)
+            let question = actionQuestion(allowed)
+            guard let stamp = o.stamp, let c = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
+                    policy: "fight-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
+                    deadline: deadline) else { return finish("NO_FRESH_FRAME") }
+            context = c
+            let reply: [String: Any]
+            do {
+                reply = try await jev.ask(state: state, question: question)
+                jevCalls += 1
+            } catch {
+                jevCalls += 1
+                host.emit("jev_error", ["error": "\(error)"])
+                outcome = "JEV_ERROR"
+                break
+            }
+            let latency = host.now() - asked
+            latencies.append(latency)
+            decisions += 1
+            let parsed = parseChoice(reply, admissible: allowed, model: FightLimits.model)
+            action = parsed?.action ?? .stop
+            invalid = parsed == nil
+            if invalid { lastResult = "Jev answer failed validation" }
+            let record: [String: Any] = [
+                "decision": decisions, "t": asked, "state": state, "question": question,
+                "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency, "context": c.json,
+            ]
+            records.append(record)
+            host.emit("decision", record)
         }
-        let latency = host.now() - asked
-        latencies.append(latency)
-        decisions += 1
-        let parsed = parseChoice(reply, admissible: allowed, model: FightLimits.model)
-        let action = parsed?.action ?? .stop
-        if parsed == nil { lastResult = "Jev answer failed validation" }
-        let record: [String: Any] = [
-            "decision": decisions, "t": asked, "state": state, "question": question,
-            "admissible": allowed.map(\.rawValue), "response": reply, "latency_s": latency, "context": context.json,
-        ]
-        records.append(record)
-        host.emit("decision", record)
         prev = o
         lastAction = action.rawValue
         if action != .castLightningBolt { host.releaseBolt() }
-        if parsed == nil { outcome = "JEV_STOP"; break }
+        if invalid { outcome = "JEV_STOP"; break }
         let current = host.observe(plates: true)
         if current.fresh, current.player < FightLimits.playerSafety, !current.combat {
             return finish("SAFETY_STOP_PLAYER_BELOW_30")
         }
         if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),
-                current: current.fresh ? current.stamp : nil, candidates: admissible(current, episode).map(\.rawValue),
+                current: current.fresh ? current.stamp : nil,
+                candidates: admissible(current, episode, kit: tactics?.kit, now: host.now()).map(\.rawValue),
                 now: host.now(), maximumAge: FightLimits.maxFrameAge, ownerStopped: host.wowFrontmost()) {
             host.releaseBolt()
             host.emit("proposal_rejected", ["reason": rejection, "request": context.request])
             if rejection == "owner_stop" { return finish("OWNER_TOOK_FOCUS") }
             if rejection == "decision_expired" { return finish("DECISION_EXPIRED") }
             lastResult = "not done: " + rejection
+            running = nil  // the frame the chain relied on is gone: Jev chooses again on the next one
             continue
         }
         lastStamp = current.stamp
+        let started = host.now()
         lastResult = await host.perform(action, observation: current, episode: &episode)
-        host.emit("acted", ["action": action.rawValue, "result": lastResult])
+        steps += 1
+        if tactics != nil {
+            if controller == "CHAIN" { chainSteps += 1 }
+            running?.ran += 1
+            if action == .castShock && !stepFailed(lastResult) { episode.lastShock = started }
+            ranOn = (current, action, started)
+            recent.append(["step": action.rawValue, "controller": controller, "chain": orNull(running?.chain.id), "result": lastResult])
+            host.emit("acted", ["action": action.rawValue, "result": lastResult, "controller": controller,
+                                "chain": orNull(running?.chain.id)])
+        } else {
+            host.emit("acted", ["action": action.rawValue, "result": lastResult])
+        }
         switch action {
         case .lootCorpse:
             if episode.looted { outcome = "KILLED_AND_LOOTED" }
@@ -642,6 +759,13 @@ final class SimFight: FightHost {
     var refreshOpen = false
     var startCorpse = false
     var errorMessage: String?
+    // M3b's fights, off by default so the legacy checks keep their world: the creature reaches the
+    // character after this many bolts and then hits it each step, and casts spend mana.
+    var closesAfterBolts: Int?
+    var hitPerStep = 0.05
+    var spendsMana = false
+    var damageScale = 1.0  // below 1: a tougher creature, for a chain that must check in
+    private var bolts = 0
 
     init(clock: FightClock) { self.clock = clock }
 
@@ -688,6 +812,7 @@ final class SimFight: FightHost {
         o.casting = casting
         o.castFill = castFill
         o.rangeRed = selected && targetHP > 0.005 && rangeRed
+        o.shockRangeRed = o.rangeRed  // ponytail: one distance band; the shock's shorter reach is not simulated
         o.buff = buff
         o.errorRed = errorRed
         if plates, selected, targetHP > 0.005, let x = plateX {
@@ -739,7 +864,7 @@ final class SimFight: FightHost {
     }
 
     private func strike(_ amount: Double) {
-        targetHP = max(0, targetHP - amount)
+        targetHP = max(0, targetHP - amount * damageScale)
         combat = true
         if targetHP <= 0.005 {
             targetHP = 0
@@ -751,6 +876,14 @@ final class SimFight: FightHost {
 
     func perform(_ action: FightAction, observation: Obs, episode: inout Episode) async -> String {
         performed.append(action)
+        let result = await act(action, &episode)
+        if let n = closesAfterBolts, bolts >= n, selected, targetHP > 0, action != .stop { player = max(0, player - hitPerStep) }
+        return result
+    }
+
+    private func spend(_ amount: Double) { if spendsMana { mana = max(0, mana - amount) } }
+
+    private func act(_ action: FightAction, _ episode: inout Episode) async -> String {
         switch action {
         case .buffWeapon:
             await tap(FightLimits.buff)
@@ -778,8 +911,15 @@ final class SimFight: FightHost {
             return "within Lightning Bolt range"
         case .castLightningBolt:
             holdBolt()
+            bolts += 1
+            spend(0.07)
             strike(1.0 / 3)
             return "Lightning Bolt cast at 75 %; the key stays held, so the next cast follows unless another action is chosen"
+        case .castShock:
+            await tap(FightLimits.shock)
+            spend(0.14)
+            strike(0.2)
+            return "the shock spell was cast"
         case .startMelee:
             await tap(FightLimits.interact)
             episode.meleeOn = true
@@ -787,6 +927,7 @@ final class SimFight: FightHost {
             return "automatic swings on"
         case .heal:
             await tap(FightLimits.heal)
+            spend(0.11)
             player = 1.0
             return "Healing Wave cast at 75 % and finishing"
         case .lootCorpse:
@@ -829,15 +970,34 @@ extension ScriptedJev where A == FightAction {
     init() { preference = FightAction.preference }
 }
 
+/// Canned fight-graph replies for the dry-run and the checks: the first preferred option on offer.
+struct ScriptedGraphJev: JevClient {
+    var preference: [String]
+
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        let offered = (question["criteria"] as? [String: Any] ?? [:]).keys.sorted()
+        guard let choice = preference.first(where: offered.contains) ?? offered.first else { throw ProbeError("nothing offered") }
+        let p = 1 / Double(offered.count)
+        let action: [String: Any] = ["choice": choice, "confidence": 1.0,
+                                     "probabilities": Dictionary(uniqueKeysWithValues: offered.map { ($0, p) })]
+        return ["model": FightLimits.model, "answers": ["action": action]]
+    }
+
+    /// Buff, target, close in, then the first chain, going on with it at every break that allows.
+    static let dryRun = ScriptedGraphJev(preference: ["READ:skills", "DO:LOOT_CORPSE", "DO:BUFF_WEAPON", "DO:SELECT_TARGET",
+                                                      "DO:APPROACH_TO_RANGE", "DO:CONTINUE", "DO:CHAIN_1", "DO:WAIT"])
+}
+
 /// One main-bar slot, read from its tooltip. The owner, 24 Sept: the engine sees and organises the
 /// skills as a human does, never a hard-coded slot (3 was Earth Shock and 4 Healing Wave by level 5).
 struct Skill: Equatable {
     var name: String
     var text: String
     var cast: Double?  // seconds; nil when instant or an item
+    var rank: Int? = nil  // matches the skills dictionary's row
 }
 
-enum SkillRole: String, CaseIterable { case melee, bolt, heal, buff, drink, food }
+enum SkillRole: String, CaseIterable { case melee, bolt, shock, heal, buff, drink, food }
 
 enum SkillHUD {
     static let keys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24]  // 1-9, 0, -, =
@@ -872,7 +1032,8 @@ func parseTooltip(_ lines: [String]) -> Skill? {
     guard let name = body.first else { return nil }
     let text = body.dropFirst().joined(separator: " ")
     let cast = text.range(of: #"[0-9.]+(?= sec cast)"#, options: .regularExpression).flatMap { Double(text[$0]) }
-    return Skill(name: name, text: text, cast: cast)
+    let rank = lines.first { $0.hasPrefix("Rank ") }.flatMap { Int($0.dropFirst(5)) }
+    return Skill(name: name, text: text, cast: cast, rank: rank)
 }
 
 // ponytail: Shaman level-5 keywords; other classes add theirs here.
@@ -882,6 +1043,7 @@ func role(_ s: Skill) -> SkillRole? {
     if t.contains("use: restores") { return t.contains(" mana") ? .drink : t.contains(" health") ? .food : nil }
     if s.cast != nil && t.contains("heals") { return .heal }
     if s.cast != nil && t.contains("damage") && t.contains("yd range") { return .bolt }
+    if s.cast == nil && t.contains("damage") && t.contains("yd range") && t.contains("cooldown") { return .shock }
     if t.contains("imbue") { return .buff }
     return nil
 }
@@ -906,8 +1068,13 @@ func applyRoles(_ keys: [SkillRole: UInt16]) {
     FightLimits.bolt = keys[.bolt] ?? FightLimits.bolt
     FightLimits.heal = keys[.heal] ?? FightLimits.heal
     FightLimits.buff = keys[.buff] ?? FightLimits.buff
+    FightLimits.shock = keys[.shock] ?? FightLimits.shock
     if let i = SkillHUD.keys.firstIndex(of: FightLimits.bolt) {
         HUD.rangeX0 = 708 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
         HUD.rangeX1 = HUD.rangeX0 + 26
+    }
+    if let i = SkillHUD.keys.firstIndex(of: FightLimits.shock) {
+        HUD.shockRangeX0 = 708 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
+        HUD.shockRangeX1 = HUD.shockRangeX0 + 26
     }
 }

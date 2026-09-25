@@ -21,10 +21,10 @@ let navUsage = """
            m4-nav --sim-jev --scenario open|wall|pocket
            m4-nav --execute --keys wqe --to X,Y [--arrive R] [--label TEXT] [--ghost]
            m4-nav --hunt-dry-run | --hunt-sim-jev | --hunt --keys wqe
-                    [--graph PATH] [--experience PATH]
+                    [--graph PATH] [--experience PATH] [--fight-graph PATH]   (--fight-graph: live --hunt only)
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
            m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
-           m4-nav --quests --graph PATH --keys wqe    Jev chooses each hand-in within one walk (quest graph)
+           m4-nav --quests --graph PATH --keys wqe [--fight-graph PATH]   Jev chooses each hand-in within one walk
     Live keys: W, Q, E, F10; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
     """
@@ -225,7 +225,7 @@ func pixelReadings(_ image: RGBA) -> [String: Any] {
     var row: [String: Any] = ["player": roundTo(hud.player, 1000), "mana": roundTo(hud.mana, 1000),
                               "target": roundTo(hud.target, 1000), "cast": roundTo(hud.castFill, 1000)]
     for (key, on) in [("combat", hud.combat), ("casting", hud.casting), ("range_red", hud.rangeRed), ("buff", hud.buff),
-                      ("error_red", hud.errorRed)] where on { row[key] = true }
+                      ("error_red", hud.errorRed), ("shock_range_red", hud.shockRangeRed)] where on { row[key] = true }
     row["plate"] = hud.plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] }
     row["ground"] = hud.ground
     row["facing"] = arrowFacing(image).map { roundTo($0, 10) }
@@ -375,12 +375,13 @@ struct M4Nav {
                 switch command.mode {
                 case .huntDryRun: exit(try await huntDryRun(graph: graph, experience: experience))
                 case .huntSimJev: exit(try await huntSimJev(graph: graph, experience: experience))
-                case .hunt: exit(try await huntExecute(graph: graph, experience: experience))
+                case .hunt: exit(try await huntExecute(graph: graph, experience: experience, fightGraph: command.fightGraph))
                 default: fatalError("unreachable")
                 }
             case .turnIn: exit(try await questExecute(command))
             case .plan: exit(try await planExecute())
-            case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!))))
+            case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!)),
+                                                       fightGraph: command.fightGraph))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

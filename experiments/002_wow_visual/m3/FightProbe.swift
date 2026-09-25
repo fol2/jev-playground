@@ -3,6 +3,7 @@
 // Modes, from no effect to live effect:
 //   (none) | --preflight   M0's read-only facts; no capture, input, network or files
 //   --dry-run              SimFight + ScriptedJev; no capture, OS input or network
+//   --dry-run --graph PATH SimFight + canned fight-graph replies: Jev's chains (M3b), no network
 //   --execute --keys wqe   full-resolution WoW-window capture, pid-targeted keys, one
 //                          background right-click to loot, Jev via TypeSafe
 // Recovery after a crash or kill: m0-probe --release --keys wqe, and tap 1-4 / Tab in WoW.
@@ -11,8 +12,8 @@ import Vision
 
 let fightUsage = """
     usage: m3-fight [--preflight]
-           m3-fight --dry-run
-           m3-fight --execute --keys wqe
+           m3-fight --dry-run [--graph PATH]
+           m3-fight --execute --keys wqe [--graph PATH]   PATH: runtime/skyborne-fight.graph.json (M3b chains)
     Live keys: Tab, 1-4, Q/W/E. Recovery: m0-probe --release --keys wqe
     """
 
@@ -267,6 +268,23 @@ final class LiveHost: FightHost {
         return watch.seen ? "Lightning Bolt still casting (key released)" : "Lightning Bolt did not start (key released)"
     }
 
+    /// An instant spell (the shock): after any cast in flight, one tap. The mana it spent, or a new red
+    /// error, shows whether it went off; a bolt's global cooldown has run by the time its cast ends.
+    private func castInstant(_ code: UInt16, _ name: String) async -> String {
+        var pre = look("instant", plates: false)
+        let until = now() + 2.0
+        while pre.casting && now() < until {
+            await sleep(0.1)
+            pre = look("instant", plates: false)
+        }
+        await tap(code)
+        await sleep(0.5)
+        let o = look("instant", plates: false)
+        if o.errorRed && !pre.errorRed { return "\(name) not cast: a new red error message appeared" }
+        return pre.mana - o.mana >= 0.02 ? "\(name) cast (mana \(Int(pre.mana * 100))% to \(Int(o.mana * 100))%)"
+            : "\(name) not seen: no mana was spent"
+    }
+
     private func castSpell(_ code: UInt16, _ name: String) async -> String {
         let pre = look("cast", plates: false)
         var watch = CastWatch(pre: pre)
@@ -338,6 +356,12 @@ final class LiveHost: FightHost {
             emit("reflex", ["controller": "RULE", "trigger": "facing error", "within": "CAST_LIGHTNING_BOLT", "does": "F9 turn, one retry"])
             let turned = await face(&episode)
             return "\(first); the game said the target was not in front, so Interact With Target turned to it (\(turned)); retried: \(await castHeld())"
+        case .castShock:
+            let first = await castInstant(FightLimits.shock, "the shock spell")
+            guard first.contains("not cast"), facingError(errorText()) else { return first }
+            emit("reflex", ["controller": "RULE", "trigger": "facing error", "within": "CAST_SHOCK", "does": "F9 turn, one retry"])
+            let turned = await face(&episode)
+            return "\(first); the game said the target was not in front, so Interact With Target turned to it (\(turned)); retried: \(await castInstant(FightLimits.shock, "the shock spell"))"
         case .startMelee:
             await tap(FightLimits.interact)  // Attack on the bar is a toggle: pressed while swinging, it stops
             episode.meleeOn = true
@@ -359,7 +383,13 @@ final class LiveHost: FightHost {
 /// holds, not from constants. Throws (a HOLD) when a role is missing or the pointer was contested.
 let tooltipBox = CGRect(x: 2240, y: 900, width: 320, height: 340)  // bottom-right; a tooltip grows upwards
 
-func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [SkillRole]) async throws -> [SkillRole: UInt16] {
+/// The bar's role keys, and each filled slot's tooltip for the fight's skill cards (M3b).
+struct SkillBar {
+    let keys: [SkillRole: UInt16]
+    let slots: [(slot: String, skill: Skill)]
+}
+
+func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [SkillRole]) async throws -> SkillBar {
     let bounds = session.window.frame
     let routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds)
     var bar: [Skill?] = []
@@ -374,11 +404,28 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
         let skill = parseTooltip(lines)
         bar.append(skill)
         log.emit("skill_slot", ["key": key, "name": orNull(skill?.name), "role": orNull(skill.flatMap(role)?.rawValue),
-                                "cast_s": orNull(skill?.cast), "text": orNull(skill?.text), "t": hostNow()])
+                                "cast_s": orNull(skill?.cast), "rank": orNull(skill?.rank), "text": orNull(skill?.text), "t": hostNow()])
     }
     let (keys, problems) = assignRoles(bar, required: required)
     guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }
-    return keys
+    return SkillBar(keys: keys, slots: bar.enumerated().compactMap { i, skill in skill.map { (SkillHUD.names[i], $0) } })
+}
+
+/// The fight graph's tactics for this bar, when a fight graph was given; M3b's chains then run the fights.
+func fightTactics(_ path: String?, _ bar: SkillBar, _ log: Log) throws -> FightTactics? {
+    guard let path else { return nil }
+    let tactics = try FightTactics.load(URL(fileURLWithPath: path), bar: bar.slots, level: nil)
+    log.emit("fight_tactics", ["graph": tactics.graph.id, "chains": tactics.kit.chains.map(\.id),
+                               "cards": tactics.kit.cards.values.sorted { $0.slot < $1.slot }.map(\.json), "level": NSNull(), "t": hostNow()])
+    return tactics
+}
+
+/// Every Jev response a fight's records hold: one per legacy decision, one per graph call (M3b).
+func responses(_ records: [[String: Any]]) -> [[String: Any]] {
+    records.flatMap { record -> [[String: Any]] in
+        if let response = record["response"] as? [String: Any] { return [response] }
+        return (record["trace"] as? [[String: Any]] ?? []).compactMap { $0["response"] as? [String: Any] }
+    }
 }
 
 /// The owner, 23-24 Sept: zoomed out to the widest view by default. Holds F10 (Camera Zoom Out) on a
@@ -391,10 +438,15 @@ func zoomOut(_ keys: LiveKeys, _ log: Log) async {
     log.emit("zoomed_out", ["seconds": FightLimits.zoomSeconds, "t": hostNow()])
 }
 
-func fightDryRun() async throws -> Int32 {
+func fightDryRun(graph: String? = nil) async throws -> Int32 {
     let log = try Log(file: nil)
     let clock = FightClock(pace: 0.02)
     let world = SimFight(clock: clock)
+    let tactics = try graph.map { try FightTactics.load(URL(fileURLWithPath: $0), bar: simBar, level: nil) }
+    if tactics != nil {  // the creature closes after the first bolt and hits back; casts spend mana
+        world.closesAfterBolts = 1
+        world.spendsMana = true
+    }
     world.emitHandler = { event, fields in
         var row = fields
         row["t"] = clock.now()
@@ -403,17 +455,19 @@ func fightDryRun() async throws -> Int32 {
     let dummy = InputLease(profile: .wqe, sink: NoEffectSink(), clock: { clock.now() }, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { world.releaseAll() }, holding: { world.holdingKeys })
     // After the trap: a SIGINT sent on "start" must never fall between SIG_IGN and the handler.
-    log.emit("start", ["mode": "dry-run",
-                       "effects": "none: SimFight + ScriptedJev; no capture, OS input or network"])
+    log.emit("start", ["mode": "dry-run", "policy": tactics?.graph.id ?? "fight-legacy-v1",
+                       "effects": "none: SimFight + canned replies; no capture, OS input or network"])
     usleep(400_000)  // as M0's observer stall: a SIGINT sent on "start" lands before the loop ends, even on a slow runner
-    let result = await runFight(host: world, jev: ScriptedJev())
+    let result = tactics == nil ? await runFight(host: world, jev: ScriptedJev())
+        : await runFight(host: world, jev: ScriptedGraphJev.dryRun, tactics: tactics)
     withExtendedLifetime(signals) {}
     let summary: [String: Any] = [
         "outcome": result.outcome, "decisions": result.decisions, "jev_calls": result.jevCalls,
         "walked_ms": result.walkedMs, "turned_ms": result.turnedMs, "holding": result.holdingKeys,
         "latency_p50": latencyPercentile(result.latencies, 0.5),
         "latency_p95": latencyPercentile(result.latencies, 0.95),
-        "model_calls": result.jevCalls, "provider_calls": 0,
+        "model_calls": result.jevCalls, "provider_calls": 0, "policy": tactics?.graph.id ?? "fight-legacy-v1",
+        "chain_steps": result.chainSteps, "performed": world.performed.map(\.rawValue),
         "meaning": "proves the decision loop against a simulated fight, not WoW",
     ]
     log.emit("summary", summary)
@@ -421,7 +475,7 @@ func fightDryRun() async throws -> Int32 {
 }
 
 @MainActor
-func fightExecute() async throws -> Int32 {
+func fightExecute(graph: String? = nil) async throws -> Int32 {
     guard let apiKey = ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"], !apiKey.isEmpty else {
         throw ProbeError("TYPESAFE_API_KEY missing")
     }
@@ -443,7 +497,9 @@ func fightExecute() async throws -> Int32 {
     let warm = Task.detached { _ = ocr(first.image.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 100)) ?? first.image) }
     let sink = PidKeySink(pid: session.app.processIdentifier)
     _ = await warm.value
-    applyRoles(try await readSkillBar(session, feed, log, required: fightRoles))
+    let bar = try await readSkillBar(session, feed, log, required: fightRoles)
+    applyRoles(bar.keys)
+    let tactics = try fightTactics(graph, bar, log)
     let host = LiveHost(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
@@ -464,7 +520,7 @@ func fightExecute() async throws -> Int32 {
         "model": FightLimits.model,
     ]
     host.emit("start", ["run_id": run.id, "mode": "execute"])
-    let result = await runFight(host: host, jev: LiveJev(key: apiKey))
+    let result = await runFight(host: host, jev: LiveJev(key: apiKey), tactics: tactics)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
 
@@ -475,16 +531,16 @@ func fightExecute() async throws -> Int32 {
         }
     }
     var prompt = 0, completion = 0
-    for record in result.jevRecords {
-        if let response = record["response"] as? [String: Any] {
-            let used = tokenUsage(response)
-            prompt += used.prompt
-            completion += used.completion
-        }
+    for response in responses(result.jevRecords) {
+        let used = tokenUsage(response)
+        prompt += used.prompt
+        completion += used.completion
     }
     manifest["outcome"] = result.outcome
     manifest["decisions"] = result.decisions
     manifest["jev_calls"] = result.jevCalls
+    manifest["policy"] = tactics?.graph.id ?? "fight-legacy-v1"
+    manifest["chain_steps"] = result.chainSteps
     manifest["token_usage"] = ["prompt": prompt, "completion": completion, "total": prompt + completion]
     manifest["latency_s"] = ["p50": latencyPercentile(result.latencies, 0.5),
                              "p95": latencyPercentile(result.latencies, 0.95)]
@@ -514,8 +570,8 @@ struct M3Fight {
                 facts["schema"] = "m3-preflight/v1"
                 let data = try JSONSerialization.data(withJSONObject: facts, options: [.prettyPrinted, .sortedKeys])
                 FileHandle.standardOutput.write(data + Data([10]))
-            case .dryRun: exit(try await fightDryRun())
-            case .execute: exit(try await fightExecute())
+            case .dryRun: exit(try await fightDryRun(graph: command.graph))
+            case .execute: exit(try await fightExecute(graph: command.graph))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

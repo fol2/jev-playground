@@ -18,8 +18,8 @@ from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
 MIN_SEEK_CHECKS = 103  # the current count: removing a check must lower this on purpose
-MIN_FIGHT_CHECKS = 141  # the current count: removing a check must lower this on purpose
-MIN_NAV_CHECKS = 240  # the current count: removing a check must lower this on purpose
+MIN_FIGHT_CHECKS = 197  # the current count: removing a check must lower this on purpose
+MIN_NAV_CHECKS = 244  # the current count: removing a check must lower this on purpose
 LATE_MS = 100     # dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 CLICK = "experiments/001_wow_fishing/probes/background-click/"
 PERCEPTION = NAV + "perception.jsonl"  # the accepted readings of the perception regression set
@@ -43,7 +43,7 @@ def released(rows: list, pulses: int | None = None) -> None:
 
 def build(output: str, *sources: str, flags: tuple = ()) -> None:
     if FIGHT + "Fight.swift" in sources:
-        sources = (*sources, "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift",
+        sources = (*sources, FIGHT + "Tactics.swift", "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift",
                    "experiments/002_wow_visual/runtime/DecisionGraph.swift", "experiments/002_wow_visual/runtime/Experience.swift")
     # -j: the driver's own default ran one compiler job at a time; the jobs, not the output, change.
     subprocess.run(["swiftc", "-parse-as-library", "-j", str(os.cpu_count() or 1), *flags, *sources, "-o", output],
@@ -302,12 +302,24 @@ def main(update: bool = False):
 
         fight_checks = suite(fight_tests, "fight", MIN_FIGHT_CHECKS)
         refuses(fight, (["--bogus"], ["--dry-run", "x"], ["--execute"], ["--execute", "--keys", "arrows"],
-                        ["--execute", "--keys", "wqe", "extra"], ["--preflight", "extra"]))
+                        ["--execute", "--keys", "wqe", "extra"], ["--preflight", "extra"], ["--dry-run", "--graph"],
+                        ["--dry-run", "--keys", "wqe"], ["--execute", "--graph", "g.json"]))
         fight_dry = subprocess.run([fight, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         fight_rows = [json.loads(line) for line in fight_dry.stdout.splitlines() if line.strip()]
         fight_summary = fight_rows[-1] if fight_rows else {}
         if fight_summary.get("event") != "summary" or fight_summary.get("outcome") != "KILLED_AND_LOOTED":
             raise GateError("M3 dry-run did not reach KILLED_AND_LOOTED")
+        chain_dry = subprocess.run([fight, "--dry-run", "--graph", runtime + "skyborne-fight.graph.json"], cwd=ROOT, check=True,
+                                   capture_output=True, text=True, timeout=90)
+        chain_rows = [json.loads(line) for line in chain_dry.stdout.splitlines() if line.strip()]
+        chain_summary = chain_rows[-1] if chain_rows else {}
+        performed = chain_summary.get("performed", [])
+        if (chain_summary.get("outcome") != "KILLED_AND_LOOTED" or chain_summary.get("policy") != "skyborne-fight-v1"
+                or not chain_summary.get("chain_steps") or chain_summary.get("holding") is not False
+                or chain_summary.get("provider_calls") != 0 or "CAST_LIGHTNING_BOLT" not in performed
+                or "START_MELEE" not in performed or performed.index("CAST_LIGHTNING_BOLT") > performed.index("START_MELEE")
+                or chain_summary.get("decisions", 99) >= fight_summary.get("decisions", 0)):
+            raise GateError("M3b dry-run did not kill and loot through a chain, bolt before melee, in fewer Jev decisions")
         fight_trap()
         interrupted_dry([fight, "--dry-run"])
 
@@ -320,7 +332,8 @@ def main(update: bool = False):
                       ["--hunt-sim-jev", "x"], ["--hunt-dry-run", "--experience"],
                       ["--dry-run", "--experience", "/tmp/x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"],
                       ["--plan"], ["--quests", "--keys", "wqe"], ["--quests", "--graph", "g.json"],
-                      ["--quests", "--graph", "g.json", "--keys", "arrows"]))
+                      ["--quests", "--graph", "g.json", "--keys", "arrows"], ["--hunt-dry-run", "--fight-graph", "f.json"],
+                      ["--quests", "--graph", "g.json", "--keys", "wqe", "--fight-graph"]))
         nav_dry = subprocess.run([nav, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
         nav_rows = [json.loads(line) for line in nav_dry.stdout.splitlines() if line.strip()]
         nav_summary = nav_rows[-1] if nav_rows else {}
@@ -365,7 +378,7 @@ def main(update: bool = False):
     print(f"Experience: {experience_checks} checks. Decision graph: {graph_checks} checks and native tool/skill/recall dry-run passed. M0/M1/M3/M4 motor proof passed: {checks} + {seek_checks} + {fight_checks} + {nav_checks} fake-time checks, argument refusal, "
           f"release under a 400 ms observer stall (max {max(late, seek_late)} ms late), SIGINT release, the simulated "
           f"M1 loop ({summary['pulses_used']} pulses), the simulated M3 fight ({fight_summary.get('decisions')} "
-          f"decisions) and the simulated M4 walk ({nav_summary.get('decisions')} decisions); M3/M4 dry-run SIGINT stops the "
+          f"decisions; M3b's chains {chain_summary.get('decisions')} decisions and {chain_summary.get('chain_steps')} unasked steps) and the simulated M4 walk ({nav_summary.get('decisions')} decisions); M3/M4 dry-run SIGINT stops the "
           f"loop (130, holding false) with no OS keys; {seen}; zero capture, OS input or live model calls.")
 
 

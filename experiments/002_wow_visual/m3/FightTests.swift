@@ -30,6 +30,8 @@ struct FightTests {
         await watchdog()
         liveKeys()
         await sim()
+        tactics()
+        await chains()
         print("fight checks passed: \(checks)")
     }
 
@@ -200,14 +202,14 @@ struct FightTests {
         check(bar.map { $0?.name } == ["Attack", "Lightning Bolt", "Earth Shock", "Healing Wave", nil, nil, nil, "Rockbiter Weapon",
                                        "Skysight", "Walk on Air", "Refreshing Spring Water", "Tough Jerky"], "tooltip names, empty slots nil")
         check(bar[1]?.cast == 1.5 && bar[2]?.cast == nil && bar[8]?.cast == 0.5, "cast times; instant is nil")
-        check(bar.map { $0.flatMap(role) } == [.melee, .bolt, nil, .heal, nil, nil, nil, .buff, nil, nil, .drink, .food],
-              "roles: Earth Shock, Skysight and Walk on Air have none")
+        check(bar.map { $0.flatMap(role) } == [.melee, .bolt, .shock, .heal, nil, nil, nil, .buff, nil, nil, .drink, .food],
+              "roles: Earth Shock is the shock (instant damage with a cooldown); Skysight and Walk on Air have none")
         let (keys, problems) = assignRoles(bar)
         check(assignRoles(Array(bar.prefix(9)), required: fightRoles).problems.isEmpty,
               "a fight needs no food or drink on the bar")
         check(assignRoles(Array(bar.prefix(9))).problems == ["no drink skill on the bar", "no food skill on the bar"],
               "a hunt does")
-        check(problems.isEmpty && keys == [.melee: 18, .bolt: 19, .heal: 21, .buff: 28, .drink: 27, .food: 24],
+        check(problems.isEmpty && keys == [.melee: 18, .bolt: 19, .shock: 20, .heal: 21, .buff: 28, .drink: 27, .food: 24],
               "24 Sept bar: heal is key 4 and the enchant key 8, not the 23 Sept 3 and 4")
         check(assignRoles(bar.enumerated().map { $0.offset == 3 ? nil : $0.element }).problems == ["no heal skill on the bar"],
               "a missing heal holds a live run")
@@ -470,6 +472,194 @@ struct FightTests {
               "a well-typed non-admissible choice is JEV_STOP and never performed")
     }
 
+    static let knowledge = "experiments/002_wow_visual/learning/knowledge/"
+    static let fightGraph = URL(fileURLWithPath: "experiments/002_wow_visual/runtime/skyborne-fight.graph.json")
+
+    /// M3b's pure parts: the bar's cards, the chain book, a chain's steps and breaks, offers and numbers.
+    static func tactics() {
+        let bar = bar24Sept.map(parseTooltip)
+        check(bar[1]?.rank == 1 && bar[3]?.rank == 1 && bar[8]?.rank == nil, "a tooltip's rank is kept, before or after the name")
+        let slots = bar.enumerated().compactMap { i, skill in skill.map { (slot: SkillHUD.names[i], skill: $0) } }
+        guard let dictionary = try? SkillEntry.dictionary(String(contentsOfFile: knowledge + "shaman-skills.jsonl", encoding: .utf8)),
+              let book = try? FightChain.book(String(contentsOfFile: knowledge + "fight-chains.jsonl", encoding: .utf8)) else {
+            return check(false, "the skills dictionary and the chain book load")
+        }
+        check(dictionary.count == 44 && book.count == 5, "the dictionary's 44 rows and the book's 5 chains load")
+        let kit = FightKit(bar: slots, dictionary: dictionary, book: book, className: "shaman", level: nil)
+        let shock = kit.cards[.shock], bolt = kit.cards[.bolt]
+        check(Set(kit.cards.keys) == [.melee, .bolt, .shock, .heal, .buff, .drink, .food] && shock?.slot == "3" && bolt?.slot == "2",
+              "each role's card comes from its first slot on the bar")
+        check(bolt?.mana == 15 && bolt?.range == 30 && bolt?.cooldown == nil && shock?.mana == 30 && shock?.range == 20
+              && shock?.cooldown == 6 && shock?.learnedAt == 4, "numbers from the live tooltip; the level learned from the dictionary")
+        check(bolt?.note?.contains("14 to 17") == true, "the dictionary's disagreement with the live tooltip reaches the card")
+        check(tooltipNumber("2 min cooldown", #"([0-9.]+) min cooldown"#) == 2, "minutes are read too")
+        check(kit.chains.map(\.id) == ["bolt-pull-melee", "melee-to-kill", "bolt-to-kill", "shock-melee"],
+              "only accepted chains are offered, in book order: the candidate waits for review")
+        check(FightKit(bar: slots, dictionary: dictionary, book: book, className: "shaman", level: 12).chains.map(\.id)
+              == ["bolt-pull-melee", "melee-to-kill", "shock-melee"], "a chain outside its levels is left out")
+        check(FightKit(bar: slots.filter { $0.skill.name != "Earth Shock" }, dictionary: dictionary, book: book, className: "shaman",
+                       level: nil).chains.allSatisfy { !$0.requires.contains("shock") }, "a chain needing a skill not on the bar is left out")
+        check(FightKit(bar: slots, dictionary: dictionary, book: book, className: "warrior", level: 6).chains.isEmpty,
+              "another class's book rows are not this one's")
+        let row = #"{"id":"x","class":"shaman","levels":[1,20],"requires":["bolt"],"steps":[{"do":"bolt","until":"dead"}],"summary":"s","source":"t","status":"accepted"}"#
+        check((try? FightChain.book(row))?.count == 1, "a well-formed chain loads")
+        for bad in [row + "\n" + row, row.replacingOccurrences(of: #""until":"dead""#, with: #""until":"soon""#),
+                    row.replacingOccurrences(of: #"["bolt"]"#, with: #"["totem"]"#), row.replacingOccurrences(of: "[1,20]", with: "[20,1]"),
+                    row.replacingOccurrences(of: #"[{"do":"bolt","until":"dead"}]"#, with: "[]"),
+                    row.replacingOccurrences(of: #""do":"bolt""#, with: #""do":"fireball""#),
+                    row.replacingOccurrences(of: "accepted", with: "promoted")] {
+            check(fails { _ = try FightChain.book(bad) }, "a malformed chain book is refused at load: \(bad.prefix(60))")
+        }
+
+        var e = Episode()
+        let melee = FightChain.Step(skill: "melee", until: "dead", max: nil)
+        check(stepAction(melee, e) == .startMelee, "a melee step presses Interact With Target once")
+        e.meleeOn = true
+        check(stepAction(melee, e) == .wait, "then waits while the swings land")
+
+        let pull = kit.chains[0]
+        var run = ChainRun(pull, at: 0, health: 1)
+        var a = Obs(), b = Obs()
+        a.player = 1; a.target = 1; b.player = 1; b.target = 0.7
+        run.observe(before: a, after: b, killed: false)
+        check(run.stage == 0 && run.uses == 1, "a bolt that lands with no hit taken: the creature has not arrived")
+        run.observe(before: a, after: b, killed: false)
+        check(run.stage == 1, "at most two bolts: then melee, even unhit")
+        var hitRun = ChainRun(pull, at: 0, health: 1)
+        b.player = 0.9
+        hitRun.observe(before: a, after: b, killed: false)
+        check(hitRun.stage == 1, "a hit on the character is contact: melee next")
+        var dead = ChainRun(pull, at: 0, health: 1)
+        dead.observe(before: a, after: b, killed: true)
+        check(dead.step == nil, "a kill ends the chain")
+        var closing = ChainRun(kit.chains[3], at: 0, health: 1)  // shock-melee: melee until contact first
+        b.player = 1
+        closing.observe(before: a, after: b, killed: false)
+        check(closing.stage == 1, "for melee, the creature losing health to the swings is contact too")
+
+        var o = Obs()
+        o.player = 1; o.target = 0.8; o.combat = true
+        let fresh = ChainRun(pull, at: 0, health: 1)
+        let allowed = admissible(o, Episode(), kit: kit, now: 0)
+        check(chainBreak(fresh, o, Episode(), allowed: allowed, lastResult: "episode start", now: 1) == nil,
+              "a fresh chain whose step can be done runs without a call")
+        var ran = fresh
+        ran.ran = 1
+        check(chainBreak(ran, o, Episode(), allowed: allowed, lastResult: "Lightning Bolt did not start (key released)", now: 1)?
+              .contains("did not work") == true, "a failed step returns the chain to Jev")
+        check(chainBreak(fresh, o, Episode(), allowed: allowed, lastResult: "Lightning Bolt did not start (key released)", now: 1) == nil,
+              "but not a failure from before the chain began")
+        var far = o
+        far.rangeRed = true
+        check(chainBreak(fresh, far, Episode(), allowed: admissible(far, Episode(), kit: kit), lastResult: "", now: 1)?
+              .contains("out of Lightning Bolt range") == true, "a step that cannot be done now returns it, saying why")
+        var hurt = o
+        hurt.player = 0.75
+        check(chainBreak(fresh, hurt, Episode(), allowed: allowed, lastResult: "", now: 1)?.contains("lost 25%") == true,
+              "a fast health loss returns it")
+        check(chainBreak(fresh, o, Episode(), allowed: allowed, lastResult: "", now: ChainLimits.checkIn)?.hasPrefix("check-in") == true,
+              "and so does the check-in")
+        var low = o
+        low.player = 0.2; low.mana = 0.5
+        check(chainBreak(fresh, low, Episode(), allowed: admissible(low, Episode(), kit: kit), lastResult: "", now: 1)?
+              .contains("healing comes first") == true, "below 30% in combat the safety rule outranks any chain")
+        var killed = Episode()
+        killed.killed = true
+        check(chainBreak(fresh, o, killed, allowed: allowed, lastResult: "", now: 1)?.contains("target died") == true, "a kill returns it")
+
+        check(allowed.contains(.castShock) && !admissible(o, Episode()).contains(.castShock),
+              "the shock is offered with the bar's kit, never to the legacy policy")
+        var shocked = Episode()
+        shocked.lastShock = 10
+        check(!admissible(o, shocked, kit: kit, now: 15).contains(.castShock) && admissible(o, shocked, kit: kit, now: 16).contains(.castShock),
+              "the shock's 6 s cooldown, from its tooltip, is respected")
+        var shortRange = o
+        shortRange.shockRangeRed = true
+        check(!admissible(shortRange, Episode(), kit: kit).contains(.castShock), "its hotkey digit red: out of shock range")
+
+        let offers = fightOffers(o, Episode(), allowed: allowed, kit: kit, running: nil)
+        check(offers.filter { $0.chain != nil }.map(\.name) == ["CHAIN_1", "CHAIN_2", "CHAIN_3", "CHAIN_4"] && !offers.contains { $0.name == "CONTINUE" },
+              "four chain slots, and no CONTINUE without a running chain")
+        check(Set(offers.compactMap(\.action)) == Set(allowed), "every admissible skill is offered on its own too")
+        check(offers.first { $0.name == "CAST_SHOCK" }?.text.contains("Earth Shock rank 1: 30 mana, instant, 20 yd, 6 s cooldown") == true,
+              "a single skill's offer states its live tooltip numbers")
+        let farOffers = fightOffers(far, Episode(), allowed: admissible(far, Episode(), kit: kit), kit: kit, running: fresh)
+        check(!farOffers.contains { $0.name == "CONTINUE" } && !farOffers.contains { $0.chain?.steps[0].skill == "bolt" },
+              "out of bolt range: no CONTINUE into a bolt, and no chain that starts with one")
+        check(fightOffers(o, Episode(), allowed: allowed, kit: kit, running: fresh).first?.name == "CONTINUE",
+              "a running chain whose next step can be done offers CONTINUE")
+
+        var tally = FightTally()
+        var before = Obs(), after = Obs()
+        before.target = 1; before.mana = 1; after.target = 0.7; after.mana = 0.93
+        tally.record(.castLightningBolt, before: before, after: after, seconds: 2, meleeOn: false)
+        tally.record(.castLightningBolt, before: before, after: after, seconds: 2, meleeOn: false)
+        after.stamp = ObservationStamp(stream: "s", geometry: "g", capturedAt: 1, target: "another")
+        tally.record(.castLightningBolt, before: before, after: after, seconds: 2, meleeOn: false)
+        var now = Obs()
+        now.target = 0.4; now.mana = 0.86; now.player = 1
+        let calc = fightCalculations(now, Episode(), kit: kit, tally: tally, now: 5)
+        let boltRow = (calc["skills"] as? [String: Any])?["CAST_LIGHTNING_BOLT"] as? [String: Any]
+        check(boltRow?["uses_this_fight"] as? Int == 2, "a step on a different target cue is not counted")
+        check(boltRow?["target_percent_per_use"] as? Int == 30 && boltRow?["mana_percent_per_use"] as? Int == 7
+              && boltRow?["uses_affordable"] as? Int == 12 && boltRow?["uses_to_kill"] as? Int == 2,
+              "per use: 30% of the target and 7% mana, so 12 affordable and 2 to kill")
+        let shockRow = (calc["skills"] as? [String: Any])?["CAST_SHOCK"] as? [String: Any]
+        check(shockRow?["uses_this_fight"] as? Int == 0 && shockRow?["target_percent_per_use"] is NSNull,
+              "a skill not yet used this fight has no measured effect: null, not a guess")
+    }
+
+    /// M3b fights in SimFight through the real fight graph, with canned graph replies.
+    static func chains() async {
+        guard let tactics = try? FightTactics.load(fightGraph, bar: simBar, level: nil) else {
+            return check(false, "the fight graph and its data files load")
+        }
+        check(tactics.graph.id == "skyborne-fight-v1" && tactics.kit.chains.count == 4 && tactics.references["mechanics"] != nil
+              && tactics.references["owner_fighting"] != nil, "the fight graph names its dictionary, chain book and references")
+        func world(closes: Int? = 1, hit: Double = 0.05, scale: Double = 1) -> SimFight {
+            let w = SimFight(clock: FightClock())
+            w.closesAfterBolts = closes; w.hitPerStep = hit; w.spendsMana = true; w.damageScale = scale
+            return w
+        }
+        let plain = world()
+        let legacy = await runFight(host: world(), jev: ScriptedJev())
+        let fought = await runFight(host: plain, jev: ScriptedGraphJev.dryRun, tactics: tactics)
+        check(fought.outcome == "KILLED_AND_LOOTED" && !fought.holdingKeys && plain.down.isEmpty,
+              "a chain fight kills and loots with every key released")
+        check(fought.chainSteps >= 3 && fought.decisions < legacy.decisions,
+              "its chain ran steps without a call: fewer Jev decisions than the legacy policy in the same world")
+        let bolt = plain.performed.firstIndex(of: .castLightningBolt), melee = plain.performed.firstIndex(of: .startMelee)
+        check(bolt != nil && melee != nil && bolt! < melee!, "bolt-pull-melee: melee once the creature reached the character")
+        check(fought.jevRecords.contains { ($0["asked_because"] as? String)?.contains("target died") == true },
+              "the kill returned the chain to Jev, which chose the loot")
+        let chosen = fought.jevRecords.compactMap { $0["chosen"] as? String }
+        check(chosen.contains("CHAIN_1") && chosen.last == "LOOT_CORPSE", "Jev chose the chain and the loot")
+
+        let bruiser = world(hit: 0.12)
+        let broke = await runFight(host: bruiser, jev: HealOnceJev(), tactics: tactics)
+        check(broke.jevRecords.contains { ($0["asked_because"] as? String)?.contains("health since the last decision") == true
+                  && $0["chosen"] as? String == "HEAL" }, "a fast health loss broke the chain, and Jev chose to heal")
+        check(broke.outcome == "KILLED_AND_LOOTED", "and the fight went on to the kill")
+
+        let tough = world(closes: nil, scale: 0.15)
+        let long = await runFight(host: tough, jev: ScriptedGraphJev.dryRun, tactics: tactics)
+        check(long.jevRecords.contains { ($0["asked_because"] as? String)?.hasPrefix("check-in") == true && $0["chosen"] as? String == "CONTINUE" },
+              "a long chain checks in, and Jev can go on with it")
+
+        let crusher = world(hit: 0.3)
+        let saved = await runFight(host: crusher, jev: ScriptedGraphJev.dryRun, tactics: tactics)
+        check(saved.jevRecords.contains { ($0["asked_because"] as? String)?.contains("healing comes first") == true
+                  && $0["offers"] as? [String] == ["HEAL"] }, "below 30% in combat only HEAL is offered, whatever the chain")
+
+        let nonsense = world()
+        let invalid = await runFight(host: nonsense, jev: ReplyJev(choice: "DO:NOT_OFFERED"), tactics: tactics)
+        check(invalid.outcome == "JEV_STOP" && nonsense.performed.isEmpty && !invalid.holdingKeys,
+              "a reply naming nothing offered is JEV_STOP, and nothing is done")
+        let down = world()
+        let err = await runFight(host: down, jev: ThrowingJev(), tactics: tactics)
+        check(err.outcome == "JEV_ERROR" && down.performed.isEmpty, "a throwing client is JEV_ERROR in a chain fight too")
+    }
+
     static func watchdog() async {
         var grant = HeldKey(code: FightLimits.bolt, until: 0)
         grant.refresh(now: 0)
@@ -635,6 +825,19 @@ final class FailUpSink: KeySink {
 struct ThrowingJev: JevClient {
     func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
         throw ProbeError("jev down")
+    }
+}
+
+/// The dry-run's replies, except that the first time HEAL is offered it is chosen: Jev breaking a chain.
+final class HealOnceJev: JevClient {
+    var healed = false
+    func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
+        let offered = (question["criteria"] as? [String: Any] ?? [:]).keys
+        if !healed && offered.contains("DO:HEAL") {
+            healed = true
+            return try await ScriptedGraphJev(preference: ["DO:HEAL"]).ask(state: state, question: question)
+        }
+        return try await ScriptedGraphJev.dryRun.ask(state: state, question: question)
     }
 }
 

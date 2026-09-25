@@ -1,0 +1,23 @@
+{
+  "id": "skyborne-fight-v1",
+  "profile": "WoW Forever / Skyborne Shaman: one creature at a time with the skills on the bar, levels 1-20. Chains come from the chain book's accepted rows for the class, the level when read, and the bar; a chain's steps run without a call until a break. Several attackers, totems and kiting are NOT built here.",
+  "class": "shaman",
+  "dictionary": "../learning/knowledge/shaman-skills.jsonl",
+  "chains": "../learning/knowledge/fight-chains.jsonl",
+  "root": "fight",
+  "nodes": {
+    "fight": {
+      "question": "Choose the next step of this fight toward `goal`. A chain runs its steps without asking again until a break: the character loses health fast, a step fails or cannot be done, the target dies, or a check-in; `chain` says why you are asked now. CONTINUE goes on with the running chain. A single skill is one step, for control of your own. `calculations` holds what each skill has done in this fight, measured from the frames. You may first read the bar's skills, the combat mechanics, the owner's fighting rules or this fight's steps. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
+      "skills": ["CONTINUE", "CHAIN_1", "CHAIN_2", "CHAIN_3", "CHAIN_4", "BUFF_WEAPON", "SELECT_TARGET", "FACE_TARGET",
+                 "APPROACH_TO_RANGE", "CAST_LIGHTNING_BOLT", "CAST_SHOCK", "START_MELEE", "HEAL", "LOOT_CORPSE", "WAIT", "STOP"],
+      "branches": {},
+      "reads": ["skills", "mechanics", "owner_fighting", "recent"]
+    }
+  },
+  "resources": {
+    "skills": {"summary": "Read the skills on this character's bar: each one's live tooltip, its mana, cast time, range and cooldown, the level it is learned at, and where the skills dictionary's sources disagree with the tooltip.", "keys": ["skills"]},
+    "mechanics": {"summary": "Read the combat mechanics a fight turns on: global cooldown, pushback, instant spells, range digits, facing, speed, mana, misses, fleeing and leashing, each marked live or source claim.", "file": "../learning/knowledge/combat-mechanics.md", "heading": "## Planner facts"},
+    "owner_fighting": {"summary": "Read the owner's direct instructions for fighting: buff, pull, melee, low health, tagged creatures and plates.", "file": "../learning/knowledge/owner-rules.md", "heading": "## Fighting"},
+    "recent": {"summary": "Read this fight's steps so far, who chose each (JEV or CHAIN) and what happened. History, not proof of the present.", "keys": ["recent_steps"]}
+  }
+}

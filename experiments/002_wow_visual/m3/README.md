@@ -17,6 +17,7 @@ bounded skills and stops on safety rules. The owner supervises every live episod
 | File | Role | Proof |
 |---|---|---|
 | `Fight.swift` | Pure core: HUD detectors, `Obs`, `Episode`, admissibility, state packet, question, reply validation, `SimFight`, `ScriptedJev`, `runFight` | `FightTests.swift` |
+| `Tactics.swift` | M3b: the bar's skill cards, the chain book, a chain's steps and breaks, offers and calculations | `FightTests.swift` |
 | `FightProbe.swift` | Native shell: capture, keys, held-key watchdog, background loot click, Vision OCR, Jev HTTP, run files | `--dry-run` and argument refusals in `tools/motor_offline.py` |
 | `FightTests.swift` | Counted offline checks on synthetic frames, rules, rejections and a simulated episode | Focus Gate `motor-offline` |
 
@@ -165,6 +166,56 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.
 
+## M3b — Jev chooses chains, and breaks them
+
+The owner, 25 Sept: the fight should be Jev's to decide and improve, with a dictionary of the skills,
+the prepared calculations and the true state of the fight; flat, or one or two levels; "not every move
+needs JEV. but JEV can decide to break the chain"; the chain can differ by level, preset "from online
+or from our experience" or customised, changed outside the fight; "in the fight, jev can also choose
+specific skill ... if jev want micro-control". With `--graph runtime/skyborne-fight.graph.json` a fight
+runs this way; without it, the legacy flat policy above runs unchanged.
+
+- **One flat node.** Each decision offers up to four chains (`CHAIN_1`-`CHAIN_4`), every admissible
+  single skill, and `CONTINUE` while a running chain's next step can be done. Jev may first read the
+  bar's skills, `learning/knowledge/combat-mechanics.md`, the owner's `## Fighting` rules or this fight's
+  steps: at most two calls a decision, within the fight's 4 s decision deadline.
+- **A chain runs without calls.** Its steps (a role: bolt, shock, melee, heal, buff, face, approach,
+  wait) each run until a condition holds: `once`, `contact` (a hit on the character, or for melee the
+  creature losing health to the swings) or `dead`, with an optional cap. The script asks Jev again at
+  a break: health below 30% in combat (then only HEAL is offered, as before), the target dead, a step
+  that failed or cannot be done now (out of range, the shock cooling down), 20% health lost since Jev
+  last chose, or an 8 s check-in. Every step, Jev's or the chain's, goes through the same freshness,
+  admissibility and owner checks; a rejected step drops the chain.
+- **The chain book** (`learning/knowledge/fight-chains.jsonl`) holds each chain's class, levels, the
+  roles it needs, its steps and its source. Only `accepted` rows that fit the class, the level (when
+  read) and the bar are offered: the owner's bolt-pull-melee, melee-to-kill, bolt-to-kill (levels
+  1-10) and the guides' shock-melee. `bolt-pull-shock-melee` is a `candidate`, not offered. A chain is
+  added or changed outside any fight: a reviewed change to the book is its promotion.
+- **The bar's cards.** The tooltips read at the start give each skill's rank, mana, cast, range and
+  cooldown; `learning/knowledge/shaman-skills.jsonl` (44 rows for levels 1-20, from a web search on
+  25 Sept, client build 1.60.1.70009) adds the level it is learned at and where its sources disagree
+  with a live tooltip (Lightning Bolt 14-17 live against 15-17, Earth Shock 17-20 against 19-22,
+  Rockbiter +45 against +49, on client 1.60.1.69977). The tooltip wins.
+- **The shock.** An instant damage spell with a cooldown on the bar is now a role (Earth Shock on the
+  24 Sept bar). It is offered while its own hotkey digit is white and its tooltip cooldown has run,
+  and the live shell waits out a cast in flight, taps it once, and reads its mana drop or a new red
+  error. The perception set gained the shock digit: 11 saved frames read it red.
+- **Calculations.** Measured from the frames, per skill: uses this fight, the target's and the mana's
+  percentage change per use, uses affordable and uses to kill; melee's target percentage per second;
+  the shock's time to ready; the character's health lost per second since combat began. A value no
+  frame has shown yet is null, never a guess.
+- **Quest runs read the bar.** A quest run's fight back (M4i) pressed the default keys: the 23 Sept
+  bar's heal on key 3 (Earth Shock by 24 Sept) and buff on key 4 (Healing Wave). `--quests` now reads
+  the tooltips first, as a hunt does. `--quests` and `--hunt` take `--fight-graph PATH`.
+
+Proof, simulation only: 56 new fight checks (197). In SimFight the chain fight kills and loots in 5
+Jev decisions and 3 unasked steps, against 8 decisions for the legacy policy; a fast health loss breaks
+a chain and Jev can heal; a long fight checks in and Jev can go on; below 30% only HEAL is offered;
+an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/motor_offline.py` runs the chain
+dry-run in the gate. Not built: reading the character's level (the portrait badge defeats Vision OCR;
+the portrait's tooltip is next) and the frame's absolute health and mana numbers; fight experience
+that proposes candidate chains; several attackers. Nothing here has run live.
+
 ## Reproduce
 
 ```sh
@@ -174,13 +225,15 @@ python3 -m tools.motor_offline   # builds and checks M0, M1/M2 and M3 with no li
 ```sh
 V=experiments/002_wow_visual
 C=experiments/001_wow_fishing/probes/background-click
-swiftc -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/FightTests.swift $V/runtime/Runtime.swift $V/runtime/Input.swift \
-  -o /tmp/fight-tests && /tmp/fight-tests
+R="$V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift"
+swiftc -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightTests.swift $R \
+  -o /tmp/fight-tests && /tmp/fight-tests   # from the repo root: the checks load the fight graph and its files
 swiftc -O -parse-as-library -D SEEK -D FIGHT $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift \
-  $V/m1/Plate.swift $V/m1/SeekProbe.swift $V/m3/Fight.swift $V/m3/FightProbe.swift $V/runtime/Runtime.swift $V/runtime/Input.swift \
+  $V/m1/Plate.swift $V/m1/SeekProbe.swift $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightProbe.swift $R \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift -o /tmp/m3-fight
 /tmp/m3-fight --preflight   # JSON facts only
 /tmp/m3-fight --dry-run     # SimFight + a scripted chooser: no capture, input or network
+/tmp/m3-fight --dry-run --graph $V/runtime/skyborne-fight.graph.json   # M3b's chains, canned graph replies
 ```
 
 `--execute --keys wqe` runs a live episode. It needs the owner's current authority, WoW running
