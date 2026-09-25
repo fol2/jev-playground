@@ -196,10 +196,31 @@ final class QuestRun {
 
     enum Page { case wanted([TipLine]), other([TipLine]), failed(String) }
 
+    /// After a right-click, Click-to-Move walks to the NPC and the dialogue opens on arrival: the box is read
+    /// until a panel shows or the character has stood still (live, 25 Sept: a fixed 2.5 s read Dalia's box
+    /// mid-walk). nil: attacked on the way, which is a walk's combat (M4i).
+    func arrive() async -> [TipLine]? {
+        var track: [(t: Double, at: MapPoint?)] = []
+        let start = hostNow()
+        var seen: [TipLine] = []
+        while hostNow() - start < QuestLimits.clickWalk {
+            await sleep(QuestLimits.clickPoll)
+            guard let image = await frame() else { continue }
+            seen = lines(QuestHUD.dialog, image)
+            if panelOpen(seen) { break }
+            // The portrait ring is read even when the coordinates are not (a name can cover them).
+            if observe(rgba(image), plates: false).combat { return nil }
+            track.append((hostNow(), readCoords(image).at))
+            if stoodStill(track, for: QuestLimits.standStill) { break }
+        }
+        body.emit("click_walk", ["seconds": hostNow() - start, "panel": panelOpen(seen)])
+        return seen
+    }
+
     /// Right-click the NPCs under the quest marks in view, nearest the centre first, at most three, until
     /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
     /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
-    /// only when one is open: Esc with nothing open is the Game Menu.
+    /// only when a panel is open: Esc with nothing open is the Game Menu.
     func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
         guard let image = await frame() else { return (nil, "NO_FRESH_FRAME") }
         var marks = questMarks(rgba(image), box: QuestHUD.world)
@@ -211,15 +232,15 @@ final class QuestRun {
         for _ in 0..<3 {
             guard let mark = marks.first else { break }
             guard click(mark.x, mark.body, right: true) else { return (nil, "CLICK_FAILED") }
-            await sleep(2.5)
+            guard let arrived = await arrive() else { return (nil, "WALK_COMBAT") }
             let seen: [TipLine]
-            switch await page(lines(QuestHUD.dialog, await frame())) {
+            switch await page(arrived) {
             case .wanted(let dialog): return (dialog, nil)
             case .failed(let code): return (nil, code)
             case .other(let dialog): seen = dialog
             }
-            body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": seen.prefix(4).map(\.text)])
-            if !seen.isEmpty {  // someone else's: close it and try the next mark
+            body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": seen.prefix(4).map(\.text), "panel": panelOpen(seen)])
+            if panelOpen(seen) {  // someone else's: close it and try the next mark
                 await tap(QuestHUD.escape)
                 await sleep(0.8)
                 marks.removeFirst()
@@ -351,15 +372,15 @@ final class QuestRun {
 final class LiveQuestHost: QuestHost {
     let quester: QuestRun
     let key: String
-    let newWalker: () -> LiveNavBody
+    let newWalker: (URL) -> LiveNavBody  // each walk's frames in its own folder, as a fight's
     let newFighter: (URL, LiveKeys) -> LiveHost  // M3's host on a child key set, its frames in the folder
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
-    private var fights = 0
+    private var fights = 0, walks = 0
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
-    init(quester: QuestRun, key: String, newWalker: @escaping () -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
+    init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
          tactics: FightTactics? = nil) {
         self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter; self.tactics = tactics
     }
@@ -372,10 +393,13 @@ final class LiveQuestHost: QuestHost {
         lock.withLock { fighting }?.releaseAll()
     }
 
-    /// Attacked on a walk: one M3 episode, in combat, on a child of the walk's key set, as the hunt's fights.
+    /// Attacked on a walk: one M3 episode, in combat, on a child of the run's own key set, as the hunt's
+    /// fights. Not the walk's: runNav's exit sweep has retired it, and no child can be taken from it (the
+    /// 25 Sept review; M4i had not run live). The run's set only taps, and stays active until the run ends.
     /// A fight that ends with keys held stays tracked for the exit sweep, and its handoff fails the run.
     func fightBack() async -> String {
-        guard let parent = walker else { return "NO_WALK_KEYS" }
+        guard walker?.holding != true else { return "WALK_KEYS_HELD" }
+        let parent = quester.body
         fights += 1
         let folder = quester.body.directory.appendingPathComponent(String(format: "fight%d", fights))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -405,7 +429,10 @@ final class LiveQuestHost: QuestHost {
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
         if walker?.holding == true { return "WALK_KEYS_HELD" }
-        let legs = newWalker()
+        walks += 1
+        let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let legs = newWalker(folder)
         walker = legs
         let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
                                   destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
@@ -470,7 +497,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     let tactics = try fightTactics(fightGraph, bar, log)
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
-                             newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log) },
+                             newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: $0, log: log) },
                              newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) },
                              tactics: tactics)
     defer { body.releaseAll(); host.releaseAll() }

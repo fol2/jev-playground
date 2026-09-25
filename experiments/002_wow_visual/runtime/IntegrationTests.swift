@@ -46,6 +46,20 @@ struct ChangedDuringRequest<A: JevAction>: JevClient {
         next.releaseAll()
         check(!root.resume(after: next) && !next.press(19), "owner stop is irreversible")
 
+        // A quest run's fight back (M4i): a finished walk's set is retired by its exit sweep, so the fight's
+        // keys come from the run's own set, which only taps and lives until the run ends.
+        let questPad = SimPad(), walk = LiveKeys(sink: questPad, releaseCodes: [13], clock: clock.now)
+        let run = LiveKeys(sink: questPad, releaseCodes: [53], clock: clock.now)
+        walk.press(13)
+        walk.releaseAll()
+        let fightKeys = run.takeChild(releaseCodes: [19])
+        check(walk.takeChild(releaseCodes: [19]) == nil && fightKeys != nil && questPad.pressed.isEmpty,
+              "a fight back takes its keys from the run's set; a finished walk's hands over nothing")
+        fightKeys!.press(19)
+        fightKeys!.releaseAll()
+        check(run.resume(after: fightKeys!) && run.press(53), "the run's set taps again after the fight")
+        run.releaseAll()
+
         let failedPad = SimPad(), failed = LiveKeys(sink: failedPad, releaseCodes: [13], clock: clock.now)
         failed.press(13)
         failedPad.failUps = Limits.releaseAttempts
