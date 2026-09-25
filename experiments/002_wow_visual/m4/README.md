@@ -291,8 +291,17 @@ Every step is a script (controller RULE); there is no Jev call.
    fixed size, a tall one's sits 1.7-2.4 heights below (25 Sept: at the owner's zoom a 33 px "?" had
    its name 54-63 px below, and the hand-in read `NO_QUEST_MARK_IN_VIEW`). Calibrated zoomed fully out, where the "?" is small and dim, so
    the test is the hue (the camera has stayed at the owner's closer zoom since 25 Sept). A neutral
-   nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click 68 px below the mark: with Click-to-Move the character walks to the NPC and
-   opens the dialogue.
+   nameplate bar is flat and a glowing Cirrusfly has no green name. Right-click the NPC's body,
+   2.4 mark heights below its name: with Click-to-Move the character walks to the NPC and opens the
+   dialogue. The dialogue box is read every 0.5 s until a panel's own button shows, or until the
+   position has read the same for 2 s, at most 15 s. Attacked on the way, the step ends
+   `WALK_COMBAT` and the run fights back (M4i). Another NPC's panel is closed with Esc, and only a
+   panel: text in the box without a button is the world behind it.
+   - 25 Sept, live `--quests` run 3: both hand-ins read `DIALOGUE_NOT_OPEN`. The box was read at a
+     fixed 2.5 s. Dalia's right-click was still walking her way; a vendor's green name had come into
+     the box as the camera turned, was taken for her dialogue, and Esc was pressed. The character
+     ended beside Dalia. Ventaari's right-click targeted him, but the walk had ended wedged between
+     two standing stones and Click-to-Move did not move (not fixed here).
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a
@@ -456,7 +465,7 @@ aggressives, intentionally or unintentionally". A quest walk attacked on the way
 with its keys released, leaving the character standing under attack. Now `WALK_COMBAT` hands over at once
 to one M3 fight in combat (controller SAFETY, no quest-graph call: in combat the only choice is to fight
 back, as in the hunt). The fight's own decisions are Jev's, on a child of the walk's key set, its frames
-in `fightN/`. A kill lets the run go on, and the interrupted step may be offered again; any other outcome,
+in `fightN/` (and each walk's in `walkN/`: run 3 of 25 Sept overwrote its first walk's frames with the second's). A kill lets the run go on, and the interrupted step may be offered again; any other outcome,
 Jev's STOP included, ends the run as `FIGHT_<outcome>`. Unlike the hunt, M3 cannot select an attacker
 behind the character (Tab looks ahead), so walking on after a STOP would only be attacked again. The exit
 sweep and the key check cover the fight's keys as well as the walk's. 2 nav checks replace "combat ends

@@ -231,6 +231,23 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
     dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
 }
 
+/// A panel is open when the box holds one of a panel's own buttons, a whole line. The world shows through
+/// the box when nothing is open (live, 25 Sept: a vendor's green name and title, after Click-to-Move had
+/// turned the camera, were taken for her dialogue, and Esc was pressed; Esc with nothing open is the Game Menu).
+let panelButtons: Set<String> = ["Accept", "Decline", "Complete Quest", "Continue", "Cancel", "Goodbye"]
+func panelOpen(_ lines: [TipLine]) -> Bool {
+    lines.contains { panelButtons.contains($0.text.trimmingCharacters(in: .whitespaces)) }
+}
+
+/// Whether the position has read the same for `window` seconds. The coordinates step by 0.1 and a walk
+/// covers about 0.12 units a second (live, 25 Sept), so a walking character changes them within a second.
+/// An unreadable position is never still.
+func stoodStill(_ track: [(t: Double, at: MapPoint?)], for window: Double) -> Bool {
+    guard let last = track.last, let here = last.at else { return false }
+    let same = track.reversed().prefix { $0.at.map { $0 == here } ?? false }
+    return last.t - same.last!.t >= window
+}
+
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
 /// zone is road travel, which is not built (live, 24 Sept: with the hub's two hand-ins unread, the nearest
 /// zone was Shen'dar, 20 units south, and the walk ran for a cliff).
@@ -369,6 +386,10 @@ enum QuestLimits {
     static let maxSteps = 8
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
+    // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a
+    // panel opens or the character has stood still for `standStill` s (two coordinate steps at walking pace).
+    // `clickWalk` bounds the wait: 3 units, 15 s of running, beyond the walk's 0.5 and a pin's error.
+    static let clickPoll = 0.5, standStill = 2.0, clickWalk = 15.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]

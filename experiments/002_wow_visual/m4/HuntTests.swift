@@ -536,6 +536,17 @@ extension NavTests {
         let offered = tip([("Accept the Windstones from Boros", 30, 200), ("Accept", 40, 690), ("Decline", 280, 690)])
         check(acceptButton(offered)?.y == 690 && acceptButton(tip([("Accept the Windstones", 30, 200), ("Goodbye", 40, 690)])) == nil,
               "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
+        // Live, 25 Sept: with nothing open, a vendor's name in the world beside the box was read as her dialogue.
+        check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
+              && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),
+              "a panel is open only when one of its buttons is read, never a name in the world behind the box")
+        let walking: [(t: Double, at: MapPoint?)] = [(0, (43.1, 23.9)), (0.5, (43.1, 23.9)), (1.0, (43.2, 23.9)), (1.5, (43.2, 23.9)), (2.0, (43.3, 24.0))]
+        let stopped = walking + [(2.5, (43.3, 24.0)), (3.0, (43.3, 24.0)), (3.5, (43.3, 24.0)), (4.0, (43.3, 24.0))]
+        check(!stoodStill(walking, for: 2) && stoodStill(stopped, for: 2) && !stoodStill(Array(stopped.dropLast()), for: 2),
+              "Click-to-Move has ended once the position reads the same for the whole window")
+        check(!stoodStill([(0, nil), (1, nil), (2, nil), (3, nil)], for: 2)
+              && !stoodStill([(0, (43.3, 24.0)), (1, nil), (2, (43.3, 24.0)), (2.5, (43.3, 24.0))], for: 2) && !stoodStill([], for: 2),
+              "an unreadable position is never still, and it breaks the window")
         plans()
     }
 

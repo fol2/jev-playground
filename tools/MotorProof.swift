@@ -7,12 +7,12 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 208  // the current count: removing a check must lower this on purpose
-let minNavChecks = 257  // the current count: removing a check must lower this on purpose
+let minNavChecks = 260  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
 let perceptionFile = navDir + "perception.jsonl"  // the accepted readings of the perception regression set
-let minPerceptionFrames = 2416  // the current count: dropping frames from the set must lower this on purpose
+let minPerceptionFrames = 2424  // the current count: dropping frames from the set must lower this on purpose
 
 /// Exactly one "NAME checks passed: N" line, with N at least `minimum`.
 func counted(_ output: String, _ name: String = "motor", _ minimum: Int = minChecks, label: String = "checks passed") throws -> Int {
