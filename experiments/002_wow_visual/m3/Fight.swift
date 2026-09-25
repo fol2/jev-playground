@@ -20,11 +20,12 @@ enum HUD {
     static let castX0 = 1172, castX1 = 1388, castY0 = 1165, castY1 = 1173  // 24 Sept: the swing timer pushed it up 36 px
     static let castFillY = 1169, castFillSpan = 216, castTrackMin = 300
     /// The bolt slot's hotkey digit: dark-red when Lightning Bolt is out of range (x for key 2; applyRoles moves it).
-    static var rangeX0 = 708, rangeX1 = 734
+    /// The digit's own columns only: the slot's left edge, which a held key lights orange, read as red.
+    static var rangeX0 = 716, rangeX1 = 732
     static let rangeY0 = 1270, rangeY1 = 1292, rangeMin = 4
     /// The shock slot's hotkey digit, read the same way (the owner, 23 Sept: each spell's digit gives a range band);
     /// x for key 3, Earth Shock's slot since 24 Sept (on the 23 Sept bar key 3 was Healing Wave).
-    static var shockRangeX0 = 758, shockRangeX1 = 784
+    static var shockRangeX0 = 766, shockRangeX1 = 782
     /// Weapon-buff icon: green glow on the top-right buff row.
     static let buffX0 = 2215, buffX1 = 2300, buffY0 = 30, buffY1 = 75, buffMin = 100
     /// Red error text: the floating red game-error line.
@@ -1082,11 +1083,11 @@ func applyRoles(_ keys: [SkillRole: UInt16]) {
     FightLimits.buff = keys[.buff] ?? FightLimits.buff
     FightLimits.shock = keys[.shock] ?? FightLimits.shock
     if let i = SkillHUD.keys.firstIndex(of: FightLimits.bolt) {
-        HUD.rangeX0 = 708 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
-        HUD.rangeX1 = HUD.rangeX0 + 26
+        HUD.rangeX0 = 716 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
+        HUD.rangeX1 = HUD.rangeX0 + 16
     }
     if let i = SkillHUD.keys.firstIndex(of: FightLimits.shock) {
-        HUD.shockRangeX0 = 708 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
-        HUD.shockRangeX1 = HUD.shockRangeX0 + 26
+        HUD.shockRangeX0 = 716 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
+        HUD.shockRangeX1 = HUD.shockRangeX0 + 16
     }
 }

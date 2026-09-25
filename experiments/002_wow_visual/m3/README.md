@@ -222,9 +222,16 @@ a melee step until contact waits for the swings to land before shock-melee's sho
 an unoffered reply is JEV_STOP and a throwing client JEV_ERROR. `tools/motor_offline.py` runs the chain
 dry-run in the gate. Not built: reading the character's level (the portrait badge defeats Vision OCR;
 the portrait's tooltip is next) and the frame's absolute health and mana numbers; fight experience
-that proposes candidate chains; several attackers. Found, not fixed here: the bolt's digit box takes
-in the held key's highlight at the icon's edge, which reads as red (20 frames of 24 Sept mid-cast, the
-Earth Shock digit white); a chain's second bolt then breaks to Jev. Nothing here has run live.
+that proposes candidate chains; several attackers. Nothing here has run live.
+
+**Range digits read the digit alone (25 Sept).** The bolt's digit box took in the slot's left edge,
+which a held key lights orange, and read it as red: mid-cast, with the bolt plainly in range, the
+fight saw it out of range (one 24 Sept fight walked in on it), and a chain's second bolt would have
+broken to Jev. Both digit boxes now cover the digit's own 16 columns. On the perception set 77 frames
+stop reading the bolt out of range, all checked by eye, the "2" white on each: 74 with the key held
+(one of them with no target), 3 with neither (two under the low-health tint). On 24 Sept the bolt
+now reads out of range on exactly the 9 frames whose "2" is red by eye, and never while the shock
+(20 yd) reads in range. One more fight check (208). Proof: offline, on saved frames.
 
 ## Reproduce
 
