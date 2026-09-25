@@ -223,6 +223,92 @@ func nameplates(_ image: RGBA) -> [PlateBar] {
     }
 }
 
+/// A hostile creature's name drawn without a plate: red text with a dark outline. The owner's UI shows
+/// these beyond plate range (a plate's name is white), so one ahead is danger not yet reached. The owner,
+/// 24 Sept: "the time you see plate means they are already in your danger zone". Capture pixels.
+struct RedName: Equatable {
+    var x0: Int, x1: Int, y0: Int, y1: Int
+    var centre: Double { Double(x0 + x1) / 2 }
+}
+
+enum RedNameScan {
+    static let cell = 8, hot = 4, bridge = 2  // cells with 4 red pixels; letters up to 2 cells apart join
+    static let width = 24...360, maxHeight = 32, minPixels = 40
+    static let maxFill = 0.5, solid = 0.85, maxSolidRows = 2  // a plate bar is solid; text is strokes
+    static let maxMeanRun = 6.0, maxTextRows = 16, outline = 0.85, reach = 2
+    static func red(_ r: Int, _ g: Int, _ b: Int) -> Bool { r >= 100 && r - g >= 55 && r - b >= 55 && g - b <= r / 6 && b - g <= 25 }
+    static func dark(_ r: Int, _ g: Int, _ b: Int) -> Bool { r + g + b < 135 }
+}
+
+/// Every red name in the game view: cells of red whose green stays near its blue (orange wings and the
+/// Juvenile Vuldren's red-brown fur have green well above blue) joined along a line, thin, made of short
+/// strokes, nearly every red pixel within 2 px of the dark outline. Replayed on 975 saved frames: README M4h.
+func redNames(_ image: RGBA) -> [RedName] {
+    let w = image.width, h = image.height, s = RedNameScan.self
+    guard image.pixels.count == w * h * 4 else { return [] }
+    let top = Int(PlateScan.rows.lowerBound * Double(h)), rows = Int(PlateScan.rows.upperBound * Double(h)) - top
+    let cols = Int(PlateScan.columns * Double(w)), cw = cols / s.cell, ch = rows / s.cell
+    return image.pixels.withUnsafeBufferPointer { p -> [RedName] in
+        func px(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+            let i = ((y + top) * w + x) * 4
+            return (Int(p[i]), Int(p[i + 1]), Int(p[i + 2]))
+        }
+        var mask = [Bool](repeating: false, count: rows * cols)
+        var count = [Int](repeating: 0, count: cw * ch)
+        for y in 0..<ch * s.cell {
+            for x in 0..<cw * s.cell {
+                let (r, g, b) = px(x, y)
+                if s.red(r, g, b) { mask[y * cols + x] = true; count[(y / s.cell) * cw + x / s.cell] += 1 }
+            }
+        }
+        var seen = [Bool](repeating: false, count: cw * ch)
+        var names: [RedName] = []
+        for start in 0..<cw * ch where count[start] >= s.hot && !seen[start] {
+            var stack = [start], cells: [Int] = []
+            seen[start] = true
+            while let c = stack.popLast() {
+                cells.append(c)
+                for dy in -1...1 {
+                    for dx in -s.bridge...s.bridge {
+                        let cy = c / cw + dy, cx = c % cw + dx, n = cy * cw + cx
+                        if cy >= 0, cy < ch, cx >= 0, cx < cw, count[n] >= s.hot, !seen[n] { seen[n] = true; stack.append(n) }
+                    }
+                }
+            }
+            let x0 = cells.map { $0 % cw }.min()! * s.cell, x1 = (cells.map { $0 % cw }.max()! + 1) * s.cell
+            let y0 = cells.map { $0 / cw }.min()! * s.cell, y1 = (cells.map { $0 / cw }.max()! + 1) * s.cell
+            guard s.width.contains(x1 - x0), y1 - y0 <= s.maxHeight else { continue }
+            var n = 0, solidRows = 0, runs = 0, first = Int.max, last = -1, outlined = 0
+            for y in y0..<y1 {
+                var inRow = 0, run = 0
+                for x in x0..<x1 {
+                    if mask[y * cols + x] {
+                        inRow += 1; run += 1
+                        let near = (max(0, y - s.reach)...min(rows - 1, y + s.reach)).contains { yy in
+                            (max(0, x - s.reach)...min(cols - 1, x + s.reach)).contains { xx in let (r, g, b) = px(xx, yy); return s.dark(r, g, b) }
+                        }
+                        if near { outlined += 1 }
+                    } else if run > 0 { runs += 1; run = 0 }
+                }
+                if run > 0 { runs += 1 }
+                if inRow > 0 { first = min(first, y); last = y }
+                if Double(inRow) >= s.solid * Double(x1 - x0) { solidRows += 1 }
+                n += inRow
+            }
+            guard n >= s.minPixels, Double(n) <= s.maxFill * Double((x1 - x0) * (y1 - y0)), solidRows <= s.maxSolidRows,
+                  Double(n) / Double(runs) <= s.maxMeanRun, last - first + 1 <= s.maxTextRows,
+                  Double(outlined) >= s.outline * Double(n) else { continue }
+            names.append(RedName(x0: x0, x1: x1, y0: y0 + top, y1: y1 + top))
+        }
+        return names
+    }
+}
+
+/// The compass bearing of a point in the game view: the facing plus its angle off the view's centre.
+func viewBearing(_ x: Double, facing: Double, width: Int) -> Double {
+    (facing + (x / Double(width) - 0.5) * HuntLimits.viewDegrees + 360).truncatingRemainder(dividingBy: 360)
+}
+
 /// A creature whose nameplate was in view: its name, colour, compass bearing (facing plus the plate's
 /// angle off the view's centre) and whether it stood low in view, which means near.
 struct Seen: Equatable {
@@ -233,8 +319,7 @@ struct Seen: Equatable {
 }
 
 func sighting(_ bar: PlateBar, name: String, facing: Double, width: Int, height: Int) -> Seen {
-    let off = (bar.centre / Double(width) - 0.5) * HuntLimits.viewDegrees
-    return Seen(name: name, hostile: bar.hostile, bearing: (facing + off + 360).truncatingRemainder(dividingBy: 360),
+    return Seen(name: name, hostile: bar.hostile, bearing: viewBearing(bar.centre, facing: facing, width: width),
                 near: Double(bar.y0) / Double(height) > HuntLimits.nearRow)
 }
 

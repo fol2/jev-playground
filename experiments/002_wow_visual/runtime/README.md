@@ -177,7 +177,7 @@ specialist decisions -> native skills -> new evidence. Add branches only when an
 actual tool and meaningful task observation exist:
 
 - Quest types: hunt, interact, collect, escort, puzzles and quest-specific references.
-  Hunt is connected. Quest hand-ins and quests from a minimap "!" giver, within one walk, are connected through [the quest graph](skyborne-quest.graph.json) (M4f, M4g); kill/collect/use-at quests and zone travel are not.
+  Hunt is connected. Quest hand-ins and quests from a minimap "!" giver, within one walk, are connected through [the quest graph](skyborne-quest.graph.json) (M4f, M4g), with a RETREAT after a walk stops for a red name ahead (M4h); kill/collect/use-at quests and zone travel are not.
 - Travel: route selection, local approach, obstacle recovery and location-specific
   references. Existing calibrated walks are connected; bridge/cliff geometry is NOT solved.
 - Combat: tactical choices, learned abilities, movement, adds, buffs/debuffs and party

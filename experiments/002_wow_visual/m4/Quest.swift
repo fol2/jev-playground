@@ -341,6 +341,7 @@ protocol QuestHost: AnyObject {
     func readQuests() async -> QuestRead?  // nil: the position was unreadable
     func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
+    func retreat() async -> String  // walk back to where the last walk began; RETREATED or a WALK_ outcome
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -354,29 +355,33 @@ enum QuestLimits {
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
 }
 
-/// A step local code can run here: a hand-in or a quest to take.
+/// A step local code can run here: a hand-in, a quest to take, or a way back from danger (M4h).
 enum QuestStep {
     case handIn(PlannedQuest)
     case accept(Giver)
+    case retreat
     var name: String {
         switch self {
         case .handIn(let q): return q.title
         case .accept(let g): return g.names.first.map { "\"!\" \($0)" } ?? "\"!\" at \(g.key)"
+        case .retreat: return "retreat"
         }
     }
     var key: String {  // what a failure is remembered by
         switch self {
         case .handIn(let q): return q.title
         case .accept(let g): return "!" + g.key
+        case .retreat: return "RETREAT"
         }
     }
 }
 
 /// The steps local code offers, none already failed this run and each within one walk of the player:
 /// hand-ins for quests a hand-in can finish (ready, or a delivery to someone), in the owner's order; then
-/// the minimap's "!" givers, nearest first (the owner: always accept quests). Kill, collect and use-at
-/// quests have no skill in this graph yet and are not offered.
-func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, step: QuestStep, criterion: String)] {
+/// the minimap's "!" givers, nearest first (the owner: always accept quests). After a walk stopped for a
+/// red name ahead, RETREAT comes first (the owner: survive first). Kill, collect and use-at quests have no
+/// skill in this graph yet and are not offered.
+func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -> [(skill: String, step: QuestStep, criterion: String)] {
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
         [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
@@ -392,7 +397,9 @@ func questOffers(_ read: QuestRead, failed: Set<String>) -> [(skill: String, ste
         ("ACCEPT_\(i + 1)", QuestStep.accept(g), "Walk to the quest giver shown by a \"!\" on the minimap (\(away(g.pin)) units away; its tooltip read "
             + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
     }
-    return handIns + accepts
+    let back = danger && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
+        + "a hostile creature's red name came into view ahead of it.")] : []
+    return back + handIns + accepts
 }
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
@@ -419,7 +426,8 @@ struct QuestResult {
 
 /// Read, offer, let Jev choose, run, and read again: a hand-in changes the log. A walk that stops for
 /// combat, health, the owner or the HUD ends the run; the second NO_PROGRESS ends it (the run envelope).
-/// A failed hand-in is not offered again this run. There is no rules fallback when Jev fails.
+/// A walk that stops for a red name ahead fails only its step, and RETREAT is offered next. A failed step
+/// is not offered again this run. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
@@ -433,7 +441,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let offers = questOffers(read, failed: failed)
+        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD")
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel].contains(questKind($0)) && !failed.contains($0.title) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -454,14 +462,15 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
         case .accept(let g): outcome = await host.accept(g)
+        case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
-        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { continue }
+        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "RETREATED" { continue }
         failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {
             stuck += 1
             if stuck >= 2 { return finish("NO_PROGRESS_TWICE") }
-        } else if outcome.hasPrefix("WALK_") {
+        } else if outcome.hasPrefix("WALK_") && outcome != "WALK_DANGER_AHEAD" {  // danger: the step is not offered again
             return finish(outcome)
         }
     }

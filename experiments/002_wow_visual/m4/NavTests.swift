@@ -272,6 +272,21 @@ struct NavTests {
         let turns = blind.keys.codesPosted.filter { $0 != FightLimits.forward }
         check(turns.count == 1 && !blind.keys.holding, "unreadable frames stop the steering after one pulse, not a spin")
 
+        let nest = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        nest.hostiles = [(40, 27)]  // 3 units north, on the way
+        let warned = await walk(nest, .goToward, from: nest.look()!, to: d)
+        check(warned.warned && warned.moved < 0.2 && !nest.keys.holding, "a red name ahead ends the move at once, with W lifted")
+        let passing = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        passing.hostiles = [(41.3, 27)]  // in view, 33° off the way (x counts 1.5 times)
+        let passed = await walk(passing, .goToward, from: passing.look()!, to: d)
+        check(!passing.look()!.warnings.isEmpty && !passed.warned && passed.moved > 0.3,
+              "a red name in view but more than 30° off the way does not stop the walk")
+        let wary = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        wary.hostiles = [(40, 27)]
+        let stopped = await runNav(body: wary, jev: scripted(), destination: d)
+        check(stopped.outcome == "DANGER_AHEAD" && stopped.decisions == 1 && stopped.runtime?.status == .blocked && !wary.keys.holding,
+              "runNav ends DANGER_AHEAD after the move a red name stopped: a walk never goes on into it")
+
         let swept = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
         swept.keys.releaseAll()
         let before = swept.keys.codesPosted.count

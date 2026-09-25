@@ -39,6 +39,7 @@ enum NavLimits {
     static let headingTolerance = 25.0
     static let unreadableLimit = 6
     static let recentMoves = 6
+    static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
     static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, 36, 8, 37, 53]  // M4c/d: Enter, C (character pane), L (map), Esc
 }
@@ -164,6 +165,7 @@ struct NavObs: Equatable {
     var facing: Double
     var combat = false
     var player = 1.0
+    var warnings: [Double] = []  // compass bearings of red names in view (M4h); the hunt's body reads none
     var point: MapPoint { (x, y) }
 }
 
@@ -225,6 +227,7 @@ struct NavAttempt {
     var after: Double
     var blocked = false
     var arrived = false
+    var warned = false  // a red name came into view ahead
     var moved: Double { distance(from.point, to.point) }
 
     var json: [String: Any] {
@@ -311,7 +314,7 @@ extension NavBody {
 
 /// One bounded move: steer by Q/E pulses with W held, re-aiming at the destination each tick for
 /// GO_TOWARD or holding the move's fixed heading otherwise, until its time is up, arrival, a block
-/// (W held for blockedWindow with less than blockedMoved of movement), or an unsafe frame. A move that
+/// (W held for blockedWindow with less than blockedMoved of movement), a red name ahead, or an unsafe frame. A move that
 /// ran its full time leaves W held under its watchdog grant, so the next move continues without a stop.
 func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDestination) async -> NavAttempt {
     let forward = FightLimits.forward
@@ -355,6 +358,9 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
         here = o
         if o.combat || o.player < FightLimits.playerSafety || body.ownerTookFocus() { ranOut = false; break }
         if distance(o.point, d.point) < d.arrive { attempt.arrived = true; ranOut = false; break }
+        if o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
+            attempt.warned = true; ranOut = false; break
+        }
         let now = body.now()
         if body.keys.isDown(forward) { trail.append((now, o.point)) } else { trail.removeAll() }
         if let old = trail.last(where: { now - $0.t >= NavLimits.blockedWindow }) {
@@ -488,8 +494,10 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         let attempt = await walk(body, choice.action, from: current!, to: d)
         result.episode.record(attempt)
         record["attempt"] = attempt.json
+        if attempt.warned { record["danger_ahead"] = attempt.to.warnings.map { Int($0.rounded()) } }
         result.records.append(record)
         body.emit("decision", record)
+        if attempt.warned { result.end = attempt.to; return finish("DANGER_AHEAD") }  // never walk on into it
     }
 }
 
@@ -534,6 +542,8 @@ final class SimNav: NavBody {
     var boxes: [Box]
     var combat = false
     var player = 1.0
+    var hostiles: [MapPoint] = []  // red names, seen within nameRange and the view
+    static let nameRange = 4.0
     var unreadable = false
     var missEvery = 0  // every n-th look is unreadable
     private var looks = 0
@@ -557,8 +567,10 @@ final class SimNav: NavBody {
     func look() -> NavObs? {
         looks += 1
         guard !unreadable, missEvery == 0 || looks % missEvery != 0 else { return nil }
+        let warnings = hostiles.filter { distance((x, y), $0) <= SimNav.nameRange }.map { bearing(from: (x, y), to: $0) }
+            .filter { abs(angleError($0, facing)) <= HuntLimits.viewDegrees / 2 }
         return NavObs(stamp: ObservationStamp(stream: "sim-nav", geometry: "sim-layout", capturedAt: now()),
-                      x: roundTo(x, 10), y: roundTo(y, 10), facing: facing.rounded(), combat: combat, player: player)
+                      x: roundTo(x, 10), y: roundTo(y, 10), facing: facing.rounded(), combat: combat, player: player, warnings: warnings)
     }
 
     /// Integrates in 0.05 s steps; the watchdog is swept after each, as the live 0.2 s timer would.
