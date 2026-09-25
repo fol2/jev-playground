@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from tools.sdlc import MOTOR, SEEK, FIGHT, NAV, LEARN, ROOT, GateError
 
 MIN_CHECKS = 100  # the suite must not silently lose its cases
@@ -40,7 +41,19 @@ def build(output: str, *sources: str, flags: tuple = ()) -> None:
     if FIGHT + "Fight.swift" in sources:
         sources = (*sources, "experiments/002_wow_visual/runtime/Runtime.swift", "experiments/002_wow_visual/runtime/Input.swift",
                    "experiments/002_wow_visual/runtime/DecisionGraph.swift", "experiments/002_wow_visual/runtime/Experience.swift")
-    subprocess.run(["swiftc", "-parse-as-library", *flags, *sources, "-o", output], cwd=ROOT, check=True, timeout=300)
+    # -j: the driver's own default ran one compiler job at a time; the jobs, not the output, change.
+    subprocess.run(["swiftc", "-parse-as-library", "-j", str(os.cpu_count() or 1), *flags, *sources, "-o", output],
+                   cwd=ROOT, check=True, timeout=300)
+
+
+def build_all(builds: dict) -> None:
+    """Every binary at once: the builds are independent. The -O builds, then the larger ones, start first
+    because they take longest; the order changes only when each starts, never what is built. The checks
+    run after all of them, on an idle machine: the dry-runs time their key-ups."""
+    order = sorted(builds, key=lambda out: (-("-O" in builds[out][1]), -len(builds[out][0])))
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+        for job in [pool.submit(build, out, *builds[out][0], flags=builds[out][1]) for out in order]:
+            job.result()
 
 
 def suite(binary: str, name: str, minimum: int) -> int:
@@ -149,33 +162,46 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         runtime = "experiments/002_wow_visual/runtime/"
         core_tests = str(Path(tmp, "runtime-tests"))
-        build(core_tests, runtime + "Runtime.swift", runtime + "RuntimeTests.swift")
-        suite(core_tests, "runtime", 33)
         experience_tests = str(Path(tmp, "experience-tests"))
-        build(experience_tests, runtime + "Experience.swift", runtime + "ExperienceTests.swift")
-        experience_checks = suite(experience_tests, "experience", 34)
         integration = str(Path(tmp, "integration-tests"))
-        build(integration, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift",
-              NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "IntegrationTests.swift")
-        suite(integration, "runtime integration", 41)
         graph_tests = str(Path(tmp, "graph-tests"))
-        build(graph_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift",
-              NAV + "Nav.swift", NAV + "Hunt.swift", NAV + "Quest.swift", runtime + "GraphTests.swift")
-        graph_checks = suite(graph_tests, "decision graph", 56)
         tests, probe = str(Path(tmp, "motor-tests")), str(Path(tmp, "m0-probe"))
+        fight_tests, fight = str(Path(tmp, "fight-tests")), str(Path(tmp, "m3-fight"))
+        nav_tests, nav = str(Path(tmp, "nav-tests")), str(Path(tmp, "m4-nav"))
+        memory_file = str(Path(tmp, "hunt-experience.json"))
         seek_tests, seek = str(Path(tmp, "seek-tests")), str(Path(tmp, "m1-seek"))
-        build(tests, MOTOR + "Motor.swift", MOTOR + "MotorTests.swift")
+        fight_sources = (MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift")
+        nav_sources = fight_sources + (NAV + "Nav.swift", NAV + "Hunt.swift", NAV + "Quest.swift")
+        seek_shell = (MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekProbe.swift")
+        clicks = (CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift", CLICK + "NativeBackgroundClickTransport.swift")
+        build_all({
+            core_tests: ((runtime + "Runtime.swift", runtime + "RuntimeTests.swift"), ()),
+            experience_tests: ((runtime + "Experience.swift", runtime + "ExperienceTests.swift"), ()),
+            integration: (nav_sources + (runtime + "IntegrationTests.swift",), ()),
+            graph_tests: (nav_sources + (runtime + "GraphTests.swift",), ()),
+            tests: ((MOTOR + "Motor.swift", MOTOR + "MotorTests.swift"), ()),
+            probe: ((MOTOR + "Motor.swift", MOTOR + "Probe.swift"), ()),
+            seek_tests: ((MOTOR + "Motor.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekTests.swift"), ()),
+            seek: (seek_shell, ("-O", "-D", "SEEK")),
+            fight_tests: (fight_sources + (FIGHT + "FightTests.swift",), ()),
+            fight: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift") + clicks, ("-O", "-D", "SEEK", "-D", "FIGHT")),
+            nav_tests: (fight_sources + (NAV + "Nav.swift", NAV + "NavTests.swift", NAV + "Hunt.swift", NAV + "HuntTests.swift",
+                                         NAV + "Quest.swift"), ()),
+            nav: (seek_shell + (FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
+                                NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift") + clicks,
+                  ("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV")),
+        })
+        suite(core_tests, "runtime", 33)
+        experience_checks = suite(experience_tests, "experience", 34)
+        suite(integration, "runtime integration", 41)
+        graph_checks = suite(graph_tests, "decision graph", 56)
         checks = suite(tests, "motor", MIN_CHECKS)
-        build(probe, MOTOR + "Motor.swift", MOTOR + "Probe.swift")
         refuses(probe, (["--bogus"], ["--execute"], ["--execute", "--keys", "arrows"], ["--execute", "turn-left:100"],
                         ["--execute", "--keys", "arrows", "turn-left:300"], ["--release"], ["--preflight", "extra"]))
         _, late = on_time(probe, 6)
         interrupted([probe, "--dry-run", "forward:200"])
 
-        build(seek_tests, MOTOR + "Motor.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekTests.swift")
         seek_checks = suite(seek_tests, "seek", MIN_SEEK_CHECKS)
-        build(seek, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift", SEEK + "SeekProbe.swift",
-              flags=("-O", "-D", "SEEK"))
         refuses(seek, (["--bogus"], ["--dry-run", "x"], ["--look", "x"], ["--execute"],
                        ["--execute", "--keys", "wqe", "--look", "f.png"], ["--execute", "--keys", "wqe", "--box", "1,1,20,20"],
                        ["--execute", "--keys", "wqe", "--look", "f.png", "--box", "1,1,20,20", "--stop-growth", "9"],
@@ -186,14 +212,7 @@ def main():
             raise GateError("M1 dry-run did not reach the simulated visible stop")
         interrupted([seek, "--dry-run"])
 
-        fight_tests, fight = str(Path(tmp, "fight-tests")), str(Path(tmp, "m3-fight"))
-        build(fight_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", FIGHT + "FightTests.swift")
         fight_checks = suite(fight_tests, "fight", MIN_FIGHT_CHECKS)
-        build(fight, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift",
-              SEEK + "SeekProbe.swift", FIGHT + "Fight.swift", FIGHT + "FightProbe.swift",
-              CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift",
-              CLICK + "NativeBackgroundClickTransport.swift",
-              flags=("-O", "-D", "SEEK", "-D", "FIGHT"))
         refuses(fight, (["--bogus"], ["--dry-run", "x"], ["--execute"], ["--execute", "--keys", "arrows"],
                         ["--execute", "--keys", "wqe", "extra"], ["--preflight", "extra"]))
         fight_dry = subprocess.run([fight, "--dry-run"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
@@ -204,16 +223,7 @@ def main():
         fight_trap()
         interrupted_dry([fight, "--dry-run"])
 
-        nav_tests, nav = str(Path(tmp, "nav-tests")), str(Path(tmp, "m4-nav"))
-        build(nav_tests, MOTOR + "Motor.swift", SEEK + "Plate.swift", FIGHT + "Fight.swift", NAV + "Nav.swift", NAV + "NavTests.swift",
-              NAV + "Hunt.swift", NAV + "HuntTests.swift", NAV + "Quest.swift")
         nav_checks = suite(nav_tests, "nav", MIN_NAV_CHECKS)
-        build(nav, MOTOR + "Motor.swift", MOTOR + "Probe.swift", SEEK + "Seek.swift", SEEK + "Plate.swift",
-              SEEK + "SeekProbe.swift", FIGHT + "Fight.swift", FIGHT + "FightProbe.swift", NAV + "Nav.swift", NAV + "NavProbe.swift",
-              NAV + "Hunt.swift", NAV + "HuntProbe.swift", NAV + "Quest.swift", NAV + "QuestProbe.swift",
-              CLICK + "Adapter.swift", CLICK + "NativeWindowServerPreparation.swift",
-              CLICK + "NativeBackgroundClickTransport.swift",
-              flags=("-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"))
         refuses(nav, (["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--sim-jev"],
                       ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
                       ["--execute", "--keys", "arrows", "--to", "47.1,21.8"], ["--execute", "--keys", "wqe", "--to", "47.1"],
@@ -235,7 +245,6 @@ def main():
         if (hunt_summary.get("event") != "summary" or not hunt_summary.get("fights")
                 or hunt_summary.get("holding") is not False or hunt_summary.get("provider_calls") != 0):
             raise GateError("M4 hunt dry-run did not fight with keys released and no provider call")
-        memory_file = str(Path(tmp, "hunt-experience.json"))
         graph_dry = subprocess.run([nav, "--hunt-dry-run", "--graph", runtime + "skyborne-hunt.graph.json",
                                     "--experience", memory_file],
                                    cwd=ROOT, check=True, capture_output=True, text=True, timeout=90)
