@@ -48,7 +48,7 @@ saved frames (runs/002_wow_visual, private) -> m5-perceive --propose -> candidat
 |---|---|---|
 | `Marks.swift` | Pure: candidate glyphs (`markWarm`, `markCandidates`), the teacher's crop, the run split, the score | `MarksTests.swift` |
 | `PerceiveTool.swift` | `m5-perceive`: `--propose` (frames on stdin), `--sheet N`, `--sheet-held N`, `--audit FILE`, `--baseline` | argument refusal in `tools/MotorProof.swift` |
-| `Teacher.swift` | `m5-teach`: one crop, one fresh on-device session, a guided answer (`exclamation`, `question`, `none`); `--eval SET` | built, never run by the proof |
+| `Teacher.swift` | `m5-teach`: one crop, one fresh on-device session, a guided answer (`exclamation`, `question`, `none`); `--eval SET` | built; the proof checks it refuses bad arguments before any model call |
 
 - **Candidates cast wide.** Solid warm parts, yellow to orange, each joined with a dot under it.
   - Recall matters here, not precision: the teacher says what each one is.
@@ -105,6 +105,8 @@ The set is 91 crops, all checked by eye by the author, and kept in `runs/`.
   shape is right more often. Example images made it worse.
 - `fm-marks-v2` is the description-first prompt. It uses greedy sampling (the same crop gets the same
   verdict) and a description of at most eight words.
+  - Greedy sampling can loop, repeating the description until the context is full. That stalled a run for
+    minutes on one crop, so an answer is cut at 60 tokens, and a cut answer is kept as `refused`.
   - On the set it found 29 of 31 marks, each of the right kind, with 8 false marks, in 97 s (about 1 s a
     crop).
   - `m5-teach --eval SET` reruns this measure for any prompt.
@@ -112,12 +114,17 @@ The set is 91 crops, all checked by eye by the author, and kept in `runs/`.
 - So the teacher is a wide first filter, not the truth. The labels the detector learns from are audited:
   - `m5-perceive --sheet N` shows the teacher's marks and refusals first.
   - The author checks each sheet by eye, and `--audit FILE` records the corrections.
-  - `--baseline` uses an audited label wherever there is one.
+  - `--baseline` scores against audited labels only, and only on frames whose candidates are all audited.
 
 ### Every candidate audited, and the two readers scored (26 Sept)
 
-The author checked all 1813 candidates of 866 frames (92 runs) by eye on contact sheets, zooming in where a
+The author checked all 2158 candidates of 866 frames (92 runs) by eye on contact sheets, zooming in where a
 glyph was a few pixels high. Far marks were labelled by their shape: a round hook is a "?", a wedge is a "!".
+
+The first audit covered 1813 candidates. The review of this change then found that the text filter could drop
+three marks standing in a row, so a line of text became a chain of letters no further apart than their height.
+That added 427 candidates, all audited: none was a mark. 82 left the set, none a mark: settings text and grass
+past the cap of 40 a frame.
 
 - 76 are quest marks: 55 "?" and 21 "!".
   - They are over Rorian, Windshaper Boro, Ventaari Brightwish, Dalia the Collector and Ailee Farheart.
@@ -129,12 +136,12 @@ glyph was a few pixels high. Far marks were labelled by their shape: a round hoo
 
 | Reader | Hits | False marks | Missed | Precision | Recall |
 |---|---|---|---|---|---|
-| Teacher (`fm-marks-v2`), per candidate | 35 | 122 | 41 | 0.22 | 0.46 |
+| Teacher (`fm-marks-v2`), per candidate | 35 | 237 | 41 | 0.13 | 0.46 |
 | Rule reader (`questMarks`), training runs | 65 | 11 | 3 | 0.86 | 0.96 |
 | Rule reader, held-out runs | 5 | 0 | 3 | 1.00 | 0.62 |
 
 - **The teacher is not good enough to label alone.** On real candidates it found fewer than half the marks, and
-  most of what it called a mark was not one.
+  most of what it called a mark was not one. Every mark it found was of the right kind.
   - The hand-checked set above overstated it: that set held clear marks and hand-picked negatives.
   - Every label the detector learns from must be audited. The teacher saves no audit time here.
 - **The rule reader looks strong, but the numbers flatter it.**

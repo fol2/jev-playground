@@ -55,7 +55,7 @@ func fitted(_ image: CGImage, longest: Int) -> CGImage {
 func teach(_ crop: CGImage) async throws -> String {
     let crop = fitted(crop, longest: 400)  // a crop past about 400 px overflowed the 8k context (26 Sept)
     let session = LanguageModelSession(instructions: "You label crops of World of Warcraft screenshots.")
-    let reply = try await session.respond(generating: MarkVerdict.self, options: GenerationOptions(samplingMode: .greedy)) {  // the same crop, the same verdict
+    let reply = try await session.respond(generating: MarkVerdict.self, options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 60)) {  // the same crop, the same verdict; a greedy loop is cut short
         "Near the top centre of this crop is a small yellow or orange shape. Is it a quest mark floating above a "
             + "character's head: an exclamation mark (!) or a question mark (?)? Answer none if it is anything else: "
             + "a flame, a lamp, a flower, grass, an insect, a spell effect, a number, text, a nameplate, or part of the interface."
