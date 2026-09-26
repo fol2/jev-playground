@@ -93,7 +93,7 @@ The first prompt (`fm-marks-v1`) asked for the kind alone.
 The set is 91 crops, all checked by eye by the author, and kept in `runs/`.
 - 31 are real marks: 28 "?" of Rorian, Windshaper Boro, Ventaari and Dalia, and 3 "!" of Ailee Farheart.
 - 60 are the hard negatives above.
-- The example images below were four other crops.
+- The four example images of the third prompt were other crops, not in the set.
 
 | Prompt | Marks found | False marks (of 60 hard negatives) |
 |---|---|---|
@@ -118,7 +118,7 @@ Pending: the audited labels, and the rule reader's baseline against them.
 
 ## Next
 
-1. Train a Create ML object detector (`MLObjectDetector`) on the teacher's training-split labels, in
+1. Train a Create ML object detector (`MLObjectDetector`) on the audited training-split labels, in
    tiles at native resolution, because a far mark is 5-10 px high.
 2. Score it on the held-out runs against the rule reader, then run it in shadow beside `questMarks` on live
    runs.
