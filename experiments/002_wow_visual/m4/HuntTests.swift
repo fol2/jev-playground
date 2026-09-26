@@ -147,6 +147,9 @@ extension NavTests {
         check(objective(for: "luvenile Vuldren ЛОРAУ", in: vuldren) != nil && objective(for: "Tuvenile Vuldren", in: vuldren) != nil
               && objective(for: "Vuldren Matriarch", in: vuldren) == nil && objective(for: "Pesky Cirrusfly", in: vuldren) == nil,
               "live run 25: a target name that lost its first letter or gained a tail still counts; one family word does not")
+        check(targetCue("luvenile Vuldren ЛОРAУ", vuldren) == "Juvenile Vuldren slain" && targetCue("Juvenile Vuldren 30s40", vuldren) == "Juvenile Vuldren slain"
+              && targetCue("Pesky Cirrusfly", vuldren) == "peskycl rrusfly".filter(\.isLetter) && targetCue(nil, vuldren) == nil,
+              "live run 26: one creature is one cue however its name reads; another is another")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]

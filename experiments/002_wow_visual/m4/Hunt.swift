@@ -90,11 +90,18 @@ func nameKey(_ text: String) -> String {
 
 /// The unfinished objective a creature counts for: its name starts the objective's text, as
 /// "Roiling Wind" starts "Roiling Winds destroyed". A partial-word match would let
-/// "Yala Windwatcher" count for Roiling Winds.
-// ponytail: prefix match; irregular plurals ("Wolf" for "Wolves slain") never count.
+/// "Yala Windwatcher" count for Roiling Winds; a target frame's misread name counts when most of it is there (mostlyIn).
+// ponytail: irregular plurals ("Wolf" for "Wolves slain") never count.
 func objective(for name: String?, in objectives: [Objective]) -> Objective? {
     guard let name, nameKey(name).count >= 4 else { return nil }
     return objectives.first { $0.unfinished && (nameKey($0.text).hasPrefix(nameKey(name)) || mostlyIn(name, $0.text)) }
+}
+
+/// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
+/// OCR reads one Juvenile Vuldren three ways ("Juvenile Vuldren 30s40", "luvenile Vuldren ЛОРAУ"), and each change
+/// rejected the decision taken on it (live run 26, 26 Sept: target_cue_changed four times, no fight).
+func targetCue(_ name: String?, _ objectives: [Objective]) -> String? {
+    name.map { objective(for: $0, in: objectives)?.text ?? nameKey($0) }
 }
 
 /// Whether most of a target frame's name is in an objective: at least 60% of its four-letter runs. The frame's font

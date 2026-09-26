@@ -130,7 +130,7 @@ final class LiveHuntHost: HuntHost {
         o.objectives = parseTracker(lines)
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
-        o.stamp?.target = o.target
+        o.stamp?.target = targetCue(o.target, o.objectives)  // one creature, however its name reads
         o.targetAlive = !name.isEmpty && observe(pixels, plates: false).target > 0.005
         o.gameMenu = upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")
         if let at = readCoords(image).at, let facing = o.facing {
