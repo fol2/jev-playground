@@ -361,6 +361,7 @@ struct HuntObs: Equatable {
     var combat = false
     var target: String? = nil  // the target frame's name; nil when nothing is selected
     var targetAlive = false
+    var targetInRange: Bool? = nil  // Lightning Bolt's key digit not red: the selected creature is within 30 yards; nil: unread
     var gameMenu = false
     var facing: Double? = nil  // the minimap arrow
     var area: QuestArea? = nil
@@ -531,6 +532,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         target["name"] = name
         target["alive"] = o.targetAlive
         target["counts_for_objective"] = objective(for: name, in: o.objectives)?.text ?? "none"
+        if let inRange = o.targetInRange { target["in_lightning_bolt_range"] = inRange }
     }
     var area: [String: Any] = ["on_minimap": o.area != nil]
     if let a = o.area {
@@ -543,7 +545,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
     if let facing = o.facing { character["facing_deg"] = Int(facing.rounded()) }
     if let here = o.here { character["position"] = ["x": here.x, "y": here.y] }
     return [
-        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
+        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts. Such creatures are mostly inside the selected quest's area on the minimap, but one that counts may be fought wherever it is: a selected creature that counts and is in Lightning Bolt range can be fought from here (live run 28, 26 Sept: six such targets were walked past towards the area). Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
         "objectives": o.objectives.filter(\.unfinished).map {
             ["quest": $0.quest, "objective": $0.text, "progress": "\($0.done)/\($0.need)"]
         },

@@ -237,6 +237,13 @@ extension NavTests {
               && creatures.first?["counts_for_objective"] as? String == "Roiling Winds destroyed"
               && state["hostile_creatures_near"] as? Int == 1 && state["blocked_headings_near_here"] as? [Int] == [0],
               "the state gives the area, the creatures in view with what they count for, hostiles near and blocked headings")
+        var aimed = away
+        aimed.target = "Roiling Winds"; aimed.targetAlive = true; aimed.targetInRange = true
+        let aimedState = huntStatePacket(aimed, recent: [], fights: [], blocked: [])
+        check((aimedState["target"] as? [String: Any])?["in_lightning_bolt_range"] as? Bool == true
+              && (huntStatePacket(away, recent: [], fights: [], blocked: [])["target"] as? [String: Any])?["in_lightning_bolt_range"] == nil
+              && (aimedState["goal"] as? String ?? "").contains("fought wherever it is"),
+              "live run 28: the state says whether the target is in bolt range, and a counting creature may be fought outside the area")
         let question = actionQuestion(huntAdmissible(away), instructions: huntInstructions)
         check(Set((question["criteria"] as? [String: Any] ?? [:]).keys) == Set(huntAdmissible(away).map(\.rawValue)),
               "the question offers only the admissible actions")

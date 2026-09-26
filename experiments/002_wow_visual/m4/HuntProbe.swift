@@ -131,7 +131,9 @@ final class LiveHuntHost: HuntHost {
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
         o.stamp?.target = targetCue(o.target, o.objectives)  // one creature, however its name reads
-        o.targetAlive = !name.isEmpty && observe(pixels, plates: false).target > 0.005
+        let hud = observe(pixels, plates: false)
+        o.targetAlive = !name.isEmpty && hud.target > 0.005
+        o.targetInRange = o.targetAlive ? !hud.rangeRed : nil  // the bolt key's digit, as M3 reads it
         o.gameMenu = upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")
         if let at = readCoords(image).at, let facing = o.facing {
             o.here = NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: o.combat, player: o.player)

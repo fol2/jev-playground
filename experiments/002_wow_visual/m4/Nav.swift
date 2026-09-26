@@ -152,10 +152,18 @@ func arrowFacing(_ image: RGBA) -> Double? {
 /// rejects the match, so "144.8,28.1" is not read as 44.8.
 func parseCoords(_ text: String) -> MapPoint? {
     let pattern = #"(?<!\d)(\d{1,2})\.(\d)\s*[.,]\s*(\d{1,2})\.(\d)(?!\d)"#
-    guard let match = text.range(of: pattern, options: .regularExpression) else { return nil }
-    let n = text[match].split { !$0.isNumber }.compactMap { Int($0) }
-    guard n.count == 4 else { return nil }
-    return (Double(n[0]) + Double(n[1]) / 10, Double(n[2]) + Double(n[3]) / 10)
+    if let match = text.range(of: pattern, options: .regularExpression) {
+        let n = text[match].split { !$0.isNumber }.compactMap { Int($0) }
+        guard n.count == 4 else { return nil }
+        return (Double(n[0]) + Double(n[1]) / 10, Double(n[2]) + Double(n[3]) / 10)
+    }
+    // A whole number is shown without its ".0" ("44.9, 23", live run 28, 26 Sept: POSITION_UNREADABLE). Only beside a
+    // comma: a dot there could split a garbled reading ("44.9.2314") into a wrong place.
+    let whole = try! NSRegularExpression(pattern: #"(?<![\d.])(\d{1,2})(?:\.(\d))?\s*,\s*(\d{1,2})(?:\.(\d))?(?![\d.])"#)
+    guard let m = whole.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+    func part(_ i: Int) -> Double? { Range(m.range(at: i), in: text).flatMap { Double(text[$0]) } }
+    guard let x = part(1), let y = part(3) else { return nil }
+    return (x + (part(2) ?? 0) / 10, y + (part(4) ?? 0) / 10)
 }
 
 /// Zone-map coordinates are percent of a 3:2 map, so one x unit is 1.5 y units of ground.

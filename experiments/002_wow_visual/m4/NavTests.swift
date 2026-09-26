@@ -101,6 +101,9 @@ struct NavTests {
         check(same(parseCoords("Player: 43.2, 23.8"), 43.2, 23.8), "coordinates inside the world map's player line")
         check(parseCoords("ITEn") == nil && parseCoords("") == nil, "noise reads no coordinates")
         check(parseCoords("144.8,28.1") == nil && parseCoords("44.8,28.15") == nil, "a digit on either side rejects the match")
+        check(same(parseCoords("44.9,23"), 44.9, 23) && same(parseCoords("44.9, 23"), 44.9, 23) && same(parseCoords("44, 23.5"), 44, 23.5)
+              && parseCoords("44.9.2314") == nil && parseCoords("44.9.23") == nil && parseCoords("44, 23.55") == nil,
+              "live run 28: a whole number without its .0 reads beside a comma, never out of a garbled dotted string")
         // 25 Sept, live: a quest giver's orange name across the box. Raw first; masks only when they agree.
         check(same(agreedCoords(raw: "42.5, 23.7", masked: ["12.5, 23.7", "12.5, 23.7"]), 42.5, 23.7), "a raw reading that parses is kept")
         check(same(agreedCoords(raw: "43.0.23к7 Eнн", masked: ["43.0,23.7", "43.0, 23.7"]), 43.0, 23.7), "masks that agree read through a name")
