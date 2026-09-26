@@ -5,6 +5,17 @@
 import Foundation
 import ImageIO
 import CoreGraphics
+
+/// The arguments, checked first, so a wrong call is refused (exit 64) with or without the model, and before any call.
+func checkedArguments() -> [String] {
+    let args = Array(CommandLine.arguments.dropFirst())
+    guard args.isEmpty || (args.count == 2 && args[0] == "--eval") else {
+        fputs("HOLD: usage: m5-teach [--eval SET]\n", stderr)
+        exit(64)
+    }
+    return args
+}
+
 #if compiler(>=6.4) && canImport(FoundationModels)
 import FoundationModels
 
@@ -58,20 +69,21 @@ func teach(_ crop: CGImage) async throws -> String {
 @available(macOS 27, *)
 func evaluate(_ path: String) async -> Int32 {
     guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { fputs("HOLD: cannot read \(path)\n", stderr); return 2 }
-    var found = 0, marks = 0, falseMarks = 0, blanks = 0, wrongKind = 0
+    var found = 0, marks = 0, falseMarks = 0, blanks = 0, wrongKind = 0, refused = 0
     let began = Date()
     for line in text.split(separator: "\n") {
         let f = line.split(separator: " ").map(String.init)
         guard f.count == 6, let x = Int(f[1]), let y = Int(f[2]), let w = Int(f[3]), let h = Int(f[4]),
               let image = CGImageSourceCreateWithURL(root.appendingPathComponent(f[0]) as CFURL, nil).flatMap({ CGImageSourceCreateImageAtIndex($0, 0, nil) }),
               let crop = image.cropping(to: CGRect(x: x, y: y, width: w, height: h)) else { continue }
-        let got = (try? await teach(crop)) ?? "error"
+        // A refusal is no mark, as in the labelling run; it is counted apart.
+        guard let got = try? await teach(crop) else { refused += 1; if f[5] != "none" { marks += 1 } else { blanks += 1 }; continue }
         if f[5] == "none" { blanks += 1; if got != "none" { falseMarks += 1 } } else {
             marks += 1
             if got != "none" { found += 1; if got != f[5] { wrongKind += 1 } }
         }
     }
-    print("\(teacherVersion): marks found \(found)/\(marks) (wrong kind \(wrongKind)), false marks \(falseMarks)/\(blanks), \(Int(Date().timeIntervalSince(began))) s")
+    print("\(teacherVersion): marks found \(found)/\(marks) (wrong kind \(wrongKind)), false marks \(falseMarks)/\(blanks), refused \(refused), \(Int(Date().timeIntervalSince(began))) s")
     return 0
 }
 
@@ -83,13 +95,12 @@ func rows<T: Decodable>(_ url: URL, _ type: T.Type) -> [T] {
 @main
 struct Teacher {
     static func main() async {
+        let args = checkedArguments()
         guard #available(macOS 27, *), case .available = SystemLanguageModel.default.availability else {
             fputs("HOLD: the on-device model is not available here\n", stderr)
             exit(2)
         }
-        let args = Array(CommandLine.arguments.dropFirst())
-        if args.count == 2 && args[0] == "--eval" { exit(await evaluate(args[1])) }
-        guard args.isEmpty else { fputs("HOLD: usage: m5-teach [--eval SET]\n", stderr); exit(64) }
+        if args.count == 2 { exit(await evaluate(args[1])) }
         let out = dir.appendingPathComponent("marks.jsonl")
         if !FileManager.default.fileExists(atPath: out.path) { FileManager.default.createFile(atPath: out.path, contents: nil) }
         guard let handle = try? FileHandle(forWritingTo: out) else { fputs("HOLD: cannot write \(out.path)\n", stderr); exit(2) }
@@ -128,6 +139,7 @@ struct Teacher {
 @main
 struct Teacher {
     static func main() {
+        _ = checkedArguments()
         fputs("HOLD: the teacher needs Swift 6.4 and the macOS 27 SDK (the Xcode 27 toolchain)\n", stderr)
         exit(2)
     }

@@ -49,11 +49,13 @@ struct MarksTests {
         let strip = frame { p, w in rect(&p, w, 100, 100, 100, 8, (200, 170, 40)) }
         check(markCandidates(strip, box: (0, 0, 400, 300)).isEmpty, "a flat strip, such as a neutral nameplate's bar, is no candidate")
         let text = frame { p, w in
-            for i in 0..<4 { rect(&p, w, 60 + 30 * i, 200, 8, 12, (230, 190, 40)) }  // four letters on one baseline
+            for i in 0..<4 { rect(&p, w, 60 + 13 * i, 200, 8, 12, (230, 190, 40)) }  // four letters on one baseline, 5 px apart
             rect(&p, w, 300, 40, 10, 24, (198, 173, 44))  // a mark standing alone
         }
         let kept = markCandidates(text, box: (0, 0, 400, 300))
         check(kept.count == 1 && kept[0].x0 == 300, "letters on one baseline are a line of text, not marks; a mark standing alone is kept")
+        let row = frame { p, w in for i in 0..<3 { rect(&p, w, 100 + 60 * i, 150, 10, 24, (198, 173, 44)) } }  // three marks at one depth
+        check(markCandidates(row, box: (0, 0, 400, 300)).count == 3, "three marks on one baseline, over characters apart, are all kept: text is letters no further apart than their height")
         let outside = frame { p, w in rect(&p, w, 10, 10, 10, 20, (198, 173, 44)) }
         check(markCandidates(outside, box: (50, 50, 400, 300)).isEmpty, "nothing outside the box is proposed")
         let r = teacherCrop((100, 0, 0, 200, 209, 100, 139), width: 400, height: 300)
@@ -80,6 +82,12 @@ struct MarksTests {
         let later = audited([checked[1]], corrections: [0: "exclamation"])
         check(merged(teacher: [a, b, c], audit: checked + later).map(\.kind) == ["question", "exclamation", "none"],
               "an audited label replaces the teacher's for the same candidate, the latest pass winning; an unaudited one stays")
+        check(truth(teacher: [a, b, c], audit: checked).map(\.box) == [[1, 2, 3, 4], [9, 9, 3, 4]], "only an audited label is a truth: the unchecked teacher label is left out")
+        let d = MarkLabel(frame: "r/f2.jpg", box: [5, 5, 3, 4], kind: "exclamation", teacher: MarkLabels.teacher, crop: "d")
+        let e = MarkLabel(frame: "r/f3.jpg", box: [5, 5, 3, 4], kind: "none", teacher: MarkLabels.teacher, crop: "e")
+        let verdicts = audited([a, b, c, d, e], corrections: [0: "exclamation", 1: "none", 2: "question", 4: "none"])
+        check(teacherScore(teacher: [a, b, c, d, e], audit: verdicts) == MarkScore(hits: 2, falseMarks: 1, missed: 1, wrongKind: 1),
+              "the teacher per candidate: a mark of the other kind is a hit of the wrong kind, a mark called none is missed, none called a mark is false")
     }
 
     static func scores() {
@@ -88,6 +96,8 @@ struct MarksTests {
         check(s == MarkScore(hits: 1, falseMarks: 2, missed: 1), "a label is hit at most once; a second reading on it and one elsewhere are false; the other label is missed")
         check(score(found: [(98, 96)], labels: labels).hits == 1 && score(found: [(96, 90)], labels: labels).hits == 0,
               "a reading within a quarter of the box outside it is a hit; beyond that it is not")
+        check(score(found: [(111.5, 110)], labels: labels).hits == 1 && score(found: [(112, 110)], labels: labels).hits == 0,
+              "the box ends at its last pixel (x + w - 1): the quarter of room is the same on both sides")
         check(MarkScore().precision == nil && MarkScore().recall == nil && (s + s).hits == 2 && s.recall == 0.5,
               "no reading and no label give no rate, not a perfect one; scores add up")
     }

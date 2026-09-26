@@ -33,14 +33,20 @@ func markCandidates(_ image: RGBA, box: (Int, Int, Int, Int) = MarkLabels.world)
         let w = glyph.x1 - glyph.x0 + 1, gh = glyph.y1 - glyph.y0 + 1
         if gh >= 4 && gh <= 120 && w <= 80 && gh * 3 >= w { out.append(glyph) }  // upright, at most three times wider than tall
     }
-    // Letters, not marks: three or more of a like height on one baseline within 200 px are a line of text. Yellow
-    // interface text (settings, "Objective Complete") made most of the first candidates (26 Sept); a mark stands
-    // alone above a green name. The minimap's icons drop a tooltip's title the same way (minimapPins).
-    func inLine(_ a: Blob, _ b: Blob) -> Bool {
+    // Letters, not marks: a chain of three or more parts of a like height on one baseline, each no further from the
+    // next than its height, is a line of text. Yellow interface text (settings, "Objective Complete") made most of
+    // the first candidates (26 Sept). Marks over different characters stand further apart than that, so three of
+    // them in a row are kept.
+    func letters(_ a: Blob, _ b: Blob) -> Bool {
         let ha = a.y1 - a.y0 + 1, hb = b.y1 - b.y0 + 1
-        return abs(a.y1 - b.y1) <= 3 && abs(a.x0 - b.x0) <= 200 && 2 * min(ha, hb) >= max(ha, hb)
+        let gap = max(a.x0, b.x0) - min(a.x1, b.x1) - 1
+        return abs(a.y1 - b.y1) <= 3 && 2 * min(ha, hb) >= max(ha, hb) && gap <= max(ha, hb)
     }
-    return out.filter { g in out.filter { inLine(g, $0) }.count < 3 }
+    var chain = Array(out.indices)
+    func root(_ i: Int) -> Int { chain[i] == i ? i : root(chain[i]) }
+    for i in out.indices { for j in out.indices where j > i && letters(out[i], out[j]) { chain[root(j)] = root(i) } }
+    let size = Dictionary(grouping: out.indices, by: root).mapValues(\.count)
+    return out.indices.filter { size[root($0), default: 1] < 3 }.map { out[$0] }
 }
 
 /// What the teacher sees: the glyph with room for a name under it and beside it. At least 240 x 160 px, so a
@@ -72,14 +78,15 @@ func heldOut(run: String) -> Bool {
     return hash % UInt64(MarkLabels.heldOutEvery) == 0
 }
 
-/// A reader's marks against the teacher's positive labels on the same frames. A found mark whose centre lies in
-/// a label's box, grown by a quarter each way, is a hit; each label is hit at most once.
+/// A reader's marks against the audited marks of the same frames. A found mark whose centre lies in a label's box,
+/// grown by a quarter each way, is a hit; each label is hit at most once. `wrongKind` counts hits of the other kind
+/// ("!" for "?"), where the reader names a kind.
 struct MarkScore: Equatable {
-    var hits = 0, falseMarks = 0, missed = 0
+    var hits = 0, falseMarks = 0, missed = 0, wrongKind = 0
     var precision: Double? { hits + falseMarks == 0 ? nil : Double(hits) / Double(hits + falseMarks) }
     var recall: Double? { hits + missed == 0 ? nil : Double(hits) / Double(hits + missed) }
     static func + (a: MarkScore, b: MarkScore) -> MarkScore {
-        MarkScore(hits: a.hits + b.hits, falseMarks: a.falseMarks + b.falseMarks, missed: a.missed + b.missed)
+        MarkScore(hits: a.hits + b.hits, falseMarks: a.falseMarks + b.falseMarks, missed: a.missed + b.missed, wrongKind: a.wrongKind + b.wrongKind)
     }
 }
 
@@ -88,7 +95,7 @@ func score(found: [(x: Double, y: Double)], labels: [[Int]]) -> MarkScore {
     for f in found {
         if let i = open.firstIndex(where: { b in
             let gx = Double(b[2]) / 4, gy = Double(b[3]) / 4
-            return f.x >= Double(b[0]) - gx && f.x <= Double(b[0] + b[2]) + gx && f.y >= Double(b[1]) - gy && f.y <= Double(b[1] + b[3]) + gy
+            return f.x >= Double(b[0]) - gx && f.x <= Double(b[0] + b[2] - 1) + gx && f.y >= Double(b[1]) - gy && f.y <= Double(b[1] + b[3] - 1) + gy
         }) {
             open.remove(at: i)
             s.hits += 1
@@ -115,4 +122,27 @@ func audited(_ shown: [MarkLabel], corrections: [Int: String]) -> [MarkLabel] {
 func merged(teacher: [MarkLabel], audit: [MarkLabel]) -> [MarkLabel] {
     let checked = Dictionary(audit.map { ("\($0.frame)|\($0.box)", $0) }) { _, last in last }
     return teacher.map { checked["\($0.frame)|\($0.box)"] ?? $0 }
+}
+
+/// The ground truth: audited labels only. A teacher's label no auditor has checked is a guess, not a truth.
+func truth(teacher: [MarkLabel], audit: [MarkLabel]) -> [MarkLabel] {
+    merged(teacher: teacher, audit: audit).filter { $0.teacher == "audit" }
+}
+
+/// The teacher as a first filter, candidate by candidate against the auditor: a mark called a mark is a hit (of the
+/// wrong kind if "!" and "?" differ), a mark called anything else is missed, and anything else called a mark is false.
+func teacherScore(teacher: [MarkLabel], audit: [MarkLabel]) -> MarkScore {
+    let isMark = { (k: String) in k == "exclamation" || k == "question" }
+    var s = MarkScore()
+    for (t, a) in zip(teacher, merged(teacher: teacher, audit: audit)) where a.teacher == "audit" {
+        switch (isMark(t.kind), isMark(a.kind)) {
+        case (true, true):
+            s.hits += 1
+            if t.kind != a.kind { s.wrongKind += 1 }
+        case (true, false): s.falseMarks += 1
+        case (false, true): s.missed += 1
+        default: break
+        }
+    }
+    return s
 }

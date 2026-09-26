@@ -2,7 +2,7 @@
 // captures); the teacher that labels the candidates is its own binary (Teacher.swift).
 //   m5-perceive --propose       frame paths under runs/002_wow_visual on stdin; candidates appended, resumable
 //   m5-perceive --sheet N       contact sheets of up to N labels not yet audited, 48 a sheet, for audit
-//   m5-perceive --sheet-held N  the same, of held-out runs only: those are audited in full, as the test set
+//   m5-perceive --sheet-held N  the same, of held-out runs only; repeat until none is left: the test set is audited in full
 //   m5-perceive --audit FILE    the auditor's corrections to the last sheets ("id kind" lines); the rest confirmed
 //   m5-perceive --baseline      the teacher and the rule reader (questMarks) against the audited labels; wrong frames
 //                               to baseline-errors.txt
@@ -153,29 +153,18 @@ func audit(_ path: String) throws -> Int32 {
     return 0
 }
 
-/// The rule reader against the labels, split by run into train and held out: every frame proposed whose
-/// candidates the teacher has all labelled, those with none included (a mark read there is a false one). An
-/// audited label replaces the teacher's.
+/// The teacher, candidate by candidate, and the rule reader, frame by frame, against the audited labels, split by run
+/// into train and held out. Only a frame whose candidates are all audited is scored, those with no mark included
+/// (a mark read there is a false one). A teacher's label no auditor has checked is never a truth.
 func baseline() -> Int32 {
     let audit = rows(auditFile, MarkLabel.self)
     let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
     let taught = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
-    let all = merged(teacher: taught, audit: audit)
-    // The teacher against the auditor, candidate by candidate: how good a first filter it is.
-    let isMark = { (k: String) in k == "exclamation" || k == "question" }
-    var teacher = MarkScore()
-    for (t, a) in zip(taught, all) where a.teacher == "audit" {
-        switch (isMark(t.kind), isMark(a.kind)) {
-        case (true, true): teacher.hits += 1
-        case (true, false): teacher.falseMarks += 1
-        case (false, true): teacher.missed += 1
-        default: break
-        }
-    }
-    let marks = Dictionary(grouping: all.filter { ["exclamation", "question"].contains($0.kind) }, by: \.frame)  // refused is no mark
-    let labelled = Dictionary(grouping: all, by: \.frame).mapValues(\.count)
+    let checked = truth(teacher: taught, audit: audit)
+    let marks = Dictionary(grouping: checked.filter { ["exclamation", "question"].contains($0.kind) }, by: \.frame)
+    let audited = Dictionary(grouping: checked, by: \.frame).mapValues(\.count)
     var train = MarkScore(), held = MarkScore(), framesRead = 0, errors: [String] = []
-    for frame in rows(framesFile, FrameRow.self).filter({ (labelled[$0.frame] ?? 0) >= $0.candidates }).map(\.frame) {
+    for frame in rows(framesFile, FrameRow.self).filter({ (audited[$0.frame] ?? 0) >= $0.candidates }).map(\.frame) {
         guard let image = loadImage(runsRoot.appendingPathComponent(frame)) else { continue }
         let found = questMarks(pixels(image), box: MarkLabels.world).map { (x: $0.x, y: $0.y) }
         let s = score(found: found, labels: (marks[frame] ?? []).map(\.box))
@@ -188,8 +177,9 @@ func baseline() -> Int32 {
         "hits \(s.hits), false \(s.falseMarks), missed \(s.missed), precision \(s.precision.map { String(format: "%.2f", $0) } ?? "-"), "
             + "recall \(s.recall.map { String(format: "%.2f", $0) } ?? "-")"
     }
-    print("teacher (\(MarkLabels.teacher)) against the audit, per candidate: " + show(teacher))
-    print("rule reader (questMarks) against \(all.filter { $0.teacher == "audit" }.count) audited labels of \(all.count), on \(framesRead) frames")
+    let teacher = teacherScore(teacher: taught, audit: audit)
+    print("teacher (\(MarkLabels.teacher)) against the audit, per candidate: " + show(teacher) + ", wrong kind \(teacher.wrongKind)")
+    print("rule reader (questMarks) on \(framesRead) fully audited frames (\(checked.count) of \(taught.count) candidates audited)")
     print("  train:    " + show(train))
     print("  held out: " + show(held))
     try? (errors.joined(separator: "\n") + "\n").write(to: perceptionDir.appendingPathComponent("baseline-errors.txt"), atomically: true, encoding: .utf8)
