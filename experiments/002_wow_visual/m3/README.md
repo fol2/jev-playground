@@ -62,6 +62,19 @@ bar first: the pointer rests on each slot in the background, Vision reads the to
 skill's role comes from its text (`Attack`; a cast with "damage" and a range; a cast that "Heals";
 "Imbue"; an item that restores mana or health). A missing role, or one tooltip on two slots (the
 pointer was contested), stops the run before any key. The range digit box follows the bolt's slot.
+
+The bar has a working memory (the owner, 25 Sept: remember what was read, to cut rescans), in
+`runs/002_wow_visual/memory/skill-bar.json`, which is private and not in the repository.
+- **The icons.** Each slot's icon is kept as nine mean colours, compared with the pointer off the bar.
+  - Reading all twelve tooltips took about 8 s a run.
+  - Now only a changed icon is hovered, plus every spell with a cast time: a rank learnt at a trainer
+    keeps its icon, and the rank sets how long a cast is waited for (Lightning Bolt: 1.5 s at rank
+    1, 2.0 s at rank 2).
+- **Stale memory.** If one of those reads differently from memory, the whole bar is read again.
+- **On saved frames:**
+  - The prints of four runs on 25-26 Sept differed by 0-1 per value on average, so no slot changed.
+  - The 24 Sept bar, before its two totems, changed in exactly those two slots (78 and 86).
+- **The log.** Each `skill_slot` event says whether it was `read` or taken from `memory`.
 The camera stays at the owner's zoom. Until 25 Sept the run held F10 (Camera Zoom Out) for the
 widest view; the owner then found that view too far, because it hid the NPCs' "?" and "!".
 

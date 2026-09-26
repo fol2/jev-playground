@@ -389,22 +389,49 @@ struct SkillBar {
     let slots: [(slot: String, skill: Skill)]
 }
 
-func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [SkillRole]) async throws -> SkillBar {
+/// The bar's skills from their tooltips, with the working memory of the last read: the icons are compared
+/// with the pointer off the bar (it highlights the slot under it), and only the slots `slotsToRead` names are
+/// hovered, unless one of them reads differently from memory; then the whole bar is read again.
+func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [SkillRole],
+                  memory: URL = URL(fileURLWithPath: "runs/002_wow_visual/memory/skill-bar.json")) async throws -> SkillBar {
     let bounds = session.window.frame
     let routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds)
-    var bar: [Skill?] = []
-    for (i, key) in SkillHUD.names.enumerated() {
-        let at = CGPoint(x: bounds.minX + bounds.width * (SkillHUD.slot1X + SkillHUD.pitch * Double(i)) / Double(HUD.width),
-                         y: bounds.minY + bounds.height * SkillHUD.slotY / Double(HUD.height))
-        try NativeBackgroundClickTransport().move(target: routed, point: at)
+    func point(_ x: Double, _ y: Double) -> CGPoint {
+        CGPoint(x: bounds.minX + bounds.width * x / Double(HUD.width), y: bounds.minY + bounds.height * y / Double(HUD.height))
+    }
+    func read(_ i: Int) async throws -> Skill? {
+        try NativeBackgroundClickTransport().move(target: routed, point: point(SkillHUD.slot1X + SkillHUD.pitch * Double(i), SkillHUD.slotY))
         try? await Task.sleep(nanoseconds: 600_000_000)
         let lines = feed.latestFrame?.image.cropping(to: tooltipBox).map { crop in
             tooltipLines(ocr(crop).map { ($0.0, $0.1.minX * tooltipBox.width, (1 - $0.1.maxY) * tooltipBox.height) })
         } ?? []
-        let skill = parseTooltip(lines)
-        bar.append(skill)
+        return parseTooltip(lines)
+    }
+    try NativeBackgroundClickTransport().move(target: routed, point: point(1280, 60))
+    let moved = hostNow()
+    var shown: CGImage? = nil  // a frame captured after the pointer left the bar
+    while shown == nil && hostNow() - moved < 2.5 {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        if let frame = feed.latestFrame, frame.pts > moved + 0.3 { shown = frame.image }
+    }
+    let print = shown.map { barPrint(rgba($0)) }
+    let remembered = (try? Data(contentsOf: memory)).flatMap { try? JSONDecoder().decode(BarMemory.self, from: $0) }
+        .flatMap { $0.skills.count == SkillHUD.names.count ? $0 : nil }
+    var readNow: [Int: Skill?] = [:]
+    for i in print.map({ slotsToRead(remembered, $0) }) ?? Array(SkillHUD.names.indices) { readNow[i] = try await read(i) }
+    if let remembered, let print, !memoryHolds(remembered, read: readNow, changed: Set(changedSlots(remembered.print, print))) {
+        for i in SkillHUD.names.indices where !readNow.keys.contains(i) { readNow[i] = try await read(i) }
+    }
+    let bar: [Skill?] = SkillHUD.names.indices.map { i in readNow.keys.contains(i) ? readNow[i]! : remembered?.skills[i] ?? nil }
+    for (i, key) in SkillHUD.names.enumerated() {
+        let skill = bar[i]
         log.emit("skill_slot", ["key": key, "name": orNull(skill?.name), "role": orNull(skill.flatMap(role)?.rawValue),
-                                "cast_s": orNull(skill?.cast), "rank": orNull(skill?.rank), "text": orNull(skill?.text), "t": hostNow()])
+                                "cast_s": orNull(skill?.cast), "rank": orNull(skill?.rank), "text": orNull(skill?.text),
+                                "source": readNow.keys.contains(i) ? "read" : "memory", "t": hostNow()])
+    }
+    if let print {
+        try? FileManager.default.createDirectory(at: memory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(BarMemory(print: print, skills: bar)).write(to: memory)
     }
     let (keys, problems) = assignRoles(bar, required: required)
     guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }

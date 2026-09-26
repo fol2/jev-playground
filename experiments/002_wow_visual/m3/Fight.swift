@@ -1013,6 +1013,67 @@ enum SkillHUD {
     static let slot1X = 660.0, pitch = 50.3, slotY = 1290.0  // slot centres, 24 Sept bar
 }
 
+// MARK: - Working memory: the skill bar (the owner, 25 Sept: remember what was read, to cut rescans)
+
+extension Skill: Codable {}
+
+/// Each slot's icon as a 3 x 3 grid of mean colours (27 values), from the 30 px square at its centre.
+/// Reading the whole bar hovers twelve tooltips, about 8 s a run (live, 25 Sept).
+struct BarPrint: Codable, Equatable {
+    var slots: [[Int]]
+}
+
+func barPrint(_ image: RGBA) -> BarPrint {
+    BarPrint(slots: SkillHUD.names.indices.map { i in
+        let cx = Int(SkillHUD.slot1X + SkillHUD.pitch * Double(i)), cy = Int(SkillHUD.slotY)
+        var cells: [Int] = []
+        for gy in 0..<3 {
+            for gx in 0..<3 {
+                var sum = [0, 0, 0], n = 0
+                for y in (cy - 15 + 10 * gy)..<(cy - 5 + 10 * gy) where y >= 0 && y < image.height {
+                    for x in (cx - 15 + 10 * gx)..<(cx - 5 + 10 * gx) where x >= 0 && x < image.width {
+                        let p = (y * image.width + x) * 4
+                        for c in 0..<3 { sum[c] += Int(image.pixels[p + c]) }
+                        n += 1
+                    }
+                }
+                cells += sum.map { n > 0 ? $0 / n : 0 }
+            }
+        }
+        return cells
+    })
+}
+
+/// The slots whose icon differs from the remembered one by more than `tolerance` per value on average (a
+/// cooldown's shade or the pointer's highlight counts as a change: the slot is read again, never wrongly kept).
+func changedSlots(_ old: BarPrint, _ new: BarPrint, tolerance: Int = 12) -> [Int] {
+    new.slots.indices.filter { i in
+        guard i < old.slots.count, old.slots[i].count == new.slots[i].count else { return true }
+        return zip(old.slots[i], new.slots[i]).map { abs($0 - $1) }.reduce(0, +) > tolerance * new.slots[i].count
+    }
+}
+
+/// What was read of the bar, and how it looked then.
+struct BarMemory: Codable {
+    var print: BarPrint
+    var skills: [Skill?]
+}
+
+/// The slots to hover first: every changed one, and every remembered spell with a cast time. A rank learnt
+/// at a trainer keeps its icon, and the rank sets how long a cast is waited for (Lightning Bolt: 1.5 s at
+/// rank 1, 2.0 s at rank 2), so those are checked each run. No memory, or a bar of another size: all twelve.
+func slotsToRead(_ memory: BarMemory?, _ now: BarPrint) -> [Int] {
+    guard let memory, memory.skills.count == now.slots.count else { return Array(now.slots.indices) }
+    let changed = Set(changedSlots(memory.print, now))
+    return now.slots.indices.filter { changed.contains($0) || memory.skills[$0]?.cast != nil }
+}
+
+/// Whether the memory still holds: every checked slot that kept its icon read as remembered. Otherwise the
+/// whole bar is read again.
+func memoryHolds(_ memory: BarMemory, read: [Int: Skill?], changed: Set<Int>) -> Bool {
+    read.allSatisfy { i, skill in changed.contains(i) || memory.skills[i] == skill }
+}
+
 /// The owner, 24 Sept: "should detect 'you are not face the mob' to trigger F9". Zoomed out, an adjacent
 /// creature's nameplate sits mid-screen whichever way the character faces, so the game's own error is
 /// the signal. Turning is a reflex inside the cast, not one of Jev's decisions.

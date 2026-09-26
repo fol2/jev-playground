@@ -22,6 +22,7 @@ struct FightTests {
         casts()
         admissibility()
         skills()
+        barMemory()
         episode()
         choices()
         names()
@@ -207,6 +208,38 @@ struct FightTests {
         ["Tough Jerky", "Use: Restores 58 health over 18 sec.", "Must remain seated while eating.", "Sell Price: 3",
          "Press F6 to submit an issue for this Item"],
     ]
+
+    /// Working memory of the skill bar: which slots are read again, and when the memory no longer holds.
+    static func barMemory() {
+        var bar = RGBA(width: 1400, height: 1320, pixels: [UInt8](repeating: 20, count: 1400 * 1320 * 4))
+        func icon(_ i: Int, _ rgb: (UInt8, UInt8, UInt8)) {
+            let cx = Int(SkillHUD.slot1X + SkillHUD.pitch * Double(i)), cy = Int(SkillHUD.slotY)
+            var px = bar.pixels
+            for y in (cy - 20)..<(cy + 20) { for x in (cx - 20)..<(cx + 20) { let p = (y * 1400 + x) * 4; (px[p], px[p + 1], px[p + 2]) = rgb } }
+            bar = RGBA(width: 1400, height: 1320, pixels: px)
+        }
+        for i in 0..<5 { icon(i, (UInt8(40 * i + 40), 90, 160)) }
+        let before = barPrint(bar)
+        check(before.slots.count == 12 && before.slots[0].count == 27 && before.slots[1][0] == 80 && before.slots[9] == Array(repeating: 20, count: 27),
+              "each slot's icon is kept as nine mean colours; an empty slot reads the bar's background")
+        let bolt = Skill(name: "Lightning Bolt", text: "1.5 sec cast", cast: 1.5, rank: 1)
+        let shield = Skill(name: "Lightning Shield", text: "Instant", cast: nil, rank: 1)
+        var skills = [Skill?](repeating: nil, count: 12)
+        skills[1] = bolt; skills[2] = shield
+        let memory = BarMemory(print: before, skills: skills)
+        check(slotsToRead(memory, before) == [1] && slotsToRead(nil, before) == Array(0..<12),
+              "with the icons unchanged only the cast-time spell is read; with no memory, the whole bar")
+        icon(3, (200, 200, 30))
+        let after = barPrint(bar)
+        check(changedSlots(before, after) == [3] && slotsToRead(memory, after) == [1, 3],
+              "a changed icon is read again, besides the cast-time spells")
+        var rank2 = bolt
+        rank2.cast = 2.0; rank2.rank = 2
+        check(memoryHolds(memory, read: [1: bolt, 3: nil], changed: [3]) && !memoryHolds(memory, read: [1: rank2], changed: []),
+              "a checked spell that reads as remembered keeps the memory; a new rank on the same icon does not")
+        let round = try? JSONDecoder().decode(BarMemory.self, from: JSONEncoder().encode(memory))
+        check(round?.print == before && round?.skills == skills, "the memory survives its file")
+    }
 
     static func skills() {
         let bar = bar24Sept.map(parseTooltip)
