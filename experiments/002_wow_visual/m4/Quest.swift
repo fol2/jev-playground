@@ -82,7 +82,8 @@ typealias Blob = (n: Int, sx: Int, sy: Int, x0: Int, x1: Int, y0: Int, y1: Int)
 
 /// Yellow pixels of a box as connected blobs: pixels within `gap` px of each other join. (A fixed grid
 /// merged three minimap "?" 14 px apart on 24 Sept.)
-func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13) -> [Blob] {
+func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13,
+                 colour: (Int, Int, Int) -> Bool = markYellow) -> [Blob] {
     let x0 = max(0, box.0), y0 = max(0, box.1), x1 = min(box.2, image.width), y1 = min(box.3, image.height)
     let w = x1 - x0, h = y1 - y0
     guard w > 0, h > 0 else { return [] }
@@ -90,7 +91,7 @@ func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13) -> [Bl
     for y in y0..<y1 {
         for x in x0..<x1 {
             let i = (y * image.width + x) * 4
-            if markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { mask[(y - y0) * w + x - x0] = true }
+            if colour(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { mask[(y - y0) * w + x - x0] = true }
         }
     }
     let reach = gap + 1
