@@ -204,7 +204,7 @@ final class QuestRun {
         let zoneText = scanned.map { upscaledText($0, QuestHUD.zone) } ?? [], trackerText = scanned.map { upscaledText($0, HuntHUD.tracker) } ?? []
         let key = logKey(zone: zoneText, tracker: trackerText)
         let remembered = (try? Data(contentsOf: QuestHUD.logMemory)).flatMap { try? JSONDecoder().decode(LogMemory.self, from: $0) }
-        var quests: [PlannedQuest]
+        var quests: [PlannedQuest], uiFault: [String] = []
         if let kept = keptLog(remembered, key: key, at: now) {
             quests = kept
             for i in quests.indices where quests[i].pin == nil {  // a pin the last read missed, from this read's minimap
@@ -212,7 +212,7 @@ final class QuestRun {
             }
             body.emit("quest_log_memory", ["quests": kept.count, "age_s": Int(now - remembered!.readAt)])
         } else {
-            if !(await setMap(open: true)) { body.emit("map_toggle_failed", ["open": true]) }
+            if !(await setMap(open: true)) { body.emit("map_toggle_failed", ["open": true]); uiFault.append("the Map & Quest Log did not open") }
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             quests = parseQuestLog(lines(QuestHUD.questList, listed))
@@ -234,16 +234,16 @@ final class QuestRun {
                 let at = shown.flatMap { mapCursor(upscaledText($0, QuestHUD.mapCursor)) }
                 body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "read": read])
                 for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
-                    quests[i].pin = at ?? zonePoint(spot.x, spot.y)
+                    quests[i].pin = at  // unread, no pin: the fixed transform held on one map only (review of #47)
                 }
             }
-            if !(await setMap(open: false)) { body.emit("map_toggle_failed", ["open": false]) }
-            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests)) {
+            if !(await setMap(open: false)) { body.emit("map_toggle_failed", ["open": false]); uiFault.append("the Map & Quest Log did not close") }
+            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests) + uiFault) {
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
         }
-        let missing = missingFromLog(tooltips, quests)
+        let missing = missingFromLog(tooltips, quests) + uiFault  // a map not known to be open or shut stops the run: LOG_INCOMPLETE
         body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
@@ -251,12 +251,22 @@ final class QuestRun {
         return (quests, player, missing, givers)
     }
 
-    /// L toggles the Map & Quest Log, so it is pressed only while the panel is not as wanted, and its title is read
-    /// after each press (live run 12, 26 Sept: the run ended with the map open, and the next run's L would have
-    /// closed it). false: still not as wanted after three presses.
+    /// L toggles the Map & Quest Log, so it is pressed only while the panel is known not to be as wanted (live run
+    /// 12, 26 Sept: the run ended with the map open, and the next run's L would have closed it). Open is its title
+    /// read; closed is two fresh frames in a row without it. No frame proves either (review of #47: an empty read
+    /// had passed for closed). false: not known to be as wanted after three presses.
     func setMap(open: Bool) async -> Bool {
+        func titled(_ image: CGImage) -> Bool {
+            lines(QuestHUD.mapTitle, image).contains { $0.text.lowercased().filter { !$0.isWhitespace }.contains("questlog") }
+        }
         for press in 0...3 {
-            if lines(QuestHUD.mapTitle, await frame()).contains(where: { $0.text.contains("Quest Log") }) == open { return true }
+            guard let first = await frame() else { return false }
+            var shown = titled(first)
+            if !shown && !open {
+                guard let second = await frame(after: hostNow() + 0.2) else { return false }
+                shown = titled(second)
+            }
+            if shown == open { return true }
             if press == 3 { break }
             await tap(QuestHUD.mapKey)
             await sleep(1.2)
@@ -601,9 +611,12 @@ final class LiveQuestHost: QuestHost {
     }
 
     /// Walk to the quest's area (from here when the map showed none), then one M4b hunt, as `--hunt` runs
-    /// it, in its own folder. A hunt that ends with keys held stays tracked for the exit sweep.
-    func hunt(_ quest: PlannedQuest, seconds: Double) async -> String {
+    /// it, in its own folder, with what is left to the deadline after the walk (review of #47: a walk of up to
+    /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
+    func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
         if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        let seconds = min(HuntLimits.maxSeconds, deadline - hostNow())
+        guard seconds > 0 else { return "HUNT_TIME_LIMIT" }
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
         let graph: GraphSession?
         do { graph = try huntGraph.map { try GraphSession.load($0) } } catch { return "HUNT_GRAPH_UNREADABLE" }

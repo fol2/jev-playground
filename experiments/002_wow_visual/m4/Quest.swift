@@ -489,9 +489,9 @@ func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * ma
 /// character's map opened on Thendal Village, not Zephras Isle, so the fixed transform above did not hold).
 func mapCursor(_ lines: [String]) -> MapPoint? {
     let text = lines.joined(separator: " ")
-    guard let m = text.range(of: #"Cursor:?\s*\d{1,2}\.\d\s*,\s*\d{1,2}\.\d"#, options: .regularExpression) else { return nil }
+    guard let m = text.range(of: #"Cursor:?\s*\d{1,3}(\.\d+)?\s*,\s*\d{1,3}(\.\d+)?"#, options: .regularExpression) else { return nil }
     let numbers = text[m].split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
-    return numbers.count == 2 ? (numbers[0], numbers[1]) : nil
+    return numbers.count == 2 && numbers.allSatisfy { (0...100).contains($0) } ? (numbers[0], numbers[1]) : nil
 }
 
 /// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
@@ -538,7 +538,7 @@ struct Giver {
     var names: [String]
     var pin: MapPoint
     var inView = false  // no minimap "!": a yellow mark in the world view (a giver a few yards away is under the arrow)
-    var key: String { String(format: "%.1f,%.1f", pin.x, pin.y) }
+    var key: String { inView ? "in view" : String(format: "%.1f,%.1f", pin.x, pin.y) }  // a mark in view has no place of its own
 }
 
 /// One read of the Map & Quest Log, the minimap's quest icons and the player's position.
@@ -555,7 +555,7 @@ protocol QuestHost: AnyObject {
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
-    func hunt(_ quest: PlannedQuest, seconds: Double) async -> String  // walk to its area, then one M4b hunt: huntOutcome
+    func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -639,7 +639,8 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -
         ("HAND_IN_\(i + 1)", QuestStep.handIn(q), "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away(q.pin!)) units away) "
             + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
     }
-    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg }
+    // A mark in view is offered only with no hand-in here: beside a quest to hand in, it is most likely that "?" (review of #47).
+    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg && (!$0.inView || handIns.isEmpty) }
         .sorted { distance(read.player, $0.pin) < distance(read.player, $1.pin) }
     let accepts = givers.prefix(QuestLimits.giverSlots).enumerated().map { i, g in
         ("ACCEPT_\(i + 1)", QuestStep.accept(g), g.inView
@@ -692,12 +693,12 @@ struct QuestResult {
 /// combat the only choice is to fight back); a won fight lets the run go on, and the interrupted step may
 /// be offered again. A failed step is not offered again this run. A hunt that completes or counts some kills
 /// lets the run go on; one that ends at a limit with nothing counted fails its step; any other hunt code
-/// ends the run. No step starts after `runSeconds`. There is no rules fallback when Jev fails.
+/// ends the run. No step starts after `runSeconds`, and a hunt ends by then. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
     var stuck = 0
-    let began = host.now()
+    let deadline = host.now() + QuestLimits.runSeconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
         host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
@@ -705,7 +706,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
     }
     while r.steps.count < QuestLimits.maxSteps {
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
-        if host.now() - began >= QuestLimits.runSeconds { return finish("TIME_LIMIT") }
+        if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD")
@@ -724,12 +725,13 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         }
         for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
         guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
+        if host.now() >= deadline { return finish("TIME_LIMIT") }  // a decision takes up to 20 s: none starts after the deadline
         host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "step": offer.step.name])
         let outcome: String
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
         case .accept(let g): outcome = await host.accept(g)
-        case .hunt(let q): outcome = await host.hunt(q, seconds: min(HuntLimits.maxSeconds, QuestLimits.runSeconds - (host.now() - began)))
+        case .hunt(let q): outcome = await host.hunt(q, until: deadline)
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))

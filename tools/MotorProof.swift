@@ -6,8 +6,8 @@ import ImageIO
 
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
-let minFightChecks = 216  // the current count: removing a check must lower this on purpose
-let minNavChecks = 286  // the current count: removing a check must lower this on purpose
+let minFightChecks = 218  // the current count: removing a check must lower this on purpose
+let minNavChecks = 300  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
@@ -337,6 +337,15 @@ func navTrap() throws {
         || !host.contains("lock.withLock { hunting }?.releaseAll()")
         || !host.contains("(walker?.holding ?? false) || lock.withLock { (fighting?.holdingKeys ?? false) || (hunting?.holding ?? false) }") {
         throw GateError("the quest host's exit sweep and holding do not cover the current walk, fight and hunt")
+    }
+    let zoomExecute = after("func zoomExecute", quest).components(separatedBy: "\n}\n")[0]  // this function only: planExecute follows
+    if !zoomExecute.contains("also: { body.releaseAll() }, holding: { body.holding }") || !zoomExecute.contains("defer { body.releaseAll() }") {
+        throw GateError("zoomExecute does not trap signals and defer onto its body's keys")
+    }
+    let (fightCore, navCore, huntCore) = (try source(fightDir + "Fight.swift"), try source(navDir + "Nav.swift"), try source(navDir + "Hunt.swift"))
+    if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")
+        || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {
+        throw GateError("F10 and F11 are not released by every key set that can press them")
     }
     if !quest.contains("if walker?.holding == true { return \"WALK_KEYS_HELD\" }")
         || !quest.contains("guard !legs.holding else { return \"WALK_KEYS_HELD\" }") {

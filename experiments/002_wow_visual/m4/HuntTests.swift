@@ -731,6 +731,8 @@ extension NavTests {
         check(mapCursor(["Cursor: 42.3, 22.9", "Player: 42.8, 23.3"]).map { $0 == (42.3, 22.9) } == true
               && mapCursor(["Cursor 7.5,60.0"]).map { $0 == (7.5, 60.0) } == true && mapCursor(["Player: 42.8, 23.3"]) == nil && mapCursor([]) == nil,
               "live, 26 Sept: the map's own cursor line gives a pin's zone coordinates on any map; the player's line is not the cursor")
+        check(mapCursor(["Cursor: 100.0, 7.25"]).map { $0 == (100, 7.25) } == true && mapCursor(["Cursor: 142.0, 7.0"]) == nil,
+              "review of #47: the whole 0-100 range and any decimals parse; a number off the map does not")
     }
 
     /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed; every hunt completes unless listed).
@@ -740,14 +742,17 @@ extension NavTests {
         var handed: [String] = []
         var clock = 0.0
         init(_ reads: [QuestRead]) { self.reads = reads }
-        func readQuests() async -> QuestRead? { reads.isEmpty ? nil : reads.removeFirst() }
+        func readQuests() async -> QuestRead? {
+            if !readTakes.isEmpty { clock += readTakes.removeFirst() }
+            return reads.isEmpty ? nil : reads.removeFirst()
+        }
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
-        var budgets: [Double] = [], huntTakes = 0.0
-        func hunt(_ quest: PlannedQuest, seconds: Double) async -> String {
-            handed.append("HUNT " + quest.title); budgets.append(seconds); clock += huntTakes
+        var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
+        func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
+            handed.append("HUNT " + quest.title); budgets.append(min(HuntLimits.maxSeconds, deadline - clock)); clock += huntTakes
             return outcomes["HUNT " + quest.title] ?? "HUNTED"
         }
         func now() -> Double { clock += 0.1; return clock }
@@ -906,5 +911,21 @@ extension NavTests {
         check(slow.handed == ["HUNT Agitators", "HUNT Agitators"] && long.outcome == "TIME_LIMIT"
               && slow.budgets.first == HuntLimits.maxSeconds && slow.budgets.count == 2 && (590...600).contains(slow.budgets[1]),
               "a hunt that counted some kills is offered again; the next gets what is left of the run's 25 min, and none starts after them")
+        let late = FakeQuests(Array(repeating: QuestRead(quests: [winds], player: thendal, missing: []), count: 2))
+        late.huntTakes = 1440; late.readTakes = [0, 60]
+        let overran = await runQuests(host: late, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
+        check(late.handed == ["HUNT Agitators"] && overran.outcome == "TIME_LIMIT",
+              "review of #47: a read and decision that end past the deadline start no step; no hunt gets a budget of 0 or less")
+        let view = Giver(names: [], pin: thendal, inView: true), moved = Giver(names: [], pin: (42.9, 23.2), inView: true)
+        let shy = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [view]),
+                              QuestRead(quests: [], player: (42.9, 23.2), missing: [], givers: [moved])])
+        shy.outcomes = ["!in view": "DIALOGUE_NOT_OPEN"]
+        let viewJev = CannedGraph(["DO:ACCEPT_1", "DO:ACCEPT_1"])
+        let tried = await runQuests(host: shy, jev: viewJev, graph: graph()!)
+        check(shy.handed == ["!in view"] && tried.outcome == "NOTHING_TO_HAND_IN_OR_TAKE" && viewJev.offered.count == 1,
+              "review of #47: a mark in view that failed is not offered again after a step, though the player's position read differently")
+        let beside = questOffers(QuestRead(quests: hub, player: thendal, missing: [], givers: [view]), failed: [])
+        check(beside.map(\.skill) == ["HAND_IN_1", "HAND_IN_2"],
+              "beside a quest to hand in, a mark in view is not offered as a giver: it is most likely that quest's \"?\"")
     }
 }

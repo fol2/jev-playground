@@ -596,6 +596,20 @@ the run": a won fight goes on and re-offers the step; a stopped fight ends the r
     objects move to a learned detector with a VLM as labelling teacher, and fixed HUD boxes to anchors.
     That work comes next, and no further mark patch was made here.
   - Four quest runs, no quest taken; no fight, no death.
+- **Review of #47 (Grok, fresh context).** Four major findings, all fixed:
+  - The run's time budget is a deadline, checked again after Jev's decision. A hunt's budget is counted
+    after its walk, and a hunt with none left does not start. A decision could end past 25 minutes, and a
+    walk of up to 180 s came before the budget.
+  - The map counts as open only when its title is read, and as closed only when two fresh frames in a
+    row lack it. A missing frame proves neither: an empty read had passed for closed. A map not known to
+    be as wanted stops the run (`LOG_INCOMPLETE`).
+  - A pin whose cursor line was not read has no pin. It is not placed by the fixed transform, which held
+    on one map only.
+  - A mark in view keeps one key, so a failed one is not offered again after the player moves. It is not
+    offered beside a quest to hand in, where it is most likely that quest's "?".
+- The cursor line parses 0-100 with any decimals. The proof pins `zoomExecute`'s signal trap and exit
+  sweep, and F10 and F11 in every key set that can press them. Offline, M4j adds 14 nav checks (286 to
+  300) and 2 fight checks.
 
 ## Limits
 
