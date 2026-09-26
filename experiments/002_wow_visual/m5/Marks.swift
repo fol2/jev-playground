@@ -159,9 +159,11 @@ func merged(teacher: [MarkLabel], audit: [MarkLabel]) -> [MarkLabel] {
     return teacher.map { checked["\($0.frame)|\($0.box)"] ?? $0 }
 }
 
-/// The ground truth: audited labels only. A teacher's label no auditor has checked is a guess, not a truth.
+/// The ground truth: audited labels only, one per candidate. A teacher's label no auditor has checked is a guess,
+/// not a truth; a candidate both first labellers labelled (the teacher and the reader) is still one truth (review, #51).
 func truth(teacher: [MarkLabel], audit: [MarkLabel]) -> [MarkLabel] {
-    merged(teacher: teacher, audit: audit).filter { $0.teacher == "audit" }
+    var seen = Set<String>()
+    return merged(teacher: teacher, audit: audit).filter { $0.teacher == "audit" && seen.insert("\($0.frame)|\($0.box)").inserted }
 }
 
 /// The teacher as a first filter, candidate by candidate against the auditor: a mark called a mark is a hit (of the

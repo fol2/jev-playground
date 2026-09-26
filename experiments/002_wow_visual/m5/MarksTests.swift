@@ -97,12 +97,15 @@ struct MarksTests {
         check(!drawn.isEmpty && drawn.count <= 12 && drawnFrames.allSatisfy { f in drawn.filter { $0.frame == f }.count == spread.filter { $0.frame == f }.count }
               && framesDrawn(spread, limit: 12) == drawn && framesDrawn(spread, limit: 1).count == 5,
               "frames are drawn whole, in a fixed order, as many as fit; a first frame bigger than the limit is still taken")
-        check(MarkLabels.world(height: 1320) == MarkLabels.world && MarkLabels.world(height: 1080) == (300, 81, 2100, 777),
+        check(MarkLabels.world(height: 1320) == MarkLabels.world && MarkLabels.world(height: 1080) == (300, 81, 2100, 777) && MarkLabels.world(height: 1440) == (300, 109, 2100, 1036),
               "the world box keeps its share of the height: the game's 1320, a 21:9 video's 1080")
         let later = audited([checked[1]], corrections: [0: "exclamation"])
         check(merged(teacher: [a, b, c], audit: checked + later).map(\.kind) == ["question", "exclamation", "none"],
               "an audited label replaces the teacher's for the same candidate, the latest pass winning; an unaudited one stays")
         check(truth(teacher: [a, b, c], audit: checked).map(\.box) == [[1, 2, 3, 4], [9, 9, 3, 4]], "only an audited label is a truth: the unchecked teacher label is left out")
+        var both = a
+        both.teacher = MarkLabels.reader
+        check(truth(teacher: [a, both, b], audit: checked).count == 2, "a candidate labelled by the teacher and by the reader is one truth, not two")
         let d = MarkLabel(frame: "r/f2.jpg", box: [5, 5, 3, 4], kind: "exclamation", teacher: MarkLabels.teacher, crop: "d")
         let e = MarkLabel(frame: "r/f3.jpg", box: [5, 5, 3, 4], kind: "none", teacher: MarkLabels.teacher, crop: "e")
         let verdicts = audited([a, b, c, d, e], corrections: [0: "exclamation", 1: "none", 2: "question", 4: "none"])
