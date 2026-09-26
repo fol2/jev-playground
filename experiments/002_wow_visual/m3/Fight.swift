@@ -225,7 +225,7 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
         return o.casting ? [.wait] : [.heal]
     }
     var out: [FightAction] = [.wait, .stop]
-    if !o.buff { out.append(.buffWeapon) }
+    if !o.buff && kit?.has(.buff) != false { out.append(.buffWeapon) }  // the legacy policy: always, as before
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
     if alive {
@@ -1138,7 +1138,9 @@ func role(_ s: Skill) -> SkillRole? {
 }
 
 /// Interact With Target (F9) turns, attacks and walks, so a fight needs no Attack slot; a hunt adds food and drink.
-let fightRoles: [SkillRole] = [.bolt, .heal, .buff]
+// A weapon enchant is not required: a level-1 Shaman has none (live, 26 Sept). Without it on the bar the
+// chain policy is not offered BUFF_WEAPON, and no chain that needs it.
+let fightRoles: [SkillRole] = [.bolt, .heal]
 let huntRoles = fightRoles + [.drink, .food]
 
 /// The first slot of each role; problems name what a live run must not start without.
