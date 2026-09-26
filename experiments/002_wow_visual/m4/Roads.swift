@@ -14,6 +14,9 @@ enum RoadLimits {
     static let reach = 3.0  // a route starts and ends at places within this of the player and of the goal
     static let bend = 0.3  // a waypoint is kept where the road leaves the straight line by more than this
     static let minPart = 10  // places a part of the roads needs; a smaller one is an OCR slip's island (pruned)
+    // A stand's approach is walked to within this: at 0.5, a walk to Rorian's ramp ended 0.45 north of it, and the
+    // straight click from there ran under his bridge again (live run 19, 26 Sept).
+    static let approachArrive = 0.15
 }
 
 /// The learned roads. A place is the mean of the readings in its square; a way joins the places of two readings

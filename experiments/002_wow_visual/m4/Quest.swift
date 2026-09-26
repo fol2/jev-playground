@@ -257,11 +257,13 @@ func trackerShows(_ quests: [PlannedQuest], _ tracker: [String]) -> Bool {
 /// log lacks; and the tracker and the log agree both ways (each quest in the tracker, and each tracker line in
 /// a title or an objective). A read that parsed one quest of four passed a one-way test and would have been
 /// kept for the hour, with `LOG_INCOMPLETE` every run (review, 26 Sept). OCR noise only costs a full read.
+/// A quest with no pin is not kept either: standing on its NPC, the pin hides under the player's arrow, and a kept
+/// read without it offered nothing for the hour (live runs 19-20, 26 Sept).
 func rememberLog(_ quests: [PlannedQuest], tracker: [String], key: String, missing: [String]) -> Bool {
     let log = nameKey(quests.map { $0.title + " " + $0.objective }.joined(separator: " "))
     let lines = tracker.map(nameKey).filter { !$0.isEmpty }
     return !key.isEmpty && !quests.isEmpty && missing.isEmpty && !lines.isEmpty && trackerShows(quests, tracker)
-        && lines.allSatisfy { log.contains($0) }
+        && lines.allSatisfy { log.contains($0) } && quests.allSatisfy { $0.pin != nil }
 }
 
 /// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
@@ -634,12 +636,12 @@ enum QuestStep {
 }
 
 /// Whether a quest walk from `at` to `pin` starts. No position: WALK_HUD_UNREADABLE (never "arrived" unseen). Within
-/// 0.5: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
+/// `arrive`: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
 /// nowhere on it); the walk's own stops (danger, combat, the owner, the HUD, no progress, its limits) hold either way.
 enum WalkStart: Equatable { case walk, there, refused(String) }
-func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool) -> WalkStart {
+func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool, arrive: Double = 0.5) -> WalkStart {
     guard let at else { return .refused("WALK_HUD_UNREADABLE") }
-    guard distance(at, pin) > 0.5 else { return .there }
+    guard distance(at, pin) > arrive else { return .there }
     return road || distance(at, pin) <= QuestLimits.maxLeg ? .walk : .refused("TOO_FAR_NEEDS_ROADS")
 }
 
@@ -676,10 +678,12 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
         [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
-            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } == true
+            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false  // no pin: its NPC may stand here
     }
     let handIns = open.prefix(QuestLimits.slots).enumerated().map { i, q in
-        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away(q.pin!)) units away) "
+        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), (q.pin.map { "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away($0)) units away) " }
+            ?? "Find the quest giver of \"\(q.title)\" (level \(q.level)) near here: the map showed no pin, which hides under the "
+                + "player's arrow when its NPC stands here, ")
             + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
     }
     // A mark in view is offered only with no hand-in here: beside a quest to hand in, it is most likely that "?" (review of #47).

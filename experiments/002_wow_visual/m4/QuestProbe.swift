@@ -647,9 +647,9 @@ final class LiveQuestHost: QuestHost {
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
     /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
-    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false) async -> String? {
+    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
         let at = quester.body.look().map { (x: $0.x, y: $0.y) }
-        switch walkStart(at: at, to: pin, road: road) {
+        switch walkStart(at: at, to: pin, road: road, arrive: arrive) {
         case .refused(let outcome): return outcome
         case .there: return nil
         case .walk: break
@@ -664,13 +664,15 @@ final class LiveQuestHost: QuestHost {
         let legs = newWalker(folder)
         walker = legs
         let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
+                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive))
         guard !legs.holding else { return "WALK_KEYS_HELD" }
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: approached(pin), label: quest.title) { return stop }
+        // No pin: the map hid it under the player's arrow, so its NPC may stand here, perhaps above or below.
+        let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
+        if let pin, let stop = await walkBeside(pin, label: quest.title) { return stop }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
@@ -685,12 +687,12 @@ final class LiveQuestHost: QuestHost {
         }
     }
 
-    /// Where to walk before an NPC at `pin` is clicked: where players came from to stand beside it (approach), else
+    /// Walk to where players came from to stand beside the NPC at `pin` (approach), to within approachArrive, else to
     /// the pin. A straight Click-to-Move from that side climbs to a platform's NPC instead of ending under it.
-    func approached(_ pin: MapPoint) -> MapPoint {
-        guard let from = approach(to: pin, in: roads) else { return pin }
+    func walkBeside(_ pin: MapPoint, label: String) async -> String? {
+        guard let from = approach(to: pin, in: roads) else { return await walk(to: pin, label: label) }
         emit("approach", ["pin": [pin.x, pin.y], "from": [from.x, from.y]])
-        return from
+        return await walk(to: from, label: label, arrive: RoadLimits.approachArrive)
     }
 
     /// Back to where the last walk began, which that walk had just passed: the owner, survive first.
@@ -701,7 +703,7 @@ final class LiveQuestHost: QuestHost {
     }
 
     func accept(_ giver: Giver) async -> String {
-        if let stop = await walk(to: giver.inView ? giver.pin : approached(giver.pin), label: "quest giver") { return stop }
+        if let stop = await (giver.inView ? walk(to: giver.pin, label: "quest giver") : walkBeside(giver.pin, label: "quest giver")) { return stop }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
         forgetLog(outcome)

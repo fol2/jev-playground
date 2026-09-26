@@ -631,6 +631,10 @@ extension NavTests {
         check(log24Sept.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel], "objective text to quest kind")
         check(questKind(PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: (42.2, 23.2))) == .travel,
               "live run 15: \"Speak with\" someone is a delivery to them, not a use-at")
+        let hidden = questOffers(QuestRead(quests: [PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: nil)],
+                                           player: (42.1, 23.5), missing: []), failed: [])
+        check(hidden.map(\.skill) == ["HAND_IN_1"] && hidden[0].criterion.contains("no pin"),
+              "live runs 19-20: a delivery whose pin hid under the player's arrow is offered from here, and says so")
         check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
               && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
               "a finished quest is a hand-in; a slain count is a kill")
@@ -713,9 +717,9 @@ extension NavTests {
               && trackerShows([], ["All Objectives"]),
               "a log is remembered only when the tracker shows each of its quests: not collapsed, filtered or cut off by the box")
         // The live log of run 5 against its upscaled tracker (x 2200, y 400): what may be remembered.
-        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: nil),
-                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: nil),
-                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: nil)]
+        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: (46.1, 45.2)),
+                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: (43.4, 23.9)),
+                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: (42.0, 44.4))]
         let tracker5 = Array(tracked5.dropFirst(2))  // the box starts below "All Objectives" and "Quests"
         check(rememberLog(log5Full, tracker: tracker5, key: key5, missing: []),
               "a complete read, agreeing with the tracker both ways, is remembered")
@@ -723,6 +727,10 @@ extension NavTests {
               && !rememberLog(log5Full, tracker: tracker5, key: key5, missing: ["Call of Earth"]) && !rememberLog(log5Full, tracker: tracker5, key: "", missing: [])
               && !rememberLog(log5Full, tracker: [], key: key5, missing: []),
               "one quest parsed of three, an empty parse, a quest the minimap named but the log lacks, no key or no tracker: not remembered (review of #46)")
+        var pinless = log5Full
+        pinless[2].pin = nil
+        check(!rememberLog(pinless, tracker: tracker5, key: key5, missing: []),
+              "live runs 19-20: a read with a quest whose pin hid under the player's arrow is not remembered, so the next run reads the map")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")

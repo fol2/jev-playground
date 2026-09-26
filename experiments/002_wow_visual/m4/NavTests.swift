@@ -175,6 +175,9 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
+        check(walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false) == .there
+              && walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false, arrive: RoadLimits.approachArrive) == .walk,
+              "live run 19: 0.45 from Rorian's approach counts as there at a walk's 0.5, not at the approach's 0.15")
     }
 
     /// walkLegs with a scripted clock and walk: legs in turn, the first stop ends the road, no leg after the deadline.
