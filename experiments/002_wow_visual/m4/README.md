@@ -357,8 +357,10 @@ Every step is a script (controller RULE); there is no Jev call.
        - The log after the hand-in read empty. OCR had read "[5]" as "[51" and the "?" icon before
          "[6]" as ")", so the run ended `NOTHING_TO_HAND_IN_OR_TAKE` instead of
          `NEXT_ZONE_NEEDS_ROADS`.
-     - A title may now start with up to three stray characters, and its closing bracket may read as
-       1, l, I or | (`questTitle`, the shortest level first).
+     - A title may now start with up to three stray characters that are not letters, digits or "-" (an
+       objective's text before a bracket is not a title). Its closing bracket may read as 1, l, I or |
+       when a space follows (`questTitle`). A title with a stray prefix keeps the clean titles' column
+       for its objectives.
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a

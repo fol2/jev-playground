@@ -662,9 +662,17 @@ extension NavTests {
             ("Shen' dar Village.", 816, 369)]))
         check(run7.map(\.title) == ["The Next Step", "The Adventurer"] && run7.map(\.level) == [5, 6] && run7.map(questKind) == [.travel, .travel],
               "a level's bracket misread as 1, and an icon read before it, still start a quest")
-        check(questTitle("[12] Rise of the Grove")! == (12, "Rise of the Grove") && questTitle("[11] Eleven")! == (11, "Eleven")
-              && questTitle("[151 Fifteen")! == (15, "Fifteen") && questTitle("Report to [Boros]") == nil && questTitle("Camping") == nil,
-              "two-digit levels read whole; a bracket inside an objective does not start a quest")
+        check(questTitle("[12] Rise of the Grove")!.level == 12 && questTitle("[11] Eleven")!.title == "Eleven"
+              && questTitle("[151 Fifteen")!.level == 15 && questTitle("[5]The Next Step")!.title == "The Next Step"
+              && questTitle("Report to [Boros]") == nil && questTitle("Camping") == nil,
+              "two-digit levels read whole; a true bracket needs no space after it; a bracket inside an objective does not start a quest")
+        check(questTitle("to [4] Camp") == nil && questTitle("- [5] Phantom") == nil && questTitle(") [6] The Adventurer")!.prefixed
+              && !questTitle("[6] The Adventurer")!.prefixed && questTitle("[5] ") == nil,
+              "a wrapped objective with a bracket, or a dash line, is not a title; an icon's stray mark is (review of #44)")
+        let column = parseQuestLog(tip([("[5] A Quest", 804, 250), ("- one", 816, 266), (") [6] B Quest", 792, 300), ("Speak to X", 816, 316),
+            ("6] C Quest", 804, 350), ("obj C", 816, 366)]))
+        check(column.map(\.title) == ["A Quest", "B Quest"] && column[1].objective == "Speak to X",
+              "a prefixed title keeps the clean titles' column: a garbled title at that column ends the quest above, not joins it")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
