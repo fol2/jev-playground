@@ -291,7 +291,8 @@ func source(of run: String) -> String {
 }
 
 /// `--roads`: every source's trails, each run's frames in name order, make the roads; then each source is held out
-/// against the roads of the others. The roads hold map coordinates only: no frame, name or label.
+/// against the roads of the others. The roads hold places, ways, subzone names and the videos' run names: no frame,
+/// character name or label.
 func roads() throws -> Int32 {
     // A subzone's name as read may carry the clock beside it ("Windfield Orchard 11:15", "Gustberry Lowlands 6.24 •") or an
     // icon before it. Subzone names have no digits: the name ends before the first.

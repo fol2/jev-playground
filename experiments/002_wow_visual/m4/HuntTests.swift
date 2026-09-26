@@ -755,9 +755,9 @@ extension NavTests {
             handed.append("HUNT " + quest.title); budgets.append(min(HuntLimits.maxSeconds, deadline - clock)); clock += huntTakes
             return outcomes["HUNT " + quest.title] ?? "HUNTED"
         }
-        var roads: [[MapPoint]] = []
+        var roads: [[MapPoint]] = [], roadTakes = 0.0
         func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
-            handed.append("ROAD " + quest.title); roads.append(legs); return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
+            handed.append("ROAD " + quest.title); roads.append(legs); clock += roadTakes; return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
         }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
@@ -831,6 +831,13 @@ extension NavTests {
         check(fled.offered.count == 2 && fled.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:RETREAT"]
               && wary2.handed == ["ROAD The Adventurer", "RETREAT"] && roadDanger.outcome == "RETREAT_NO_WAY_BACK",
               "a red name ahead on a road stops it as on any walk: RETREAT alone is offered next (survive first), and the road is not")
+
+        let longWay = FakeQuests([QuestRead(quests: south, player: thendal, missing: []), QuestRead(quests: south, player: (41.5, 28), missing: [])])
+        longWay.outcomes = ["ROAD The Adventurer": "ROAD_TIME_LIMIT"]
+        longWay.roadTakes = QuestLimits.runSeconds
+        let overtime = await runQuests(host: longWay, jev: CannedGraph(["DO:ROAD_1", "DO:ROAD_1"]), graph: graph()!, roads: southRoad)
+        check(overtime.outcome == "TIME_LIMIT" && longWay.handed == ["ROAD The Adventurer"],
+              "a road that ran out of the run's time ends the run at its time limit, with no further step")
 
         let blind = FakeQuests([QuestRead(quests: [log24Sept[4]], player: thendal, missing: ["Harvesting Windstones", "The Gift of Skysight"])])
         let unasked = CannedGraph([])

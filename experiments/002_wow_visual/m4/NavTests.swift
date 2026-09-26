@@ -156,8 +156,9 @@ struct NavTests {
         check(loads("/nonexistent/roads.json") == "none" && loads(broken) == "error",
               "no roads file: no roads; a way to a place the file does not have stops the run before any walk")
         try? FileManager.default.removeItem(atPath: broken)
-        let island = pruned(buildRoads([("a", (0..<6).map { i -> MapPoint in (40, 20.5 + Double(i)) }), ("b", [(6.2, 50.5), (6.2, 51.5)])]), minPlaces: 5)
-        check(island.places.count == 6 && island.ways.count == 5 && island.ways.allSatisfy { $0[0] < 6 && $0[1] < 6 } && same(island.point(5), 40, 25.5),
+        // The island comes first, so its places take the low numbers and every kept way must be renumbered.
+        let island = pruned(buildRoads([("b", [(6.2, 50.5), (6.2, 51.5)]), ("a", (0..<6).map { i -> MapPoint in (40, 20.5 + Double(i)) })]), minPlaces: 5)
+        check(island.places.count == 6 && island.ways == (0..<5).map { [$0, $0 + 1, 1] } && same(island.point(0), 40, 20.5) && same(island.point(5), 40, 25.5),
               "a small part of the roads (a reading that lost a digit: 6.2 for 66.2) is pruned, the rest renumbered")
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
