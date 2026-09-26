@@ -9,6 +9,7 @@ let minSeekChecks = 103  // the current count: removing a check must lower this 
 let minFightChecks = 218  // the current count: removing a check must lower this on purpose
 let minNavChecks = 300  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
+let minPerceptionChecks = 20  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
 let perceptionFile = navDir + "perception.jsonl"  // the accepted readings of the perception regression set
@@ -382,6 +383,7 @@ func motorProof(update: Bool) throws -> String {
     let fightTests = out("fight-tests"), fight = out("m3-fight"), tabletop = out("tabletop"), video = out("video-jev")
     let navTests = out("nav-tests"), nav = out("m4-nav"), memory = out("hunt-experience.json")
     let seekTests = out("seek-tests"), seek = out("m1-seek")
+    let perceptionTests = out("perception-tests"), perceive = out("m5-perceive"), teach = out("m5-teach")
     let fightSources = [motorDir + "Motor.swift", seekDir + "Plate.swift", fightDir + "Fight.swift"]
     let navSources = fightSources + [navDir + "Nav.swift", navDir + "Hunt.swift", navDir + "Quest.swift"]
     let seekShell = [motorDir + "Motor.swift", motorDir + "Probe.swift", seekDir + "Seek.swift", seekDir + "Plate.swift", seekDir + "SeekProbe.swift"]
@@ -410,6 +412,10 @@ func motorProof(update: Bool) throws -> String {
                                                          navDir + "HuntTests.swift", navDir + "Quest.swift"]),
         navBuild,
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
+        Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
+        Build(output: perceive, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
+        // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
+        Build(output: teach, sources: [perceiveDir + "Teacher.swift"]),
         Build(output: video, sources: [learnDir + "VideoJev.swift", sharedJSON]),
     ])
     _ = try suite(coreTests, "runtime", 33)
@@ -454,6 +460,9 @@ func motorProof(update: Bool) throws -> String {
     try fightTrap()
     try interruptedDry([fight, "--dry-run"])
 
+    let perceptionChecks = try suite(perceptionTests, "perception", minPerceptionChecks)
+    try refuses(perceive, [[], ["--bogus"], ["--propose", "x"], ["--sheet"], ["--sheet", "0"], ["--sheet", "x"], ["--sheet", "601"], ["--sheet-held"], ["--sheet-held", "0"], ["--sheet-held", "601"], ["--baseline", "x"], ["--audit"], ["--audit", "a", "b"]])
+    try refuses(teach, [["--bogus"], ["--eval"], ["--eval", "a", "b"]])  // before the model is asked for, with or without Swift 6.4
     let navChecks = try suite(navTests, "nav", minNavChecks)
     try refuses(nav, [["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--pixels"], ["--sim-jev"],
                       ["--sim-jev", "--scenario", "maze"], ["--execute", "--keys", "wqe"], ["--execute", "--to", "47.1,21.8"],
@@ -506,7 +515,8 @@ func motorProof(update: Bool) throws -> String {
         + "M1 loop (\(pulses.text()) pulses), the simulated M3 fight (\(show(fightSummary["decisions"])) "
         + "decisions; M3b's chains \(show(chainSummary["decisions"])) decisions and \(show(chainSummary["chain_steps"])) unasked steps) "
         + "and the simulated M4 walk (\(show(navSummary["decisions"])) decisions); M3/M4 dry-run SIGINT stops the "
-        + "loop (130, holding false) with no OS keys; \(seen); zero capture, OS input or live model calls."
+        + "loop (130, holding false) with no OS keys; \(seen); M5 perception: \(perceptionChecks) checks and argument refusal, the teacher built and refusing, not run; "
+        + "zero capture, OS input or live model calls."
 }
 
 /// Python's truthiness for a JSON value: absent, null, false, zero, "" and empty containers are false.
