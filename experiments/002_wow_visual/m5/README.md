@@ -71,11 +71,13 @@ Rebuild and run from the repository root:
 ```sh
 V=experiments/002_wow_visual
 swiftc -O -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift \
-  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m5/Marks.swift $V/m5/PerceiveTool.swift \
-  $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift -o /tmp/m5-perceive
+  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift \
+  $V/m5/PerceiveTool.swift $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
+  $V/runtime/Experience.swift -o /tmp/m5-perceive
 DEVELOPER_DIR=/Applications/Xcode-27.0.0-beta.5.app/Contents/Developer xcrun swiftc -O -parse-as-library $V/m5/Teacher.swift -o /tmp/m5-teach
-(cd runs/002_wow_visual && find . -name '*.png') | /tmp/m5-perceive --propose
-/tmp/m5-teach && /tmp/m5-perceive --sheet 180 && /tmp/m5-perceive --baseline
+(cd runs/002_wow_visual && find . -name '*.png' -o -name '*.jpg') | /tmp/m5-perceive --propose  # 2560 x 1320 frames only
+/tmp/m5-teach && /tmp/m5-perceive --sheet 48  # then --audit FILE, sheet by sheet, until none is left
+/tmp/m5-perceive --train && /tmp/m5-perceive --baseline
 ```
 
 ## Results
@@ -165,7 +167,7 @@ frame -> markCandidates -> detect (context crop): mark or none -> kind (shape cr
 
 | File | Role | Proof |
 |---|---|---|
-| `Marks.swift` | adds the three-way run split (`runSplit`) and the two crops (`glyphCrops`) | `MarksTests.swift` (24 checks) |
+| `Marks.swift` | adds the three-way run split (`runSplit`), what a model may learn from (`learnable`, never a test run) and the two crops (`glyphCrops`) | `MarksTests.swift` (25 checks) |
 | `Train.swift` | `m5-perceive --train`: crops of the training and validation runs, never the test runs; two Create ML image classifiers | built; not run by the proof (it needs the private frames) |
 | `Reader.swift` | `MarkReader`: the candidates classified by the two models, through Core ML and Vision | built; scored by `--baseline` |
 
@@ -177,8 +179,12 @@ frame -> markCandidates -> detect (context crop): mark or none -> kind (shape cr
   - So `detect` says whether a candidate is a mark from the wide crop, and `kind` says which from the tight one.
   - A class-balanced training set added false marks. A wider floor for the context crop (40 px, not 24) lost far
     marks. Neither was kept.
-- **Deterministic.** Create ML's scene features with no augmentation: the same labels make the same models, and
-  `--baseline` gives the same numbers. Training takes about 20 s on the Mac.
+- **Pinned, not bit-stable.** Scene-print features (revision 1) and logistic regression, with no augmentation.
+  - Retraining on the same labels and SDK gave the same numbers (26 Sept).
+  - A new SDK, or another file order, may not.
+  - Training takes about 20 s on the Mac.
+- **No frame drops out of the score.** A frame the learned reader cannot read stops `--baseline` (HOLD), so both
+  readers are scored on the same 866 frames.
 - **Private.** The models are made from private captures and stay under `runs/002_wow_visual/perception/models`.
 
 `m5-perceive --baseline` (sim, offline, on the saved frames; 866 frames, all 2158 candidates audited):

@@ -75,6 +75,11 @@ struct MarksTests {
         check(splits.filter { $0 == .validation }.count > 60 && splits.filter { $0 == .validation }.count < 140
               && zip(0..<500, splits).allSatisfy { ($1 == .test) == heldOut(run: "run_\($0)") } && run(of: "m4_x/f001.jpg") == "m4_x",
               "about one run in five more validates training; the test runs are exactly the held-out ones; a frame's run is its folder")
+        let many = (0..<50).map { MarkLabel(frame: "run_\($0)/f.jpg", box: [0, 0, 4, 4], kind: "question", teacher: "audit", crop: "") }
+        let learnt = learnable(many)
+        check(learnt.count < many.count && learnt.allSatisfy { runSplit(run(of: $0.frame)) != .test }
+              && learnt.count == many.filter { !heldOut(run: run(of: $0.frame)) }.count,
+              "a model learns from the training and validation runs only: every test run is left out, nothing else")
     }
 
     static func audits() {

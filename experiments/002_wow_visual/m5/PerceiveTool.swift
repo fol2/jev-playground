@@ -157,7 +157,7 @@ func audit(_ path: String) throws -> Int32 {
 /// The teacher, candidate by candidate, and the rule reader, frame by frame, against the audited labels, split by run
 /// into train and held out. Only a frame whose candidates are all audited is scored, those with no mark included
 /// (a mark read there is a false one). A teacher's label no auditor has checked is never a truth.
-func baseline() -> Int32 {
+func baseline() throws -> Int32 {
     let audit = rows(auditFile, MarkLabel.self)
     let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
     let taught = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
@@ -175,7 +175,8 @@ func baseline() -> Int32 {
         rules[split] = (rules[split] ?? MarkScore()) + s
         // The frames to look at again: a false mark may be a real one no candidate caught.
         if s.falseMarks + s.missed > 0 { errors.append("rules \(frame) found \(found.map { "\(Int($0.x)),\(Int($0.y))" }) labels \(labels.map(\.box))") }
-        if let reader, let read = try? reader.marks(image, rgba) {
+        if let reader {  // a frame the reader cannot read stops the score (HOLD), never drops out of it
+            let read = try reader.marks(image, rgba)
             let l = score(found: read.map { (x: $0.x, y: $0.y) }, labels: labels.map(\.box), foundKinds: read.map(\.kind), labelKinds: labels.map(\.kind))
             learned[split] = (learned[split] ?? MarkScore()) + l
             if l.falseMarks + l.missed + l.wrongKind > 0 { errors.append("learned \(frame) found \(read.map { "\($0.kind) \($0.box)" }) labels \(labels.map { "\($0.kind) \($0.box)" })") }
@@ -209,7 +210,7 @@ struct PerceiveTool {
             case ("--sheet", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n))
-            case ("--baseline", 1): exit(baseline())
+            case ("--baseline", 1): exit(try baseline())
             case ("--train", 1): exit(try train())
             case ("--audit", 2): exit(try audit(args[1]))
             case ("--sheet-held", 2):

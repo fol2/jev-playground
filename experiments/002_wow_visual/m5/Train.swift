@@ -1,7 +1,7 @@
 // M5, stage two: m5-perceive --train. The audited candidates of the training and validation runs, never the test runs,
 // are cropped into class folders under runs/002_wow_visual/perception/crops. Two Create ML image classifiers are made
 // from them and written to perception/models: `detect` (mark or none, from context crops) and `kind` (exclamation or
-// question, from the marks' shape crops). There is no augmentation, so the same labels make the same models.
+// question, from the marks' shape crops), with a pinned algorithm and no augmentation.
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -16,7 +16,7 @@ func train() throws -> Int32 {
     let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
     let taught = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
     var frames: [String: CGImage] = [:], count: [String: Int] = [:]
-    for l in truth(teacher: taught, audit: rows(auditFile, MarkLabel.self)) where runSplit(run(of: l.frame)) != .test {
+    for l in learnable(truth(teacher: taught, audit: rows(auditFile, MarkLabel.self))) {
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }
         guard let image = frames[l.frame] else { throw TrainError(description: "cannot read \(l.frame)") }
         let split = runSplit(run(of: l.frame)).rawValue, isMark = l.kind == "exclamation" || l.kind == "question"
@@ -29,10 +29,11 @@ func train() throws -> Int32 {
     print("crops: " + count.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
     try FileManager.default.createDirectory(at: MarkReader.models, withIntermediateDirectories: true)
     for task in ["detect", "kind"] {
-        var p = MLImageClassifier.ModelParameters()
-        p.validation = .dataSource(.labeledDirectories(at: crops.appendingPathComponent("\(task)/validation")))
-        p.augmentationOptions = []
-        p.maxIterations = 100
+        // Pinned: scene-print features (revision 1) and logistic regression, no augmentation. A rerun on the same labels
+        // and SDK gave the same numbers (26 Sept); a new SDK or file order may not.
+        let p = MLImageClassifier.ModelParameters(
+            validation: .dataSource(.labeledDirectories(at: crops.appendingPathComponent("\(task)/validation"))), maxIterations: 100, augmentation: [],
+            algorithm: .transferLearning(featureExtractor: .scenePrint(revision: 1), classifier: .logisticRegressor))
         let model = try MLImageClassifier(trainingData: .labeledDirectories(at: crops.appendingPathComponent("\(task)/train")), parameters: p)
         try model.write(to: MarkReader.models.appendingPathComponent("\(task).mlmodel"))
         print("\(task): training accuracy \(String(format: "%.3f", 1 - model.trainingMetrics.classificationError)), "

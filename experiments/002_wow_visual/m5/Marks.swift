@@ -175,3 +175,6 @@ func teacherScore(teacher: [MarkLabel], audit: [MarkLabel]) -> MarkScore {
     }
     return s
 }
+
+/// What a model may learn from: labels of the training and validation runs, never of the test runs.
+func learnable(_ labels: [MarkLabel]) -> [MarkLabel] { labels.filter { runSplit(run(of: $0.frame)) != .test } }
