@@ -78,6 +78,7 @@ The bar has a working memory (the owner, 25 Sept: remember what was read, to cut
   - The prints of four runs on 25-26 Sept differed by 0-1 per value on average, so no slot changed.
   - The 24 Sept bar, before its two totems, changed in exactly those two slots (78 and 86).
 - **The log.** Each `skill_slot` event says whether it was `read` or taken from `memory`.
+
 The camera stays at the owner's zoom. Until 25 Sept the run held F10 (Camera Zoom Out) for the
 widest view; the owner then found that view too far, because it hid the NPCs' "?" and "!".
 
