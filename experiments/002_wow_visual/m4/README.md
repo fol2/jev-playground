@@ -478,7 +478,8 @@ experiments/002_wow_visual/runtime/skyborne-quest.graph.json --keys wqe` replace
 
 Stops: no offer left (`NOTHING_TO_HAND_IN_OR_TAKE`, or `NEXT_ZONE_NEEDS_ROADS` while deliveries remain out of reach);
 a walk stopped for health, the owner or the HUD (combat: M4i); a walk whose key release is unconfirmed
-(`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; eight steps.
+(`WALK_KEYS_HELD`: that key set is kept, never replaced); the second `WALK_NO_PROGRESS`; twelve steps, or 25
+minutes (M4j).
 A failed hand-in is not offered again. Offline, 8 checks (M4g adds 4) run the loop on the live Thendal values of
 24 Sept with canned graph replies and a fake host: Shen'dar's quests are not offered, the owner's rules
 reach only the request after the READ, and the one-quest log read stops before any Jev call. They do not
@@ -552,6 +553,49 @@ sweep and the key check cover the fight's keys as well as the walk's. (Until 25 
 from the walk's set, which the walk's own exit sweep had already retired: no fight could have started. Found
 in review before any live fight back.) 2 nav checks replace "combat ends
 the run": a won fight goes on and re-offers the step; a stopped fight ends the run. Not seen live.
+
+## M4j — hunt from the quest run; the engine's zoom; a new character (26 Sept)
+
+- **Hunts.** The quest graph (`skyborne-quest-tools-v4`) offers `HUNT_1` and `HUNT_2` for kill and collect
+  quests within one walk, in the owner's order.
+  - The skill walks to the quest's area, or starts from here when the map showed none, then runs one M4b
+    hunt, as `--hunt` does, in its own `huntN/` folder.
+  - A hunt fights for every unfinished objective the tracker shows, so quests that share a place finish
+    together. Objects on the ground are not picked up.
+  - `HUNTED` (objectives complete) and `HUNTED_SOME` (a limit ended it after a count rose or a quest became
+    ready) let the run go on; the latter may be offered again.
+  - A limit with nothing counted fails the step. Any other hunt code ends the run: death, the owner, the
+    HUD, Jev, a lost fight, or keys held.
+  - `--hunt-graph PATH` gives each hunt a fresh session of the hunt graph; without it a hunt is the legacy
+    flat choice.
+  - No step starts after 25 minutes (the envelope allows 30), and a hunt gets what is left of them, at most
+    its own 15. A run takes up to twelve steps.
+- **Zoom.** A new character starts at the client's near zoom, and the owner wants the engine's own. At
+  the start of `--quests` and `--hunt`, `setZoom` holds F10 (Camera Zoom Out) to the widest view from any
+  zoom, then F11 (Camera Zoom In) back for `FightLimits.zoomInSeconds`.
+  - Both are owner-consented binds of 24 Sept.
+  - The owner found 0.5 s too far and chose 0.75 s. Two runs at 0.5 s landed at the same distance.
+  - `m4-nav --zoom --keys wqe [--seconds S]` sets it alone and saves the frame, to calibrate.
+- **Live runs 10-13 (26 Sept), a new level-1 character at Thendal Village.**
+  - Run 10 held at the start: a level-1 Shaman has no weapon enchant, and the bar check required one
+    (see the M3 README).
+  - Run 11: Windshaper Boro's "!", 20 yards away, was drawn under the player's arrow on the minimap, so no
+    giver was read. With no "!" on the minimap, a yellow mark in view is now offered as `ACCEPT`, whose
+    criterion says so.
+  - Run 12: Jev chose it. The hover confirmed Ailee Farheart under the mark, and Click-to-Move walked to
+    her, but no dialogue opened. The next frame found no mark, so there was no second click. A look after
+    such a click now tries three frames.
+  - Run 12 also ended with the Map & Quest Log open, and the next run's L would have closed it. L is now
+    pressed only while the panel is not as wanted, checked by its title after each press.
+  - The new character's map opened on Thendal Village, not Zephras Isle, so the fixed pixel-to-zone
+    transform did not hold. A pin's coordinates now come from the map's own "Cursor: x, y" line while the
+    pointer rests on it.
+  - Run 13: the mark in view was found on one frame and not on the next. The near "!" draws the lower part
+    of its bar orange, so the yellow bar and its dot did not join.
+  - The owner then asked whether patching the rules frame by frame is the right way. It is not: world
+    objects move to a learned detector with a VLM as labelling teacher, and fixed HUD boxes to anchors.
+    That work comes next, and no further mark patch was made here.
+  - Four quest runs, no quest taken; no fight, no death.
 
 ## Limits
 
