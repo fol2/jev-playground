@@ -611,6 +611,82 @@ the run": a won fight goes on and re-offers the step; a stopped fight ends the r
   sweep, and F10 and F11 in every key set that can press them. Offline, M4j adds 14 nav checks (286 to
   300) and 2 fight checks.
 
+## M4k — roads learned from players' videos (26 Sept)
+
+The owner, 24 Sept: "first put higher priority to walk on road, especially zone to zone travel". A straight
+walk from Thendal Village to Shen'dar Village ended against a ridge (M4d), so a quest run stopped at its zone's
+edge (`NEXT_ZONE_NEEDS_ROADS`). The game could not run on 26 Sept, and published videos of Zephras Isle show
+where players walk: the zone coordinates under the minimap, on every frame.
+
+- **Trails** (`m5-perceive --trails`). Vision reads the minimap's corner of each video frame: the top right,
+  360 px wide and 30% of the height. The coordinates are found by their pattern (`parseCoords`), because the
+  corner's layout differs between videos. The subzone's name, the line above them, is kept too; the lines
+  below them are the quest tracker's.
+  - A trail breaks where a reading lies more than 2 y units from the one before: a flight, a hearthstone,
+    a misread, or frames the OCR lost. Of 14,467 steps between readings, 97% are under one unit,
+    210 are 1-2 units, 41 are 2-6 and 201 are longer.
+- **Roads** (`m5-perceive --roads`, [zephras-roads.json](../learning/knowledge/zephras-roads.json)).
+  - A place is a square y unit of ground, at the mean of the readings in it; players on one road share
+    its places.
+  - A way joins the places of two readings in a row. It is directed, as walked: a drop from a ledge may
+    not climb back. Each way counts the videos that walked it.
+  - One map (`oneMap`). The map changes only across a jump, which breaks a trail, so the subzones one
+    trail walks through share a map. Joined trail by trail, the group with most readings is Zephras Isle;
+    trails through none of its subzones are left out. No list of subzones is written in.
+  - The file holds map coordinates and subzone names only: no frame, name or label.
+- **Routes** (`route`). From any place within 3 units of the player, along the ways, off at a place within 3
+  units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.3
+  units) to where the road bends, so a straight road is one leg.
+- **The consumer: the quest run** (`skyborne-quest-tools-v5`).
+  - `ROAD_1` and `ROAD_2` are offered only when nothing is left within one walk: the owner's order, this
+    zone first, stays a rule of admissibility.
+  - Each goes to a quest beyond one walk, in the owner's order, that the roads reach. Its criterion gives
+    the distance, the road's length and its legs.
+  - `walkRoad` walks each leg as a quest walk (Jev's moves; a red name ahead stops it, an attack is fought
+    back). A leg may be longer than one walk, as the road does not bend on it. Arriving (`BY_ROAD`) lets
+    the run go on; a road that fails is not offered again this run.
+  - `--quests` loads the roads at the start and logs a `roads` event. A file that does not decode stops the
+    run before any walk; with no file the run ends at the zone's edge as before.
+
+Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 README](../m5/README.md):
+
+```sh
+(cd runs/002_wow_visual && find . -path './yt_*' -name '*.jpg' | sort) | /tmp/m5-perceive --trails  # resumable
+/tmp/m5-perceive --roads  # writes learning/knowledge/zephras-roads.json; each video held out
+```
+
+**Results, 26 Sept (sim, offline; no road walked live).**
+- **Sources.** Seven published Zephras Isle videos (16,786 frames). Six are those of the M5 stage four; the
+  seventh is a 5 h 53 min run through the whole starting zone at 1-14 (7063 frames, 16:9, one frame in 3 s).
+  - Coordinates were read on 14,543 frames. The two low-resolution 21:9 videos read poorly (zerocks1 and 4:
+    the digits blur); the others read 80-100%.
+  - 10 of 199 trails (250 readings) were left off this map: the full-zone video's last hour in Dalaran and
+    Stormwind, trails in Rohashi Spires that never walked on into another subzone, and rare misreads of a name.
+- **The roads.** 1097 places and 2077 ways; 423 ways were walked in more than one video.
+- **Each video held out against the roads of the others:**
+
+| Held out | Readings within a place of the others' roads | Walks over 12 units routed |
+|---|---|---|
+| Full starting zone (1-14) | 4357 / 6359 | 12 / 15 |
+| Shaman, episode 2 (Thendal to Valanaar) | 3954 / 4864 | 6 / 8 |
+| Hunter | 974 / 987 | 1 / 1 |
+| Druid | 1044 / 1044 | 2 / 2 |
+| Story playthrough | 601 / 601 | 0 / 0 |
+| Shaman, episodes 1 and 4 | 159 / 162, 79 / 157 | none |
+
+  Before the full-zone video was added, the Shaman's episode 2 held out had 1 of 8 long walks routed.
+- **Thendal Village to Shen'dar Village.** The route goes west round the ridge, through (38.3, 30.3): 10
+  legs and 28.1 units by road, where the straight line is 20.9. To The Next Step's pin it is 14 legs and 32.6
+  units. `NavTests` pins that the committed roads give this route round the ridge.
+- **No way back yet.** No route leads from Shen'dar back to Thendal. The ways are directed, and the videos
+  walk the zone in quest order. A run that must go back ends at the zone's edge, as before.
+
+
+- **Not yet walked live.** A route through places other players walked is a candidate: the first announced
+  `--quests` run that offers a road is its qualification.
+- No map check: the run envelope is Zephras Isle, where the roads were learned. The subzone names are in
+  the file for the check a run beyond it will need.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
@@ -630,7 +706,7 @@ C=experiments/001_wow_fishing/probes/background-click
 swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
   $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift $V/m1/Plate.swift $V/m1/SeekProbe.swift \
   $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
-  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift $V/m5/Marks.swift $V/m5/Reader.swift \
+  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift \
   $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
   -o /tmp/m4-nav
@@ -649,7 +725,7 @@ live result below/above certifies the new graph policy.
 swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/002_wow_visual/m1/Plate.swift \
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m3/Tactics.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
-  experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift \
+  experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift experiments/002_wow_visual/m4/Roads.swift \
   experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift \
   experiments/002_wow_visual/runtime/Experience.swift -o /tmp/nav-tests && /tmp/nav-tests
 swiftc -parse-as-library experiments/002_wow_visual/m4/Tabletop.swift experiments/002_wow_visual/runtime/JSON.swift \

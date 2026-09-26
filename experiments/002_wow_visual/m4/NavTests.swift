@@ -20,6 +20,7 @@ struct NavTests {
         print("SIMULATION-ONLY proof: not live capture, OS input or a TypeSafe call.")
         arrows()
         coordinates()
+        roads()
         geometry()
         admissibility()
         packets()
@@ -108,6 +109,52 @@ struct NavTests {
         let orange: [UInt8] = [236, 140, 30, 255], white: [UInt8] = [240, 238, 236, 255], dark: [UInt8] = [40, 40, 40, 255]
         let masked = whiteText(RGBA(width: 3, height: 1, pixels: orange + white + dark), spread: 60, floor: 60).pixels
         check(masked == [0, 0, 0, 255] + white + [0, 0, 0, 255], "the mask blanks a coloured and a dark pixel, and keeps white")
+    }
+
+
+    /// Roads.swift on made-up trails: breaks, shared places, ways as walked, routes and their bends.
+    static func roads() {
+        let jumpy: [MapPoint] = [(40, 20), (40, 20.6), (40, 21.2), (47, 30), (40, 21.8), (40, 22.4)]
+        check(trailPieces(jumpy, at: { $0 }).map(\.count) == [3, 2],
+              "a jump breaks a trail (a flight, a misread: no way is learned across it), and a lone reading is dropped")
+        // Maps: Thendal and Shen'dar share a trail, Shen'dar and Windfield another; Dalaran's trail (a video's last hour) is
+        // on another map, and a trail named only by an OCR slip ("Hair", read twice) is on no known map.
+        func trail(_ names: [(String, Int)]) -> [(MapPoint, String?)] { names.flatMap { n, k in Array(repeating: ((40, 20), n), count: k) } }
+        let maps = [trail([("Thendal Village", 25), ("Shen'dar Village", 25)]), trail([("Shen'dar Village", 5), ("Windfield Orchard", 20)]),
+                    trail([("Dalaran", 30)]), trail([("Hair", 2)])]
+        check(oneMap(maps, subzone: { $0.1 }).map { $0[0].1 } == ["Thendal Village", "Shen'dar Village"],
+              "trails joined by the subzones they walk through are one map, the one with most readings; another map's trail and a slip's are left out")
+        let north: [MapPoint] = [(40, 20.5), (40, 21.5), (40, 22.5)]
+        let shared = buildRoads([("a", north), ("b", north.map { ($0.x + 0.1, $0.y) })])
+        check(shared.places.count == 3 && shared.ways == [[0, 1, 2], [1, 2, 2]] && shared.sources == ["a", "b"] && same(shared.point(0), 40.05, 20.5),
+              "two players on one road share its places, each the mean of its readings; a way counts both players, and only as walked")
+        // An L: south along x = 40, then east along y = 24.2 (0.7 x units is 1.05 y units of ground).
+        let south: [MapPoint] = (0...4).map { i -> MapPoint in (40, 20.2 + Double(i)) }
+        let east: [MapPoint] = (1...5).map { i -> MapPoint in (40 + 0.7 * Double(i), 24.2) }
+        let bend = south + east
+        let l = buildRoads([("a", bend)])
+        let legs = route(l, from: (40, 19.5), to: (44, 24.2))
+        check(legs?.count == 3 && same(legs?[1], 40, 24.2) && same(legs?.last, 44, 24.2),
+              "a route keeps the road's corner and ends at the goal: no straight line across the corner")
+        check(route(l, from: (44, 24.2), to: (40, 19.5)) == nil, "a road walked one way only gives no route back: a drop may not climb back")
+        check(route(l, from: (30, 10), to: (44, 24.2)) == nil && route(l, from: (40, 19.5), to: (60, 60)) == nil,
+              "no route when no place is within reach of the player or of the goal")
+        check(simplified([(0, 0), (0, 1), (0, 2), (0, 3)]).count == 2 && simplified([(0, 0), (1, 0), (1, 3)]).count == 3,
+              "a straight walk is one leg; a bend beyond the tolerance is kept")
+        let held = heldOutRoads([bend, [(80, 80), (80, 81)]], roads: l, longer: 3)
+        check(held.readings == 12 && held.covered == 10 && held.walks == 1 && held.routed == 1,
+              "held out: readings near a learned place, and the long walks the roads route")
+        // The committed roads, learned from the videos (sim: no live walk). Thendal Village to The Adventurer's pin near
+        // Shen'dar Village goes west round the ridge that a straight walk ran into (M4d), not straight south.
+        let learned = try? RoadGraph.load(), way = learned.flatMap { route($0, from: (42.8, 23.5), to: (42.0, 44.4)) }
+        check(way.map { $0.contains { $0.x < 40 } && same($0.last, 42.0, 44.4) } == true,
+              "the committed roads route Thendal Village to Shen'dar Village round the ridge")
+        let broken = FileManager.default.temporaryDirectory.appendingPathComponent("roads-\(getpid()).json").path
+        try? #"{"sources":[],"subzones":[],"places":[[1,2]],"ways":[[0,5,1]]}"#.write(toFile: broken, atomically: true, encoding: .utf8)
+        func loads(_ path: String) -> String { do { return try RoadGraph.load(path) == nil ? "none" : "roads" } catch { return "error" } }
+        check(loads("/nonexistent/roads.json") == "none" && loads(broken) == "error",
+              "no roads file: no roads; a way to a place the file does not have stops the run before any walk")
+        try? FileManager.default.removeItem(atPath: broken)
     }
 
     static func geometry() {

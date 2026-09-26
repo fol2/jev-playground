@@ -755,6 +755,10 @@ extension NavTests {
             handed.append("HUNT " + quest.title); budgets.append(min(HuntLimits.maxSeconds, deadline - clock)); clock += huntTakes
             return outcomes["HUNT " + quest.title] ?? "HUNTED"
         }
+        var roads: [[MapPoint]] = []
+        func walkRoad(to quest: PlannedQuest, by legs: [MapPoint]) async -> String {
+            handed.append("ROAD " + quest.title); roads.append(legs); return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
+        }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -798,6 +802,27 @@ extension NavTests {
         check(((jev.sent[1]["tool_memory"] as? [String: Any])?["owner_rules"] as? [String: Any])?["text"] as? String != nil
               && jev.sent[0]["quest_log"] == nil && result.graphRecords.count == 3,
               "a READ puts the owner's rules into the next request only; every graph call is recorded")
+
+        // Roads (made up here, along x = 42 south to Shen'dar): only with nothing left here are the quests beyond one walk
+        // offered, each by the route from here; one the roads do not reach is not offered.
+        let southRoad = RoadGraph(sources: ["a"], subzones: [], places: [[42.8, 24.5], [42.6, 30], [42.3, 36], [42.1, 42], [42, 44]],
+                                  ways: [[0, 1, 1], [1, 2, 1], [2, 3, 1], [3, 4, 1]])
+        check(questOffers(QuestRead(quests: hub + south, player: thendal, missing: []), failed: [], roads: southRoad).map(\.skill) == ["HAND_IN_1", "HAND_IN_2"],
+              "the owner's order: with hand-ins here, no road is offered")
+        let roaded = FakeQuests([QuestRead(quests: south, player: thendal, missing: []), QuestRead(quests: south, player: (42, 44.4), missing: []),
+                                 QuestRead(quests: [south[0]], player: (42, 44.4), missing: []), QuestRead(quests: [], player: (46.1, 45.2), missing: [])])
+        let traveller = CannedGraph(["DO:ROAD_1", "DO:HAND_IN_1", "DO:HAND_IN_1"])
+        let travelled = await runQuests(host: roaded, jev: traveller, graph: graph()!, roads: southRoad)
+        check(traveller.offered.first == ["DO:ROAD_1", "READ:owner_rules", "READ:quest_log", "READ:recent"]
+              && roaded.handed == ["ROAD The Adventurer", "The Adventurer", "The Next Step"] && travelled.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "nothing left here: a road to The Adventurer, 20 units south (The Next Step's pin is beyond reach of the road's end); there, both hand-ins")
+        check(roaded.roads.first?.count == 2 && same(roaded.roads.first?.first, 42.8, 24.5) && same(roaded.roads.first?.last, 42, 44.4),
+              "the road is walked as learned, simplified to its bends: onto it near the player, off it at the quest's pin")
+        let blocked = FakeQuests([QuestRead(quests: south, player: thendal, missing: []), QuestRead(quests: south, player: thendal, missing: [])])
+        blocked.outcomes = ["ROAD The Adventurer": "WALK_NO_PROGRESS"]
+        let stopped = await runQuests(host: blocked, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad)
+        check(stopped.outcome == "NEXT_ZONE_NEEDS_ROADS" && blocked.handed == ["ROAD The Adventurer"],
+              "a road that did not get there is not offered again this run; with no other road, the run ends at the zone's edge")
 
         let blind = FakeQuests([QuestRead(quests: [log24Sept[4]], player: thendal, missing: ["Harvesting Windstones", "The Gift of Skysight"])])
         let unasked = CannedGraph([])
