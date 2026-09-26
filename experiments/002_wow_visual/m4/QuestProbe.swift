@@ -324,7 +324,7 @@ final class QuestRun {
     /// A giver with several quests lists them; an entry is clicked only when the minimap's tooltip named it.
     /// The chat's "accepted" line confirms it; the next log read is the proof.
     func accept(_ giver: Giver) async -> String {
-        func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { nameKey($0) == nameKey(l.text) } } }
+        func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { sameTitle(l.text, $0) } } }  // the decorative face: sameTitle
         var dialog = lines(QuestHUD.dialog, await frame())
         if acceptButton(dialog) != nil && listed(dialog) == nil {  // an offer already open, not known to be this giver's
             await tap(QuestHUD.escape)

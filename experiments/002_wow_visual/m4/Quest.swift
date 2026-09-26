@@ -391,14 +391,22 @@ func missingFromLog(_ tooltips: [[String]], _ quests: [PlannedQuest]) -> [String
 
 /// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under
 /// them, zone headers ("Camping") to their left. Pins are added from the map afterwards.
+/// OCR misreads the level's frame (live run 7, 26 Sept): "]" as "1" ("[51 The Next Step"), and the "?"
+/// icon before it as ")" (") [6] The Adventurer"); the log then read empty. So up to three characters
+/// may come before "[", and the closing bracket may read as 1, l, I or |, the shortest level first.
+func questTitle(_ text: String) -> (level: Int, title: String)? {
+    guard let m = text.firstMatch(of: try! Regex(#"^[^\[]{0,3}\[(\d{1,2}?)[\]1lI|]\s+"#)),
+          let digits = m.output[1].substring, let level = Int(digits) else { return nil }
+    return (level, String(text[m.range.upperBound...]))
+}
+
 func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
     var out: [PlannedQuest] = []
     var titleX = Double.infinity
     for line in lines.sorted(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
         let text = line.text.trimmingCharacters(in: .whitespaces)
-        if let m = text.range(of: #"^\[(\d+)\]\s*"#, options: .regularExpression),
-           let level = Int(text[m].filter(\.isNumber)) {
-            out.append(PlannedQuest(title: String(text[m.upperBound...]), level: level, ready: false, objective: "", pin: nil))
+        if let (level, title) = questTitle(text) {
+            out.append(PlannedQuest(title: title, level: level, ready: false, objective: "", pin: nil))
             titleX = line.x
         } else if (line.x >= titleX + 6 || text.hasPrefix("-")), titleX.isFinite, !out.isEmpty {  // live: "- Ready for turn-in" starts at the title's x
             out[out.count - 1].objective += (out[out.count - 1].objective.isEmpty ? "" : " ") + text

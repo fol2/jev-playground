@@ -343,6 +343,22 @@ Every step is a script (controller RULE); there is no Jev call.
      - On the 2,449 saved frames, 17 frames gained true near marks (Dalia's "?" and "!", Rorian,
        Boros, Yala's neighbours), checked by eye. Three false marks went: a character's green shirt, a
        spell's glow and a Cirrusfly. A known false mark on flowers changed its height.
+   - **Live run 7 (26 Sept): Harvesting Windstones was handed in** (`COMPLETED`: 360 XP, 75 copper).
+     - The near "?" read as one mark (h 55).
+     - Among four players round Dalia, the first point confirmed her. Her tooltip went after 2.4 s
+       and came back on return.
+     - Click-to-Move took 0.6 s, the progress page's Continue was pressed, and Complete Quest
+       finished it.
+     - With runs 4 and 7, both of Thendal Village's hand-ins have now been done live by a Jev-chosen
+       `--quests` run.
+     - Two readings were wrong:
+       - The first reward's name read "Binds when picked up" (a profession book; all sold for 0, so
+         the rule's pick did not matter).
+       - The log after the hand-in read empty. OCR had read "[5]" as "[51" and the "?" icon before
+         "[6]" as ")", so the run ended `NOTHING_TO_HAND_IN_OR_TAKE` instead of
+         `NEXT_ZONE_NEEDS_ROADS`.
+     - A title may now start with up to three stray characters, and its closing bracket may read as
+       1, l, I or | (`questTitle`, the shortest level first).
 2. Check the dialogue's title is the quest. Hover each reward (a two-column grid 37 px below "Choose
    your reward:"), read its tooltip and the game's own comparison with the equipped item ("+2 Armor").
    Lines are kept by alignment with the tooltip's footer, because the quest text shows through; a

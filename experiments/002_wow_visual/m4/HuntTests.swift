@@ -546,6 +546,9 @@ extension NavTests {
         put(188, 88, 11, 9, (250, 210, 40)); put(140, 135, 110, 9, (30, 30, 30)); put(185, 120, 20, 20, (60, 190, 40))
         check(questMarks(close, box: (0, 0, 400, 400)).isEmpty,
               "the green under a mark must be a line of text, not a round glow (a Cirrusfly's striped body over its glow)")
+        put(180, 40, 27, 30, (30, 30, 30)); put(188, 88, 11, 9, (30, 30, 30)); put(185, 120, 20, 20, (30, 30, 30))
+        put(180, 40, 26, 50, (250, 210, 40)); put(140, 135, 110, 9, (60, 190, 40))
+        check(questMarks(close, box: (0, 0, 400, 400)).isEmpty, "a tall 26 px glow without a dot is not a mark, even over a name (review of #43)")
         let hookBlob: Blob = (810, 0, 0, 180, 206, 40, 69), dotBlob: Blob = (99, 0, 0, 188, 198, 88, 96)
         let stripe: Blob = (400, 0, 0, 175, 210, 88, 100), farDot: Blob = (99, 0, 0, 188, 198, 110, 118)
         check(withDots([hookBlob, dotBlob]).count == 1 && withDots([hookBlob, dotBlob])[0].dotted
@@ -653,6 +656,15 @@ extension NavTests {
               && parsed.map(\.level) == [4, 4, 4, 5, 6], "quest log: titles and levels, in the log's order")
         check(parsed[0].objective == "Find the Rise of Spirits and drink the Earth Sapta." && parsed.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel],
               "objectives join their wrapped lines, and read as the same kinds")
+        // Live run 7, 26 Sept: the log after a hand-in read empty, "]" as "1" and the "?" icon as ")".
+        let run7 = parseQuestLog(tip([("Lephras Isle", 792, 227), ("[51 The Next Step", 804, 253), ("- Report to Constable Aonda in", 816, 271),
+            ("Shen' dar Village.", 816, 283), ("Camping", 792, 312), (") [6] The Adventurer", 792, 341), ("Speak to Raan Wildwind near", 816, 357),
+            ("Shen' dar Village.", 816, 369)]))
+        check(run7.map(\.title) == ["The Next Step", "The Adventurer"] && run7.map(\.level) == [5, 6] && run7.map(questKind) == [.travel, .travel],
+              "a level's bracket misread as 1, and an icon read before it, still start a quest")
+        check(questTitle("[12] Rise of the Grove")! == (12, "Rise of the Grove") && questTitle("[11] Eleven")! == (11, "Eleven")
+              && questTitle("[151 Fifteen")! == (15, "Fifteen") && questTitle("Report to [Boros]") == nil && questTitle("Camping") == nil,
+              "two-digit levels read whole; a bracket inside an objective does not start a quest")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
