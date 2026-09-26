@@ -701,6 +701,17 @@ extension NavTests {
         check(trackerShows(log5, tracked5) && !trackerShows(log5, ["All Objectives", "Quests"]) && !trackerShows(log5, Array(tracked5.prefix(7)))
               && trackerShows([], ["All Objectives"]),
               "a log is remembered only when the tracker shows each of its quests: not collapsed, filtered or cut off by the box")
+        // The live log of run 5 against its upscaled tracker (x 2200, y 400): what may be remembered.
+        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: nil),
+                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: nil),
+                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: nil)]
+        let tracker5 = Array(tracked5.dropFirst(2))  // the box starts below "All Objectives" and "Quests"
+        check(rememberLog(log5Full, tracker: tracker5, key: key5, missing: []),
+              "a complete read, agreeing with the tracker both ways, is remembered")
+        check(!rememberLog([log5Full[1]], tracker: tracker5, key: key5, missing: []) && !rememberLog([], tracker: tracker5, key: key5, missing: [])
+              && !rememberLog(log5Full, tracker: tracker5, key: key5, missing: ["Call of Earth"]) && !rememberLog(log5Full, tracker: tracker5, key: "", missing: [])
+              && !rememberLog(log5Full, tracker: [], key: key5, missing: []),
+              "one quest parsed of three, an empty parse, a quest the minimap named but the log lacks, no key or no tracker: not remembered (review of #46)")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")

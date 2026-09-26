@@ -204,8 +204,9 @@ final class QuestRun {
                 quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
             }
             hover(1280, 60)
+            let offPins = hostNow()
             await sleep(0.4)
-            var spots = (await frame()).map { mapPins(rgba($0)) } ?? []
+            var spots = (await frame(after: offPins + 0.3)).map { mapPins(rgba($0)) } ?? []  // no tooltip read as pins
             body.emit("map_scan", ["pins": spots.count])
             if let player { spots.append(mapPixel(player)) }
             for spot in spots {
@@ -218,8 +219,7 @@ final class QuestRun {
                 }
             }
             await tap(QuestHUD.mapKey)
-            // A collapsed, filtered or overflowing tracker is no key; an empty read (run 7 read one) is not kept for the hour.
-            if !key.isEmpty, !quests.isEmpty, trackerShows(quests, trackerText) {
+            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests)) {
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }

@@ -252,6 +252,17 @@ func trackerShows(_ quests: [PlannedQuest], _ tracker: [String]) -> Bool {
     return quests.allSatisfy { text.contains(nameKey($0.title)) }
 }
 
+/// Whether a map read may be remembered: a key; a log that is not empty; nothing the minimap named that the
+/// log lacks; and the tracker and the log agree both ways (each quest in the tracker, and each tracker line in
+/// a title or an objective). A read that parsed one quest of four passed a one-way test and would have been
+/// kept for the hour, with `LOG_INCOMPLETE` every run (review, 26 Sept). OCR noise only costs a full read.
+func rememberLog(_ quests: [PlannedQuest], tracker: [String], key: String, missing: [String]) -> Bool {
+    let log = nameKey(quests.map { $0.title + " " + $0.objective }.joined(separator: " "))
+    let lines = tracker.map(nameKey).filter { !$0.isEmpty }
+    return !key.isEmpty && !quests.isEmpty && missing.isEmpty && !lines.isEmpty && trackerShows(quests, tracker)
+        && lines.allSatisfy { log.contains($0) }
+}
+
 /// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
 func keptLog(_ memory: LogMemory?, key: String, at time: Double) -> [PlannedQuest]? {
     guard let memory, !key.isEmpty, memory.key == key, time >= memory.readAt, time - memory.readAt < logMemoryAge else { return nil }

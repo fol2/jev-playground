@@ -409,8 +409,10 @@ resting on each pin took 3-4 s of each 5-6 s read (live run 4). The log is kept 
 - **The key.** The zone's name above the minimap, by its letters (the clock beside it changes each
   minute), and the objective tracker's lines, by letters and digits. Both are read after a x3 upscale on
   the frame taken with the pointer parked, before any minimap icon's tooltip can cover the zone's name.
-- **When it is not saved.** A read is remembered only if the tracker shows every quest in it. An empty
-  read is never remembered either. A
+- **When it is not saved.** A read is remembered only when it is complete: not empty; nothing the minimap
+  named is missing from it; and the tracker and the log agree both ways (every quest in the tracker, and
+  every tracker line in a title or an objective). A collapsed or filtered tracker, one too long for its
+  box, or a parse that caught one quest of four would otherwise let a wrong plan stand for the hour. A
   collapsed or filtered tracker, or one too long for its box, would let two logs share a key.
 - **What changes it.** A hand-in, a quest taken or an objective's count ("12/15" to "13/15") changes the
   key, and so does another zone, whose coordinates are its own. An unread box gives no key.
