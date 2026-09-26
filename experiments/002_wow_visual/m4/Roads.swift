@@ -166,11 +166,12 @@ func heldOutRoads(_ trails: [[MapPoint]], roads g: RoadGraph, near: Double = Roa
 }
 
 /// Where players stood still, and where they came from. A stand is `minStay` readings in a row within `still` of the
-/// first; its approach is the nearest reading before it (at most four back) that lies `from` away. Stands within
+/// first; its approach is the earliest of the four readings before it that lies `from` away: Rorian's ramp foot, 0.9
+/// away, not its top, 0.3 away; and an NPC beside another on one platform is approached from that one's stand. Stands within
 /// `merge` of each other are one, and one needs `minTrails` trails. Its approach is the mean of those that came from
 /// the compass sector (of eight) most trails came from, so two ways in are never averaged into a wall.
 /// Rows: x, y, from x, from y, trails.
-func learnStands(_ trails: [[MapPoint]], minStay: Int = 3, still: Double = 0.15, from: ClosedRange<Double> = 0.5...1.2,
+func learnStands(_ trails: [[MapPoint]], minStay: Int = 3, still: Double = 0.15, from: ClosedRange<Double> = 0.3...1.2,
                  merge: Double = 0.3, minTrails: Int = 2) -> [[Double]] {
     var seen: [(at: MapPoint, from: MapPoint)] = []
     for t in trails {
@@ -178,7 +179,7 @@ func learnStands(_ trails: [[MapPoint]], minStay: Int = 3, still: Double = 0.15,
         while i < t.count {
             var j = i
             while j + 1 < t.count && distance(t[i], t[j + 1]) <= still { j += 1 }
-            if j - i + 1 >= minStay, let k = (max(0, i - 4)..<i).reversed().first(where: { from.contains(distance(t[$0], t[i])) }) {
+            if j - i + 1 >= minStay, let k = (max(0, i - 4)..<i).first(where: { from.contains(distance(t[$0], t[i])) }) {
                 seen.append((t[i], t[k]))
             }
             i = j + 1
@@ -196,9 +197,20 @@ func learnStands(_ trails: [[MapPoint]], minStay: Int = 3, still: Double = 0.15,
     }
 }
 
-/// Where to walk before clicking an NPC whose pin is `pin`: the approach of the stand nearest it, within `near`.
-/// nil: no stand there, and the walk goes to the pin as before.
-func approach(to pin: MapPoint, in g: RoadGraph?, near: Double = 0.5) -> MapPoint? {
-    (g?.stands ?? []).filter { distance(($0[0], $0[1]), pin) <= near }
-        .min { distance(($0[0], $0[1]), pin) < distance(($1[0], $1[1]), pin) }.map { ($0[2], $0[3]) }
+/// Where to walk before clicking an NPC whose pin is `pin`: the approach of the stand nearest it, within `near` (a map
+/// pin is off by up to 0.5: Elatrell Featherlight's read 41.5, 23.1 for her stand at 41.75, 23.45, live run 30). An
+/// approach that is itself another stand (an NPC beside another on one platform: Elatrell Featherlight beside Rorian,
+/// live run 30, 26 Sept) is followed to that stand's approach, at most three times, so the walk ends on the ground
+/// players came from. nil: no stand there, and the walk goes to the pin as before.
+func approach(to pin: MapPoint, in g: RoadGraph?, near: Double = 0.7) -> MapPoint? {
+    let stands = g?.stands ?? []
+    func nearest(_ p: MapPoint, within: Double) -> [Double]? {
+        stands.filter { distance(($0[0], $0[1]), p) <= within }.min { distance(($0[0], $0[1]), p) < distance(($1[0], $1[1]), p) }
+    }
+    guard var stand = nearest(pin, within: near) else { return nil }
+    for _ in 0..<3 {
+        guard let next = nearest((stand[2], stand[3]), within: 0.2), next != stand else { break }
+        stand = next
+    }
+    return (stand[2], stand[3])
 }

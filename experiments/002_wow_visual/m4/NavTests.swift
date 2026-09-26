@@ -156,14 +156,21 @@ struct NavTests {
         let fromEast: [MapPoint] = [(43, 24), (42.8, 23.9), (42.6, 23.8), (42.2, 23.5), (42.1, 23.5), (42.1, 23.5), (42.1, 23.5)]
         let fromWest: [MapPoint] = [(41.2, 23.5), (41.6, 23.5), (42.2, 23.5), (42.2, 23.5), (42.2, 23.5)]
         let learnt = learnStands([fromEast, fromEast, fromWest])
-        check(learnt.count == 1 && learnt[0][4] == 3 && abs(learnt[0][2] - 42.6) < 1e-9 && abs(learnt[0][3] - 23.8) < 1e-9 && learnStands([fromEast]).isEmpty,
+        check(learnt.count == 1 && learnt[0][4] == 3 && abs(learnt[0][2] - 42.8) < 1e-9 && abs(learnt[0][3] - 23.9) < 1e-9 && learnStands([fromEast]).isEmpty,
               "a stand is where trails stood still; its approach is from the side most came from, never an average of two sides")
         let stood = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: learnt)
-        check(same(approach(to: (42.2, 23.2), in: stood), 42.6, 23.8) && approach(to: (45, 23.2), in: stood) == nil && approach(to: (42.2, 23.2), in: nil) == nil,
+        check(same(approach(to: (42.2, 23.2), in: stood), 42.8, 23.9) && approach(to: (45, 23.2), in: stood) == nil && approach(to: (42.2, 23.2), in: nil) == nil,
               "before an NPC is clicked, the walk goes to where players came from to stand beside it; no stand near: the pin")
+        // Live run 30: Elatrell Featherlight stands beside Rorian on his platform, approached from Rorian's stand.
+        let platform = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: [[42.1, 23.5, 42.58, 23.55, 8], [41.7, 23.35, 42.1, 23.5, 3]])
+        let loop = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: [[1, 1, 2, 2, 2], [2, 2, 1, 1, 2]])
+        check(same(approach(to: (41.6, 23.2), in: platform), 42.58, 23.55) && approach(to: (1, 1), in: loop) != nil,
+              "an approach that is another NPC's stand is followed down to the ground players came from; a loop ends")
         // Live run 18: Rorian's bridge. The committed stand beside his pin is approached from the east, as players did.
         check(learned.flatMap { approach(to: (42.2, 23.2), in: $0) }.map { $0.x > 42.4 } == true,
               "the committed roads approach Rorian the Dayseeker from the east, up his ramp, not from under his bridge")
+        check(learned.flatMap { approach(to: (41.5, 23.1), in: $0) }.map { $0.x > 42.4 } == true,
+              "live run 30: Elatrell Featherlight, beside Rorian on his platform, is approached up the same ramp")
         let broken = FileManager.default.temporaryDirectory.appendingPathComponent("roads-\(getpid()).json").path
         try? #"{"sources":[],"subzones":[],"places":[[1,2]],"ways":[[0,5,1]]}"#.write(toFile: broken, atomically: true, encoding: .utf8)
         func loads(_ path: String) -> String { do { return try RoadGraph.load(path) == nil ? "none" : "roads" } catch { return "error" } }
