@@ -33,7 +33,14 @@ func markCandidates(_ image: RGBA, box: (Int, Int, Int, Int) = MarkLabels.world)
         let w = glyph.x1 - glyph.x0 + 1, gh = glyph.y1 - glyph.y0 + 1
         if gh >= 4 && gh <= 120 && w <= 80 && gh * 3 >= w { out.append(glyph) }  // upright, at most three times wider than tall
     }
-    return out
+    // Letters, not marks: three or more of a like height on one baseline within 200 px are a line of text. Yellow
+    // interface text (settings, "Objective Complete") made most of the first candidates (26 Sept); a mark stands
+    // alone above a green name. The minimap's icons drop a tooltip's title the same way (minimapPins).
+    func inLine(_ a: Blob, _ b: Blob) -> Bool {
+        let ha = a.y1 - a.y0 + 1, hb = b.y1 - b.y0 + 1
+        return abs(a.y1 - b.y1) <= 3 && abs(a.x0 - b.x0) <= 200 && 2 * min(ha, hb) >= max(ha, hb)
+    }
+    return out.filter { g in out.filter { inLine(g, $0) }.count < 3 }
 }
 
 /// What the teacher sees: the glyph with room for a name under it and beside it. At least 240 x 160 px, so a

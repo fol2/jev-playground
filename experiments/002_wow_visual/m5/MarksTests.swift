@@ -48,6 +48,12 @@ struct MarksTests {
         check(markCandidates(flecks, box: (0, 0, 400, 300)).isEmpty, "sparse flecks, as on tan grass, are no candidate")
         let strip = frame { p, w in rect(&p, w, 100, 100, 100, 8, (200, 170, 40)) }
         check(markCandidates(strip, box: (0, 0, 400, 300)).isEmpty, "a flat strip, such as a neutral nameplate's bar, is no candidate")
+        let text = frame { p, w in
+            for i in 0..<4 { rect(&p, w, 60 + 30 * i, 200, 8, 12, (230, 190, 40)) }  // four letters on one baseline
+            rect(&p, w, 300, 40, 10, 24, (198, 173, 44))  // a mark standing alone
+        }
+        let kept = markCandidates(text, box: (0, 0, 400, 300))
+        check(kept.count == 1 && kept[0].x0 == 300, "letters on one baseline are a line of text, not marks; a mark standing alone is kept")
         let outside = frame { p, w in rect(&p, w, 10, 10, 10, 20, (198, 173, 44)) }
         check(markCandidates(outside, box: (50, 50, 400, 300)).isEmpty, "nothing outside the box is proposed")
         let r = teacherCrop((100, 0, 0, 200, 209, 100, 139), width: 400, height: 300)

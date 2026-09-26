@@ -1,7 +1,7 @@
 // M5 tool, run from the repository root. Frames, crops and labels stay under runs/002_wow_visual (private
 // captures); the teacher that labels the candidates is its own binary (Teacher.swift).
 //   m5-perceive --propose       frame paths under runs/002_wow_visual on stdin; candidates appended, resumable
-//   m5-perceive --sheet N       contact sheets of up to N labels, 30 a sheet, for audit
+//   m5-perceive --sheet N       contact sheets of up to N labels not yet audited, 48 a sheet, for audit
 //   m5-perceive --audit FILE    the auditor's corrections to the last sheets ("id kind" lines); the rest confirmed
 //   m5-perceive --baseline      the rule reader (questMarks) against the labels, audited first, train and held out
 import Foundation
@@ -86,15 +86,18 @@ func propose() throws -> Int32 {
     return 0
 }
 
-/// Up to `limit` labels, every mark first and then a spread of the rest, drawn 30 a sheet with each one's id
-/// and the teacher's kind, for an auditor to check by eye. The ids index sheet-index.json.
+/// Up to `limit` labels not yet audited, of the current candidates: every mark and refusal first, then a spread of
+/// the rest, drawn 48 a sheet with each one's id and the teacher's kind, for an auditor to check by eye. The ids
+/// index sheet-index.json.
 func sheet(limit: Int) throws -> Int32 {
-    let done = Set(rows(auditFile, MarkLabel.self).map { "\($0.frame)|\($0.box)" })  // each sheet shows labels not yet audited
-    let all = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher }.filter { !done.contains("\($0.frame)|\($0.box)") }
+    let done = Set(rows(auditFile, MarkLabel.self).map { "\($0.frame)|\($0.box)" })
+    let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
+    let all = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
+        .filter { !done.contains("\($0.frame)|\($0.box)") }
     let marks = all.filter { $0.kind != "none" }, rest = all.filter { $0.kind == "none" }
     let step = max(1, rest.count / max(1, limit - marks.count))
     let chosen = Array((marks + stride(from: 0, to: rest.count, by: step).map { rest[$0] }).prefix(limit))
-    let cellW = 240, cellH = 180, cols = 6, perSheet = 30
+    let cellW = 180, cellH = 140, cols = 8, perSheet = 48
     var frames: [String: CGImage] = [:]
     for (s, start) in stride(from: 0, to: chosen.count, by: perSheet).enumerated() {
         let page = Array(chosen[start..<min(chosen.count, start + perSheet)])
@@ -110,12 +113,12 @@ func sheet(limit: Int) throws -> Int32 {
             let r = teacherCrop(g, width: frame.width, height: frame.height)
             guard let crop = frame.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { continue }
             let col = i % cols, row = i / cols
-            let scale = min(Double(cellW - 4) / Double(r.w), Double(cellH - 22) / Double(r.h), 2)
+            let scale = min(Double(cellW - 4) / Double(r.w), Double(cellH - 20) / Double(r.h), 2)
             let top = Double(rowsN * cellH - row * cellH)  // CoreGraphics puts y = 0 at the bottom
             ctx.draw(crop, in: CGRect(x: Double(col * cellW + 2), y: top - 20 - Double(r.h) * scale,
                                       width: Double(r.w) * scale, height: Double(r.h) * scale))
             let text = NSAttributedString(string: "\(start + i) \(l.kind)", attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, 15, nil),
+                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, 13, nil),
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1)])
             ctx.textPosition = CGPoint(x: col * cellW + 4, y: Int(top) - 16)
             CTLineDraw(CTLineCreateWithAttributedString(text), ctx)
