@@ -32,6 +32,12 @@ enum QuestHUD {
     static let logMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/quest-log.json")  // private, under runs/
 }
 
+/// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too, in
+/// `--quests` and `--turn-in` alike.
+func forgetLog(_ outcome: String) {
+    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
+}
+
 final class QuestRun {
     let body: LiveNavBody
     let routed: RoutedClickTarget
@@ -193,6 +199,9 @@ final class QuestRun {
         var quests: [PlannedQuest]
         if let kept = keptLog(remembered, key: key, at: now) {
             quests = kept
+            for i in quests.indices where quests[i].pin == nil {  // a pin the last read missed, from this read's minimap
+                quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
+            }
             body.emit("quest_log_memory", ["quests": kept.count, "age_s": Int(now - remembered!.readAt)])
         } else {
             await tap(QuestHUD.mapKey)
@@ -530,11 +539,6 @@ final class LiveQuestHost: QuestHost {
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
-    /// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too.
-    func forgetLog(_ outcome: String) {
-        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
-    }
-
     func handIn(_ quest: PlannedQuest) async -> String {
         if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
         let outcome = await quester.turnIn(quest.title)
@@ -670,6 +674,7 @@ func questExecute(_ command: NavCommand) async throws -> Int32 {
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
     body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
     let outcome = await (try QuestRun(body: body)).turnIn(quest)
+    forgetLog(outcome)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     let manifest: [String: Any] = [

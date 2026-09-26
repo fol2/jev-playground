@@ -418,7 +418,8 @@ resting on each pin took 3-4 s of each 5-6 s read (live run 4). The log is kept 
 - **When it is used.** While the key is the same and the memory is under an hour old, the next read keeps
   the quests and pins without opening the map. The minimap's givers are still read each time, as they
   change with where the player stands.
-- **What clears it.** A `COMPLETED` or `ACCEPTED` step removes the file.
+- **What clears it.** A `COMPLETED` or `ACCEPTED` step removes the file, in `--quests` and `--turn-in` alike.
+  A kept quest whose pin the last read missed takes one from this read's minimap, if it shows one.
 - **Why the hour.** A quest left out of the tracker could change unseen for at most that hour.
 - **On saved frames.** The tracker OCR of runs 5 and 6 differs only by an apostrophe ("Shen' dar" and
   "Shen dar"), which the key drops. Run 7, after the hand-in, gives another key.
