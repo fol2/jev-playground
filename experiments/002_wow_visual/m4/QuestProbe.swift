@@ -231,7 +231,13 @@ final class QuestRun {
     /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
     /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
-        let player = (await frame()).flatMap { readCoords($0).at }
+        // One frame's OCR can lose a glyph of the coordinates (live run 28: POSITION_UNREADABLE on "44.9.2314"), so up to
+        // five fresh frames are read, as a walk bears six unreadable ones.
+        var player = (await frame()).flatMap { readCoords($0).at }
+        for _ in 0..<4 where player == nil {
+            let asked = hostNow()
+            player = (await frame(after: asked + 0.2)).flatMap { readCoords($0).at }
+        }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         let parked = hostNow()
         await sleep(0.4)
