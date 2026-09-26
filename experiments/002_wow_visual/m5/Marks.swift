@@ -1,13 +1,13 @@
-// M5, stage one of learned perception: candidate quest marks, cast wide for a labelling teacher, and the
-// measures that compare a reader with the teacher's labels. Pure: no capture, no model. The teacher and the
-// tool are PerceiveTool.swift. The hand-tuned mark rules (m4/Quest.swift, questMarks) failed on each new
+// M5, learned perception: candidate quest marks, cast wide for a labelling teacher, the crops a learned reader
+// sees, and the measures that compare a reader with the audited labels. Pure: no capture, no model. The teacher
+// is Teacher.swift, the learned reader Reader.swift, the tool PerceiveTool.swift. The hand-tuned mark rules (m4/Quest.swift, questMarks) failed on each new
 // zoom, character and glyph shade (26 Sept); a detector trained on labelled frames replaces them.
 import Foundation
 
 enum MarkLabels {
     static let world = (300, 100, 2100, 950)  // where marks are looked for, as QuestHUD.world
     static let teacher = "fm-marks-v2"  // the prompt's version: a cached verdict is reused only under it
-    static let heldOutEvery = 5  // one run in five, by name, is held out
+    static let heldOutEvery = 5  // one run in five, by name, is held out as the test; one more validates training
 }
 
 /// Yellow to orange: a quest mark's glyph shades from its top to its foot (live, 26 Sept: 198,173,44 at the
@@ -70,12 +70,40 @@ struct MarkLabel: Codable, Equatable {
     var crop: String  // the crop's SHA-256: the teacher's cache key, with the teacher's version
 }
 
-/// A run is held out by its name, never by frame: frames of one run are near-duplicates, and one on each side
-/// would leak (AGENTS: do not tune against the held-out test). FNV-1a, so the split never moves.
-func heldOut(run: String) -> Bool {
+enum Split: String, CaseIterable { case train, validation, test }
+
+/// A run's split, by its name, never by frame: frames of one run are near-duplicates, and one on each side would
+/// leak (AGENTS: do not tune against the held-out test). One run in five is the test; one in five more validates a
+/// model while it trains, and chooses between designs. FNV-1a, so the split never moves.
+func runSplit(_ run: String) -> Split {
     var hash: UInt64 = 0xcbf29ce484222325
     for byte in run.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
-    return hash % UInt64(MarkLabels.heldOutEvery) == 0
+    switch hash % UInt64(MarkLabels.heldOutEvery) {
+    case 0: return .test
+    case 1: return .validation
+    default: return .train
+    }
+}
+
+func heldOut(run: String) -> Bool { runSplit(run) == .test }
+
+/// The run a saved frame belongs to: its folder under runs/002_wow_visual.
+func run(of frame: String) -> String { String(frame.split(separator: "/").first ?? "") }
+
+/// What the learned reader sees of a candidate glyph (`box`: x, y, width, height), as squares inside the image:
+/// - `context`: four glyph heights a side (at least 24 px), from half a height above the glyph, so the name under
+///   it is in view. It says whether the glyph is a quest mark.
+/// - `shape`: 1.6 times the glyph (at least 20 px), centred on it. It says which mark.
+/// On the validation runs (26 Sept) the context crop told marks from the rest best, and the shape crop the kind.
+/// Neither did both: with the context crop a near "!" read as "?", with the shape crop far marks were missed.
+func glyphCrops(_ box: [Int], width: Int, height: Int) -> (context: (x: Int, y: Int, w: Int, h: Int), shape: (x: Int, y: Int, w: Int, h: Int)) {
+    func square(_ side: Int, cx: Int, top: Int) -> (x: Int, y: Int, w: Int, h: Int) {
+        let s = min(side, width, height)
+        return (max(0, min(width - s, cx - s / 2)), max(0, min(height - s, top)), s, s)
+    }
+    let cx = box[0] + box[2] / 2, cy = box[1] + box[3] / 2, h = box[3]
+    let shape = max(20, 16 * max(box[2], h) / 10)
+    return (square(max(24, 4 * h), cx: cx, top: box[1] - h / 2), square(shape, cx: cx, top: cy - shape / 2))
 }
 
 /// A reader's marks against the audited marks of the same frames. A found mark whose centre lies in a label's box,
@@ -90,15 +118,16 @@ struct MarkScore: Equatable {
     }
 }
 
-func score(found: [(x: Double, y: Double)], labels: [[Int]]) -> MarkScore {
-    var open = labels, s = MarkScore()
-    for f in found {
-        if let i = open.firstIndex(where: { b in
-            let gx = Double(b[2]) / 4, gy = Double(b[3]) / 4
+func score(found: [(x: Double, y: Double)], labels: [[Int]], foundKinds: [String] = [], labelKinds: [String] = []) -> MarkScore {
+    var open = Array(labels.indices), s = MarkScore()
+    for (n, f) in found.enumerated() {
+        if let k = open.firstIndex(where: { i in
+            let b = labels[i], gx = Double(b[2]) / 4, gy = Double(b[3]) / 4
             return f.x >= Double(b[0]) - gx && f.x <= Double(b[0] + b[2] - 1) + gx && f.y >= Double(b[1]) - gy && f.y <= Double(b[1] + b[3] - 1) + gy
         }) {
-            open.remove(at: i)
+            let i = open.remove(at: k)
             s.hits += 1
+            if foundKinds.indices.contains(n) && labelKinds.indices.contains(i) && foundKinds[n] != labelKinds[i] { s.wrongKind += 1 }
         } else {
             s.falseMarks += 1
         }
@@ -146,3 +175,6 @@ func teacherScore(teacher: [MarkLabel], audit: [MarkLabel]) -> MarkScore {
     }
     return s
 }
+
+/// What a model may learn from: labels of the training and validation runs, never of the test runs.
+func learnable(_ labels: [MarkLabel]) -> [MarkLabel] { labels.filter { runSplit(run(of: $0.frame)) != .test } }

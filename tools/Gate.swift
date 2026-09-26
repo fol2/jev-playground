@@ -23,7 +23,7 @@ let fishingDir = "experiments/001_wow_fishing/"
 let visualDir = "experiments/002_wow_visual/"
 let motorDir = visualDir + "m0/", seekDir = visualDir + "m1/", fightDir = visualDir + "m3/", navDir = visualDir + "m4/"
 let runtimeDir = visualDir + "runtime/"
-let perceiveDir = visualDir + "m5/"  // learned perception: candidates, a local labelling teacher, scores
+let perceiveDir = visualDir + "m5/"  // learned perception: candidates, a local labelling teacher, a learned reader, scores
 let learnDir = visualDir + "learning/"  // video/research evidence; VideoJev.swift --check proves it offline
 let sharedJSON = runtimeDir + "JSON.swift"
 
@@ -47,7 +47,7 @@ let motorPaths: Set<String> = Set(
        "skyborne-fight.graph.json", "README.md"].map { runtimeDir + $0 }
     + ["Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift", "HuntProbe.swift", "Quest.swift",
        "QuestProbe.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
-    + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Teacher.swift", "README.md"].map { perceiveDir + $0 }
+    + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "Teacher.swift", "Train.swift", "README.md"].map { perceiveDir + $0 }
     + [visualDir + "README.md", learnDir + "VideoJev.swift"])
 /// Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.
 let retired: [String: String] = Dictionary(uniqueKeysWithValues:

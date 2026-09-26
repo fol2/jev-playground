@@ -1,5 +1,6 @@
-// Offline M5 checks on synthetic frames: the candidate proposer, the teacher's crop, the run split and the
-// score. SIMULATION ONLY: nothing here shows how well the teacher labels, or how a reader does on real frames.
+// Offline M5 checks on synthetic frames: the candidate proposer, the teacher's crop, the learned reader's crops, the
+// run split and the score. SIMULATION ONLY: nothing here shows how well the teacher labels, or how a reader does
+// on real frames.
 import Foundation
 
 @main
@@ -11,7 +12,7 @@ struct MarksTests {
     }
 
     static func main() {
-        print("M5 checks: synthetic frames, the candidate proposer, the run split and the score.")
+        print("M5 checks: synthetic frames, the candidate proposer, the crops, the run split and the score.")
         print("SIMULATION-ONLY proof: no frame, teacher or model.")
         candidates()
         split()
@@ -70,6 +71,15 @@ struct MarksTests {
               "the split is by run name and never moves")
         let held = (0..<500).filter { heldOut(run: "run_\($0)") }.count
         check(held > 60 && held < 140, "about one run in five is held out (\(held) of 500)")
+        let splits = (0..<500).map { runSplit("run_\($0)") }
+        check(splits.filter { $0 == .validation }.count > 60 && splits.filter { $0 == .validation }.count < 140
+              && zip(0..<500, splits).allSatisfy { ($1 == .test) == heldOut(run: "run_\($0)") } && run(of: "m4_x/f001.jpg") == "m4_x",
+              "about one run in five more validates training; the test runs are exactly the held-out ones; a frame's run is its folder")
+        let many = (0..<50).map { MarkLabel(frame: "run_\($0)/f.jpg", box: [0, 0, 4, 4], kind: "question", teacher: "audit", crop: "") }
+        let learnt = learnable(many)
+        check(learnt.count < many.count && learnt.allSatisfy { runSplit(run(of: $0.frame)) != .test }
+              && learnt.count == many.filter { !heldOut(run: run(of: $0.frame)) }.count,
+              "a model learns from the training and validation runs only: every test run is left out, nothing else")
     }
 
     static func audits() {
@@ -100,5 +110,15 @@ struct MarksTests {
               "the box ends at its last pixel (x + w - 1): the quarter of room is the same on both sides")
         check(MarkScore().precision == nil && MarkScore().recall == nil && (s + s).hits == 2 && s.recall == 0.5,
               "no reading and no label give no rate, not a perfect one; scores add up")
+        let kinds = score(found: [(105, 110), (305, 210)], labels: labels, foundKinds: ["exclamation", "question"], labelKinds: ["question", "question"])
+        check(kinds == MarkScore(hits: 2, falseMarks: 0, missed: 0, wrongKind: 1) && (kinds + kinds).wrongKind == 2,
+              "a hit of the other kind is counted, by the label it hit; wrong kinds add up")
+        let near = glyphCrops([200, 100, 10, 40], width: 400, height: 300), far = glyphCrops([100, 50, 3, 5], width: 400, height: 300)
+        check(near.context == (125, 80, 160, 160) && near.shape == (173, 88, 64, 64) && far.context == (89, 48, 24, 24) && far.shape == (91, 42, 20, 20),
+              "the context crop is four glyph heights from half a height above; the shape crop 1.6 glyphs, centred; each has a floor")
+        let corner = glyphCrops([395, 290, 4, 9], width: 400, height: 300)
+        check(corner.context.x + corner.context.w <= 400 && corner.context.y + corner.context.h <= 300 && corner.shape.x + corner.shape.w <= 400
+              && corner.context.w == corner.context.h && glyphCrops([0, 0, 50, 120], width: 400, height: 300).context.w == 300,
+              "a crop stays square and inside the image, shrunk to it if the glyph is too tall")
     }
 }
