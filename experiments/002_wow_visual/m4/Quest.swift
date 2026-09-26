@@ -485,6 +485,15 @@ let mapOrigin = (x: 20.0, y: 224.3), mapScale = (x: 7.42, y: 4.99)
 func zonePoint(_ px: Double, _ py: Double) -> MapPoint { ((px - mapOrigin.x) / mapScale.x, (py - mapOrigin.y) / mapScale.y) }
 func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * mapScale.x, mapOrigin.y + p.y * mapScale.y) }
 
+/// The map's own "Cursor: 42.3, 22.9" line, in zone coordinates whatever map it shows (live, 26 Sept: a new
+/// character's map opened on Thendal Village, not Zephras Isle, so the fixed transform above did not hold).
+func mapCursor(_ lines: [String]) -> MapPoint? {
+    let text = lines.joined(separator: " ")
+    guard let m = text.range(of: #"Cursor:?\s*\d{1,2}\.\d\s*,\s*\d{1,2}\.\d"#, options: .regularExpression) else { return nil }
+    let numbers = text[m].split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
+    return numbers.count == 2 ? (numbers[0], numbers[1]) : nil
+}
+
 /// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
 func minimapPoint(_ px: Double, _ py: Double, player: MapPoint) -> MapPoint {
     (player.x + (px - Double(MinimapHUD.cx)) / MinimapHUD.unitPx / mapAspect, player.y + (py - Double(MinimapHUD.cy)) / MinimapHUD.unitPx)

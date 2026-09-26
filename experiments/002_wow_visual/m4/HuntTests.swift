@@ -728,6 +728,9 @@ extension NavTests {
                              log24Sept).isEmpty, "live 25 Sept: an NPC's name above a quest the log holds is not a missing quest")
         check(missingFromLog([["Dalia the Collector", "Harvesting Windstones"], ["Dalia the Collector", "18 m"]], log24Sept)
               == ["Dalia the Collector"], "a tooltip naming no quest the log holds still counts, NPC name or not")
+        check(mapCursor(["Cursor: 42.3, 22.9", "Player: 42.8, 23.3"]).map { $0 == (42.3, 22.9) } == true
+              && mapCursor(["Cursor 7.5,60.0"]).map { $0 == (7.5, 60.0) } == true && mapCursor(["Player: 42.8, 23.3"]) == nil && mapCursor([]) == nil,
+              "live, 26 Sept: the map's own cursor line gives a pin's zone coordinates on any map; the player's line is not the cursor")
     }
 
     /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed; every hunt completes unless listed).

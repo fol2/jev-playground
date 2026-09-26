@@ -26,6 +26,8 @@ enum QuestHUD {
         "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
     static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
     static let mapKey: UInt16 = 37  // L, the Map & Quest Log
+    static let mapTitle = CGRect(x: 450, y: 150, width: 300, height: 34)  // "Map & Quest Log" in its title bar (26 Sept)
+    static let mapCursor = CGRect(x: 80, y: 688, width: 300, height: 24)  // "Cursor: 42.3, 22.9" at the map's bottom left
     static let questList = CGRect(x: 775, y: 225, width: 345, height: 560)
     static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
     static let zone = CGRect(x: 2290, y: 24, width: 230, height: 30)  // the zone's name above the minimap, beside the clock
@@ -210,8 +212,7 @@ final class QuestRun {
             }
             body.emit("quest_log_memory", ["quests": kept.count, "age_s": Int(now - remembered!.readAt)])
         } else {
-            await tap(QuestHUD.mapKey)
-            await sleep(1.2)
+            if !(await setMap(open: true)) { body.emit("map_toggle_failed", ["open": true]) }
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             quests = parseQuestLog(lines(QuestHUD.questList, listed))
@@ -228,12 +229,15 @@ final class QuestRun {
                 hover(spot.x, spot.y)
                 await sleep(0.7)
                 let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
-                let read = lines(box, await frame()).map { nameKey($0.text) }
+                let shown = await frame()
+                let read = lines(box, shown).map { nameKey($0.text) }
+                let at = shown.flatMap { mapCursor(upscaledText($0, QuestHUD.mapCursor)) }
+                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "read": read])
                 for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
-                    quests[i].pin = zonePoint(spot.x, spot.y)
+                    quests[i].pin = at ?? zonePoint(spot.x, spot.y)
                 }
             }
-            await tap(QuestHUD.mapKey)
+            if !(await setMap(open: false)) { body.emit("map_toggle_failed", ["open": false]) }
             if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests)) {
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
@@ -245,6 +249,19 @@ final class QuestRun {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
         return (quests, player, missing, givers)
+    }
+
+    /// L toggles the Map & Quest Log, so it is pressed only while the panel is not as wanted, and its title is read
+    /// after each press (live run 12, 26 Sept: the run ended with the map open, and the next run's L would have
+    /// closed it). false: still not as wanted after three presses.
+    func setMap(open: Bool) async -> Bool {
+        for press in 0...3 {
+            if lines(QuestHUD.mapTitle, await frame()).contains(where: { $0.text.contains("Quest Log") }) == open { return true }
+            if press == 3 { break }
+            await tap(QuestHUD.mapKey)
+            await sleep(1.2)
+        }
+        return false
     }
 
     enum Page { case wanted([TipLine]), other([TipLine]), failed(String) }
@@ -348,10 +365,18 @@ final class QuestRun {
                 await tap(QuestHUD.escape)
                 await sleep(0.8)
                 marks.removeFirst()
-            } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
-                image = again
-                marks = questMarks(rgba(again), box: QuestHUD.world)
-                body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+            } else {  // nothing opened: Click-to-Move walked towards it; look again, over a few frames while the
+                // view settles (live run 12, 26 Sept: beside Ailee Farheart the first frame found no mark; a later one did)
+                for _ in 0..<3 {
+                    let looked = hostNow()
+                    guard let again = await frame(after: looked + 0.3) else { continue }
+                    image = again
+                    marks = questMarks(rgba(again), box: QuestHUD.world)
+                    body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+                    if !marks.isEmpty { break }
+                    await sleep(0.4)
+                }
+                if marks.isEmpty { write(image, to: body.directory.appendingPathComponent("no-marks-after.png"), type: .png) }
             }
         }
         return (nil, "DIALOGUE_NOT_OPEN")
