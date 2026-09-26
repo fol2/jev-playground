@@ -390,7 +390,8 @@ func motorProof(update: Bool) throws -> String {
     let clicks = [clickDir + "Adapter.swift", clickDir + "NativeWindowServerPreparation.swift", clickDir + "NativeBackgroundClickTransport.swift"]
     let navBuild = Build(output: nav, sources: seekShell + [fightDir + "Fight.swift", fightDir + "FightProbe.swift", navDir + "Nav.swift",
                                                             navDir + "NavProbe.swift", navDir + "Hunt.swift", navDir + "HuntProbe.swift",
-                                                            navDir + "Quest.swift", navDir + "QuestProbe.swift"] + clicks,
+                                                            navDir + "Quest.swift", navDir + "QuestProbe.swift",
+                                                            perceiveDir + "Marks.swift", perceiveDir + "Reader.swift"] + clicks,  // M5 in shadow
                          flags: ["-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"])
     if update {
         try buildAll([navBuild])

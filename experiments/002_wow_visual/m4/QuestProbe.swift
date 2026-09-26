@@ -45,11 +45,28 @@ final class QuestRun {
     let routed: RoutedClickTarget
     let bounds: CGRect
     private var clicks = 0  // click1.jpg, click2.jpg: the frame each NPC click was chosen on
+    /// The learned mark reader (M5) in shadow: it reads each frame questMarks reads, and is logged, never acted on.
+    /// nil when m5-perceive --train has made no models on this Mac.
+    private let shadow = try? MarkReader()
 
     init(body: LiveNavBody) throws {
         self.body = body
         bounds = body.session.window.frame
         routed = try routedTarget(pid: body.session.app.processIdentifier, window: body.session.window.windowID, bounds: bounds)
+    }
+
+    /// What the learned reader sees on a frame questMarks has just read: a `learned_marks` event for the audit.
+    /// Its errors are logged too, and change nothing.
+    func shadowMarks(_ image: CGImage, _ pixels: RGBA, at place: String) {
+        guard let shadow else { return }
+        let began = hostNow()
+        do {
+            let read = try shadow.marks(image, pixels)
+            body.emit("learned_marks", ["at": place, "count": read.count, "ms": Int((hostNow() - began) * 1000),
+                                        "marks": read.prefix(5).map { [$0.kind, $0.box, ($0.confidence * 100).rounded() / 100] as [Any] }])
+        } catch {
+            body.emit("learned_marks", ["at": place, "error": "\(error)"])
+        }
     }
 
     func image() -> CGImage? {
@@ -193,7 +210,9 @@ final class QuestRun {
         var givers = found
         // A giver a few yards away is drawn under the player's arrow (live, 26 Sept: 20 yards from Windshaper
         // Boro only its "!"'s dot showed). With no "!" on the minimap, a yellow mark in view is offered instead.
-        let inView = scanned.map { questMarks(rgba($0), box: QuestHUD.world).count } ?? 0
+        let scannedPixels = scanned.map(rgba)
+        let inView = scannedPixels.map { questMarks($0, box: QuestHUD.world).count } ?? 0
+        if let scanned, let scannedPixels { shadowMarks(scanned, scannedPixels, at: "view") }
         if givers.isEmpty && inView > 0, let player { givers.append(Giver(names: [], pin: player, inView: true)) }
         body.emit("view_marks", ["count": inView])
         // Working memory: the same zone and tracker text as the last map read keep its quests and pins; the
@@ -345,7 +364,9 @@ final class QuestRun {
     /// only when a panel is open: Esc with nothing open is the Game Menu.
     func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
         guard var image = await frame() else { return (nil, "NO_FRESH_FRAME") }
-        var marks = questMarks(rgba(image), box: QuestHUD.world)
+        let pixels = rgba(image)
+        var marks = questMarks(pixels, box: QuestHUD.world)
+        shadowMarks(image, pixels, at: "open")
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
         guard !marks.isEmpty else {
             write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
@@ -381,7 +402,9 @@ final class QuestRun {
                     let looked = hostNow()
                     guard let again = await frame(after: looked + 0.3) else { continue }
                     image = again
-                    marks = questMarks(rgba(again), box: QuestHUD.world)
+                    let againPixels = rgba(again)
+                    marks = questMarks(againPixels, box: QuestHUD.world)
+                    shadowMarks(again, againPixels, at: "again")
                     body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
                     if !marks.isEmpty { break }
                     await sleep(0.4)

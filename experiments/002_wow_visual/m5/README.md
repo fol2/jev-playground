@@ -204,11 +204,27 @@ frame -> markCandidates -> detect (context crop): mark or none -> kind (shape cr
 - It does not beat the rules on held-out frames, so it is not promoted. 8 held-out marks are too few to tell two
   readers apart.
 
+## Stage three: the learned reader in shadow on live quest runs
+
+`m4/QuestProbe.swift` (`QuestRun`) loads the learned reader once per run, if `--train` has made its models on this
+Mac. The reader then reads each frame that `questMarks` reads:
+
+- the minimap scan's frame (`at: "view"`);
+- the frame an NPC click is chosen on (`at: "open"`);
+- each frame looked at again after Click-to-Move (`at: "again"`).
+
+Each read is logged as a `learned_marks` event, with the count, up to five marks (kind, box and confidence) and
+the time taken. An error is logged too.
+
+- **Nothing is acted on.** The quest run clicks where `questMarks` says, as before. A missing model or a failed
+  read only changes the log.
+- The frames are already kept: `minimap-scan.png`, `clickN.jpg` and `no-marks.png`. Audited, they add live frames
+  to the test and training runs.
+- The proof builds the live binary with the reader. The shadow is first seen in a live run's `events.jsonl`.
+
 ## Next
 
-1. Run the learned reader in shadow beside `questMarks` on live runs. It logs what it reads and does not act.
-   Its frames go to the audit, and more far marks go to training.
-2. Promote it only when it beats the rules on held-out frames.
-3. An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
-4. The same detector then takes the HUD anchors (minimap, portrait, action bar, target frame), so boxes
+1. Audit the shadow's live frames. Promote the learned reader only when it beats the rules on held-out frames.
+2. An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
+3. The same detector then takes the HUD anchors (minimap, portrait, action bar, target frame), so boxes
    follow the layout instead of fixed pixels.
