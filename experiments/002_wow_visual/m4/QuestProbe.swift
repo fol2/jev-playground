@@ -445,7 +445,8 @@ final class QuestRun {
     }
 
     /// Take the quest a giver offers: its dialogue's "Accept" button (the owner: always accept quests).
-    /// A giver with several quests lists them; an entry is clicked only when the minimap's tooltip named it.
+    /// A giver that greets first lists its quests: the entry the minimap's tooltip named is clicked, else the first one
+    /// to take (offeredEntry; a mark in view has no tooltip).
     /// The chat's "accepted" line confirms it; the next log read is the proof.
     func accept(_ giver: Giver) async -> String {
         func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { nameKey($0) == nameKey(l.text) } } }
@@ -458,7 +459,7 @@ final class QuestRun {
         if acceptButton(dialog) == nil {
             let opened = await openAtMark { page in
                 var page = page
-                if acceptButton(page) == nil, let entry = listed(page) {
+                if acceptButton(page) == nil, let entry = listed(page) ?? offeredEntry(page) {
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
                     await self.sleep(1.5)
                     page = self.lines(QuestHUD.dialog, await self.frame())

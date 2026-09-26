@@ -328,6 +328,12 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
     dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
 }
 
+/// The quest an NPC's greeting offers to take: the first entry after its yellow "!" icon, which OCR reads as a leading
+/// "!" (live run 14, 26 Sept: Ailee Farheart's "Hello, shaman." above "! Coming of Age"). A "?" entry is one to hand in.
+func offeredEntry(_ dialog: [TipLine]) -> TipLine? {
+    dialog.first { $0.text.hasPrefix("!") && $0.text.dropFirst().filter(\.isLetter).count >= 3 }
+}
+
 /// A panel is open when the box holds one of a panel's own buttons, a whole line. The world shows through
 /// the box when nothing is open (live, 25 Sept: a vendor's green name and title, after Click-to-Move had
 /// turned the camera, were taken for her dialogue, and Esc was pressed; Esc with nothing open is the Game Menu).

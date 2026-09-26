@@ -592,6 +592,11 @@ extension NavTests {
         let offered = tip([("Accept the Windstones from Boros", 30, 200), ("Accept", 40, 690), ("Decline", 280, 690)])
         check(acceptButton(offered)?.y == 690 && acceptButton(tip([("Accept the Windstones", 30, 200), ("Goodbye", 40, 690)])) == nil,
               "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
+        // Live run 14, 26 Sept: Ailee Farheart greets before her quest, which is listed after a yellow "!".
+        let greeting = tip([("Ailee Farheart", 30, 200), ("Hello, shaman.", 30, 260), ("! Coming of Age", 30, 400), ("Goodbye", 40, 690)])
+        check(offeredEntry(greeting)?.y == 400 && offeredEntry(tip([("Hello, shaman.", 30, 260), ("! ", 30, 400)])) == nil
+              && offeredEntry(tip([("? Harvesting Windstones", 30, 400)])) == nil && offeredEntry(offered) == nil,
+              "a greeting's quest to take is the entry after its \"!\"; a bare icon, a \"?\" to hand in, or an open offer is none")
         // Live, 25 Sept: with nothing open, a vendor's name in the world beside the box was read as her dialogue.
         check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
               && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),

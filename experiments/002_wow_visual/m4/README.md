@@ -692,6 +692,22 @@ Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 RE
 - No map check: the run envelope is Zephras Isle, where the roads were learned. The subzone names are in
   the file for the check a run beyond it will need.
 
+## M4l — take the quest an NPC's greeting lists (live run 14, 26 Sept)
+
+- **Live run 14** (26 Sept, about 23:17, main 548f98c): the level-1 character at Thendal Village.
+  - Jev chose `ACCEPT_1` on the "!" in view. The hover confirmed Ailee Farheart, and Click-to-Move opened
+    her panel.
+  - It was her greeting, "Hello, shaman." above "! Coming of Age", not the quest's offer. No Accept button
+    was read, so the panel was closed as someone else's.
+  - The step ended `DIALOGUE_NOT_OPEN`, and the run `NOTHING_TO_HAND_IN_OR_TAKE`: one step, no fight, about
+    25 s.
+- **The fix** (`offeredEntry`). A greeting lists an NPC's quests, each after an icon. OCR reads the yellow "!"
+  of a quest to take as a leading "!". `accept` clicks the entry the minimap's tooltip named, else the first
+  such entry, then looks for Accept as before. A mark in view has no tooltip, so run 14 had nothing to click.
+- **M5 in shadow, first seen live** (#50). The learned reader loaded in 110 ms. At each of three looks (in
+  view, at the click, and in view after), it read the one "!" the rules read, and it changed no action.
+- Offline: one nav check, on run 14's lines.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
