@@ -276,7 +276,8 @@ func questKind(_ q: PlannedQuest) -> QuestKind {
     if text.contains(" slain") { return .kill }
     if text.range(of: #"\d+/\d+"#, options: .regularExpression) != nil { return .collect }
     if text.hasPrefix("use ") || text.contains(" use ") || text.contains("drink ") { return .useAt }
-    if ["report to", "speak to", "talk to", "return to", "bring "].contains(where: text.hasPrefix) {
+    // Live run 15, 26 Sept: "Speak with Rorian the Dayseeker in Thendal Grove." (Coming of Age) was taken for a use-at.
+    if ["report to", "speak to", "speak with", "talk to", "talk with", "return to", "bring "].contains(where: text.hasPrefix) {
         return .travel
     }
     return q.ready ? .handIn : .useAt

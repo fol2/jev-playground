@@ -625,6 +625,8 @@ extension NavTests {
 
     static func plans() {
         check(log24Sept.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel], "objective text to quest kind")
+        check(questKind(PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: (42.2, 23.2))) == .travel,
+              "live run 15: \"Speak with\" someone is a delivery to them, not a use-at")
         check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
               && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
               "a finished quest is a hand-in; a slain count is a kill")
