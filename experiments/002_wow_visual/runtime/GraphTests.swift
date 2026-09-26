@@ -86,11 +86,19 @@ final class GraphReplies: JevClient {
         check(graph.calls == 1 && graph.loaded.isEmpty, "direct action remains one call, retrieval is optional")
 
         graph = try load()
+        let wandering = GraphReplies(["ENTER:search", "BACK", "ENTER:search", "BACK"])
         do {
-            _ = try await graph.next(state: state, skills: all,
-                jev: GraphReplies(["ENTER:search", "BACK", "ENTER:search", "BACK"]), now: { 0 }, deadline: 10)
+            _ = try await graph.next(state: state, skills: all, jev: wandering, now: { 0 }, deadline: 10)
             check(false, "loop should end")
-        } catch { check(error as? GraphError == .callLimit && graph.calls == 4, "planning loop has a fixed call budget") }
+        } catch { check(error as? GraphError == .invalidReply && graph.calls == 4, "planning loop has a fixed call budget") }
+        // Live run 23: the turn's last call offers only the skills, flat, so wandering must commit or fail.
+        let lastMenu = Array(((wandering.questions.last?["criteria"] as? [String: String]) ?? [:]).keys)
+        check(lastMenu.count == all.count && lastMenu.allSatisfy { $0.hasPrefix("DO:") },
+              "a turn's last call offers every offered skill and no branch, read or BACK")
+        graph = try load()
+        let committed = try await graph.next(state: state, skills: all, jev: GraphReplies(["ENTER:search", "BACK", "ENTER:search", "DO:REST"]),
+                                             now: { 0 }, deadline: 10)
+        check(committed.action == "REST" && graph.calls == 4, "the last call commits to a skill within the same budget")
         let limited = try GraphSession(graph: graph.graph, references: graph.references, maxCalls: 1)
         do {
             _ = try await limited.next(state: state, skills: all, jev: GraphReplies(["READ:recent", "DO:REST"]), now: { 0 }, deadline: 10)

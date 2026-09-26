@@ -146,20 +146,27 @@ final class GraphSession {
         guard !skills.isEmpty else { throw GraphError.noSkills }
         // A catalogue must expose every supplied skill somewhere. It may organise, not silently drop them.
         guard Set(skills.keys).isSubset(of: Set(graph.nodes.values.flatMap(\.skills))) else { throw GraphError.definition }
-        for _ in 0..<maxCallsPerDecision {
+        for turn in 0..<maxCallsPerDecision {
             if stopped() { throw GraphError.ownerStop }
             guard now().isFinite, now() < deadline else { throw GraphError.deadline }
             guard calls < maxCalls else { throw GraphError.callLimit }
             let nodeID = path.last!, node = graph.nodes[nodeID]!
             var options: [String: String] = [:]
-            for skill in node.skills { if let text = skills[skill] { options["DO:" + skill] = text } }
-            // Offer only what can lead somewhere: a branch with an offered skill below it, and a snapshot
-            // read with at least one of its keys in this input. An empty menu would cost a call to leave.
-            for (child, text) in node.branches where leadsToSkill(child, skills) { options["ENTER:" + child] = text }
-            for read in node.reads where !loaded.contains(read) && readable(read, in: state) {
-                options["READ:" + read] = graph.resources[read]!.summary
+            if turn == maxCallsPerDecision - 1 {
+                // The turn's last call commits: every offered skill, flat, and no branch, read or BACK, which only spend
+                // calls (live run 23, 26 Sept: a hunt entered and left "compass" twice and ended GRAPH_callLimit). Jev still
+                // chooses; this is no rules fallback.
+                for (skill, text) in skills { options["DO:" + skill] = text }
+            } else {
+                for skill in node.skills { if let text = skills[skill] { options["DO:" + skill] = text } }
+                // Offer only what can lead somewhere: a branch with an offered skill below it, and a snapshot
+                // read with at least one of its keys in this input. An empty menu would cost a call to leave.
+                for (child, text) in node.branches where leadsToSkill(child, skills) { options["ENTER:" + child] = text }
+                for read in node.reads where !loaded.contains(read) && readable(read, in: state) {
+                    options["READ:" + read] = graph.resources[read]!.summary
+                }
+                if path.count > 1 { options["BACK"] = "Return to the parent decision to choose a different goal or skill family." }
             }
-            if path.count > 1 { options["BACK"] = "Return to the parent decision to choose a different goal or skill family." }
             guard !options.isEmpty else { throw GraphError.noSkills }
             var input = state
             for resource in graph.resources.values { for key in resource.keys ?? [] { input.removeValue(forKey: key) } }
