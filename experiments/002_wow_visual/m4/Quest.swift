@@ -364,6 +364,14 @@ func sameUnit(_ tooltip: String, _ name: String) -> Bool {
     return long.contains(short)
 }
 
+/// Whether the unit tooltip is an NPC's: a level line that is not a player's. Only NPCs carry quest marks, so an NPC's
+/// tooltip under a mark is its giver even when the green name was misread (live run 17, 26 Sept: Rorian the Dayseeker's
+/// name read "Befeshgar h a depafeke" among four players, and his own tooltip, "Level 20", was not taken).
+func npcTip(_ tooltip: [String]) -> Bool {
+    let lines = tooltip.map { $0.lowercased() }
+    return lines.contains { $0.hasPrefix("level ") } && !lines.contains { $0.contains("(player)") }
+}
+
 /// Whether a line read in the quest dialogue is the quest's title. The title is drawn in a decorative
 /// capital face that OCR misreads a letter at a time (live run 5, 25 Sept: "HARVEStinG WinostonES" for
 /// Harvesting Windstones, and the open page was taken for another quest's and closed). One letter in

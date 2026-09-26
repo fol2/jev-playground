@@ -498,6 +498,10 @@ extension NavTests {
         check(!sameUnit("Dalia", "Dalia the Collector") && !sameUnit("Collector", "Dalia the Collector")
               && !sameUnit("Dalia the Collector", "Dalia the Collectors Apprentice"),
               "a part of the name, or a longer name holding it, is someone else")
+        // Live run 17, 26 Sept: under Rorian's "?", his tooltip and players' (names changed here).
+        check(npcTip(["Rorian the Dayseeker", "Level 20", "Press F6 to submit an issue for this Creature"]) && npcTip(["Ailee Farheart", "Level 1"])
+              && !npcTip(["A Player", "Level 2 Windshaper Skyborne (Player)", "Druid"]) && !npcTip([]) && !npcTip(["Rorian the Dayseeker"]),
+              "an NPC's tooltip has a level line and no \"(Player)\"; a player's, an empty one or a bare name is not")
         let row = tip([("Strogruid Noc", 1905, 224), ("Dalia the Collector", 1858, 225), ("Jolee Brightmeadows", 1700, 223),
                        ("<Cloth & Leather Armor>", 1870, 238)])
         check(nameLine(row, nameX: 1901, nameTop: 224)?.text == "Dalia the Collector" && nameLine(row, nameX: 1850, nameTop: 224)?.text == "Jolee Brightmeadows"

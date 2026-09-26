@@ -349,8 +349,8 @@ final class QuestRun {
     }
 
     /// As a human does before clicking: rest the pointer on the NPC and read the game's unit tooltip (bottom
-    /// right) until it names the NPC whose green name is under the mark. nil: no point did, or the name was
-    /// unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
+    /// right) until it names the NPC whose green name is under the mark, or shows an NPC (npcTip). nil: no point did,
+    /// or the name was unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
     func onUnit(_ mark: QuestMark, in image: CGImage) async -> (x: Double, y: Double)? {
         let bottom = mark.body - 2.4 * mark.h
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
@@ -367,7 +367,7 @@ final class QuestRun {
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
-            return read.contains { sameUnit($0, name) }
+            return read.contains { sameUnit($0, name) } || npcTip(read)
         }
         /// Off every unit until the tooltip has gone: two fresh reads in a row without the name, at most ten
         /// (live run 5: Dalia's tooltip faded for about 2 s, four reads, after the pointer left her).
