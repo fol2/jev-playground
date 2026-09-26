@@ -29,7 +29,6 @@ enum QuestHUD {
     static let questList = CGRect(x: 775, y: 225, width: 345, height: 560)
     static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
     static let zone = CGRect(x: 2290, y: 24, width: 230, height: 30)  // the zone's name above the minimap, beside the clock
-    static let tracker = CGRect(x: 2260, y: 330, width: 300, height: 570)  // "All Objectives": each quest and its objective
     static let logMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/quest-log.json")  // private, under runs/
 }
 
@@ -184,8 +183,11 @@ final class QuestRun {
         let (givers, minimapNames, tooltips) = sortIcons(icons)
         // Working memory: the same zone and tracker text as the last map read keep its quests and pins; the
         // minimap's givers above are read each time, as they change with where the player stands.
-        let now = Date().timeIntervalSince1970, shown = await frame()
-        let key = logKey(zone: lines(QuestHUD.zone, shown).map(\.text), tracker: lines(QuestHUD.tracker, shown).map(\.text))
+        // The key is read on the frame taken with the pointer parked, before any icon's tooltip could cover the
+        // zone's name (review, 26 Sept), and after a x3 upscale: at 1x a count such as "0/6" read as "Oyo".
+        let now = Date().timeIntervalSince1970
+        let zoneText = scanned.map { upscaledText($0, QuestHUD.zone) } ?? [], trackerText = scanned.map { upscaledText($0, HuntHUD.tracker) } ?? []
+        let key = logKey(zone: zoneText, tracker: trackerText)
         let remembered = (try? Data(contentsOf: QuestHUD.logMemory)).flatMap { try? JSONDecoder().decode(LogMemory.self, from: $0) }
         var quests: [PlannedQuest]
         if let kept = keptLog(remembered, key: key, at: now) {
@@ -215,7 +217,7 @@ final class QuestRun {
                 }
             }
             await tap(QuestHUD.mapKey)
-            if !key.isEmpty {
+            if !key.isEmpty, trackerShows(quests, trackerText) {  // a collapsed, filtered or overflowing tracker is no key
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }

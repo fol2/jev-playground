@@ -244,6 +244,14 @@ func logKey(zone: [String], tracker: [String]) -> String {
 
 let logMemoryAge = 3600.0  // a quest left out of the tracker could change unseen: an hour at most
 
+/// Whether the tracker shows every quest of the log read: only then does its text stand for the log. A
+/// collapsed tracker ("All Objectives" alone), a filter or a list longer than the box would let two logs
+/// share a key (review, 26 Sept), so such a read is not remembered.
+func trackerShows(_ quests: [PlannedQuest], _ tracker: [String]) -> Bool {
+    let text = nameKey(tracker.joined())
+    return quests.allSatisfy { text.contains(nameKey($0.title)) }
+}
+
 /// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
 func keptLog(_ memory: LogMemory?, key: String, at time: Double) -> [PlannedQuest]? {
     guard let memory, !key.isEmpty, memory.key == key, time >= memory.readAt, time - memory.readAt < logMemoryAge else { return nil }

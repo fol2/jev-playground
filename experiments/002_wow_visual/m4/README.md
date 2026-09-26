@@ -407,7 +407,10 @@ after 33 decisions, and colour alone did not separate the map's ridges, sea and 
 resting on each pin took 3-4 s of each 5-6 s read (live run 4). The log is kept in
 `runs/002_wow_visual/memory/quest-log.json`, which is private.
 - **The key.** The zone's name above the minimap, by its letters (the clock beside it changes each
-  minute), and the objective tracker's lines, by letters and digits.
+  minute), and the objective tracker's lines, by letters and digits. Both are read after a x3 upscale on
+  the frame taken with the pointer parked, before any minimap icon's tooltip can cover the zone's name.
+- **When it is not saved.** A read is remembered only if the tracker shows every quest in it. A
+  collapsed or filtered tracker, or one too long for its box, would let two logs share a key.
 - **What changes it.** A hand-in, a quest taken or an objective's count ("12/15" to "13/15") changes the
   key, and so does another zone, whose coordinates are its own. An unread box gives no key.
 - **When it is used.** While the key is the same and the memory is under an hour old, the next read keeps

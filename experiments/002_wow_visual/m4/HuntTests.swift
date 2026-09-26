@@ -695,6 +695,12 @@ extension NavTests {
         check(keptLog(saved, key: key5, at: 1000 + logMemoryAge) == nil && keptLog(saved, key: key5, at: 999) == nil
               && keptLog(saved, key: "", at: 1100) == nil && keptLog(saved, key: key5 + "x", at: 1100) == nil && keptLog(nil, key: key5, at: 1100) == nil,
               "the map is read again after an hour, a clock that went back, an unread key, a changed key or no memory")
+        let log5 = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "", pin: nil),
+                    PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "", pin: nil),
+                    PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "", pin: nil)]
+        check(trackerShows(log5, tracked5) && !trackerShows(log5, ["All Objectives", "Quests"]) && !trackerShows(log5, Array(tracked5.prefix(7)))
+              && trackerShows([], ["All Objectives"]),
+              "a log is remembered only when the tracker shows each of its quests: not collapsed, filtered or cut off by the box")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
