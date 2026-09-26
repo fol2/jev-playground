@@ -45,9 +45,12 @@ final class QuestRun {
     let routed: RoutedClickTarget
     let bounds: CGRect
     private var clicks = 0  // click1.jpg, click2.jpg: the frame each NPC click was chosen on
-    /// The learned mark reader (M5) in shadow: it reads each frame questMarks reads, and is logged, never acted on.
-    /// nil when m5-perceive --train has made no models on this Mac.
-    private let shadow = try? MarkReader()
+    /// The learned mark reader (M5) in shadow: it reads each frame questMarks reads, on a queue of its own, and is
+    /// logged, never acted on and never waited for. The run's clicks and retries keep questMarks' timing (review, #50).
+    private let shadowQueue = DispatchQueue(label: "m5.shadow", qos: .utility)
+    private var shadow: MarkReader?, shadowTried = false  // touched on shadowQueue only
+    private let shadowLock = NSLock()
+    private var shadowBusy = false  // a read still running: the next frame is skipped, never queued behind it
 
     init(body: LiveNavBody) throws {
         self.body = body
@@ -55,17 +58,43 @@ final class QuestRun {
         routed = try routedTarget(pid: body.session.app.processIdentifier, window: body.session.window.windowID, bounds: bounds)
     }
 
-    /// What the learned reader sees on a frame questMarks has just read: a `learned_marks` event for the audit.
-    /// Its errors are logged too, and change nothing.
+    /// What the learned reader sees on a frame questMarks has just read: a `learned_marks` event for the audit. The
+    /// models load on the first read (`learned_reader`: loaded or not, and how long); errors are logged, and change
+    /// nothing. The caller returns at once.
     func shadowMarks(_ image: CGImage, _ pixels: RGBA, at place: String) {
-        guard let shadow else { return }
-        let began = hostNow()
-        do {
-            let read = try shadow.marks(image, pixels)
-            body.emit("learned_marks", ["at": place, "count": read.count, "ms": Int((hostNow() - began) * 1000),
-                                        "marks": read.prefix(5).map { [$0.kind, $0.box, ($0.confidence * 100).rounded() / 100] as [Any] }])
-        } catch {
-            body.emit("learned_marks", ["at": place, "error": "\(error)"])
+        shadowLock.lock()
+        let busy = shadowBusy
+        shadowBusy = true
+        shadowLock.unlock()
+        if busy {
+            body.emit("learned_marks", ["at": place, "skipped": "busy"])
+            return
+        }
+        shadowQueue.async { [self] in
+            defer {
+                shadowLock.lock()
+                shadowBusy = false
+                shadowLock.unlock()
+            }
+            if !shadowTried {
+                shadowTried = true
+                let began = hostNow()
+                do {
+                    shadow = try MarkReader()
+                    body.emit("learned_reader", ["loaded": true, "ms": Int((hostNow() - began) * 1000)])
+                } catch {
+                    body.emit("learned_reader", ["loaded": false, "error": "\(error)"])
+                }
+            }
+            guard let shadow else { return }
+            let began = hostNow()
+            do {
+                let read = try shadow.marks(image, pixels)
+                body.emit("learned_marks", ["at": place, "count": read.count, "ms": Int((hostNow() - began) * 1000),
+                                            "marks": read.prefix(5).map { [$0.kind, $0.box, ($0.confidence * 100).rounded() / 100] as [Any] }])
+            } catch {
+                body.emit("learned_marks", ["at": place, "error": "\(error)"])
+            }
         }
     }
 

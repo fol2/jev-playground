@@ -206,8 +206,8 @@ frame -> markCandidates -> detect (context crop): mark or none -> kind (shape cr
 
 ## Stage three: the learned reader in shadow on live quest runs
 
-`m4/QuestProbe.swift` (`QuestRun`) loads the learned reader once per run, if `--train` has made its models on this
-Mac. The reader then reads each frame that `questMarks` reads:
+`m4/QuestProbe.swift` (`QuestRun`) hands each frame that `questMarks` reads to the learned reader, on a queue of its
+own:
 
 - the minimap scan's frame (`at: "view"`);
 - the frame an NPC click is chosen on (`at: "open"`);
@@ -216,8 +216,13 @@ Mac. The reader then reads each frame that `questMarks` reads:
 Each read is logged as a `learned_marks` event, with the count, up to five marks (kind, box and confidence) and
 the time taken. An error is logged too.
 
-- **Nothing is acted on.** The quest run clicks where `questMarks` says, as before. A missing model or a failed
-  read only changes the log.
+- **The models load on the first read.** A `learned_reader` event says whether they loaded, and how long it took.
+  With no models on the Mac, that event is the only trace.
+- **Nothing is acted on, and nothing waits.** The quest run clicks where `questMarks` says, when it says, as before.
+  - The first review of this change found a synchronous read, which delayed clicks and retries.
+  - Now the caller returns at once.
+  - A frame that comes while a read is still running is skipped (`skipped: busy`), never queued.
+  - The proof pins this: the load and the read are only inside the queue's closure.
 - The frames are already kept: `minimap-scan.png`, `clickN.jpg` and `no-marks.png`. Audited, they add live frames
   to the test and training runs.
 - The proof builds the live binary with the reader. The shadow is first seen in a live run's `events.jsonl`.

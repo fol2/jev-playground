@@ -348,6 +348,15 @@ func navTrap() throws {
         || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {
         throw GateError("F10 and F11 are not released by every key set that can press them")
     }
+    // M5's learned reader in shadow is never waited for: the busy check returns at once, and every read, the model
+    // load included, runs in the queue's closure (review, #50: a synchronous read delayed clicks and retries).
+    let shadowCall = after("func shadowMarks", quest).components(separatedBy: "\n    }\n")[0]
+    let (beforeQueue, inQueue) = (shadowCall.components(separatedBy: "shadowQueue.async")[0], shadowCall.components(separatedBy: "shadowQueue.async").dropFirst().joined())
+    if !beforeQueue.contains("if busy {") || beforeQueue.contains("MarkReader") || beforeQueue.contains(".marks(")
+        || !inQueue.contains("try MarkReader()") || !inQueue.contains("try shadow.marks(image, pixels)")
+        || quest.components(separatedBy: "MarkReader").count != 3 {
+        throw GateError("the learned reader's shadow can hold the quest run: its load or read is not on its own queue")
+    }
     if !quest.contains("if walker?.holding == true { return \"WALK_KEYS_HELD\" }")
         || !quest.contains("guard !legs.holding else { return \"WALK_KEYS_HELD\" }") {
         throw GateError("a quest walk whose key release is unconfirmed does not end the run")
