@@ -94,7 +94,18 @@ func nameKey(_ text: String) -> String {
 // ponytail: prefix match; irregular plurals ("Wolf" for "Wolves slain") never count.
 func objective(for name: String?, in objectives: [Objective]) -> Objective? {
     guard let name, nameKey(name).count >= 4 else { return nil }
-    return objectives.first { $0.unfinished && nameKey($0.text).hasPrefix(nameKey(name)) }
+    return objectives.first { $0.unfinished && (nameKey($0.text).hasPrefix(nameKey(name)) || mostlyIn(name, $0.text)) }
+}
+
+/// Whether most of a target frame's name is in an objective: at least 60% of its four-letter runs. The frame's font
+/// loses a first letter and adds a stray tail (live run 25, 26 Sept: "luvenile Vuldren ЛОРAУ" and "Tuvenile Vuldren"
+/// for Juvenile Vuldren, both taken for creatures that count for nothing), while another creature of one family
+/// shares only its family word ("Vuldren Matriarch": 4 of 13 runs).
+func mostlyIn(_ name: String, _ text: String) -> Bool {
+    let n = Array(nameKey(name)), t = nameKey(text)
+    guard n.count >= 6 else { return false }
+    let runs = (0...(n.count - 4)).map { String(n[$0..<$0 + 4]) }
+    return Double(runs.filter { t.contains($0) }.count) >= 0.6 * Double(runs.count)
 }
 
 /// The objectives in `wanted` not yet seen finished in `now`: finished is its own line read at done >= need,
