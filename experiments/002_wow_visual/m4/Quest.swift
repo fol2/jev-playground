@@ -213,6 +213,43 @@ struct PlannedQuest {
     var pin: MapPoint?  // from hovering the world map's pins
 }
 
+// MARK: - Working memory: the quest log (the owner, 25 Sept: remember what was read, to cut rescans)
+
+/// The log as last read from the map: opening it and resting on each pin took 3-4 s of each 5-6 s read
+/// (live run 4). It is kept under a key of the zone's name and the objective tracker's text, which change
+/// when a quest is handed in, taken or advanced ("12/15" to "13/15").
+struct LogMemory: Codable {
+    struct Quest: Codable {
+        var title: String, level: Int, ready: Bool, objective: String, pin: [Double]?
+    }
+    var key: String
+    var quests: [Quest]
+    var readAt: Double  // seconds since 1970
+}
+
+extension LogMemory.Quest {
+    init(_ q: PlannedQuest) { self.init(title: q.title, level: q.level, ready: q.ready, objective: q.objective, pin: q.pin.map { [$0.x, $0.y] }) }
+    var planned: PlannedQuest {
+        PlannedQuest(title: title, level: level, ready: ready, objective: objective, pin: pin.flatMap { $0.count == 2 ? ($0[0], $0[1]) : nil })
+    }
+}
+
+/// The memory's key: the zone's name by its letters (the clock beside it changes each minute), the tracker's
+/// lines by letters and digits (OCR's stray apostrophes drop out). Either unread: no key, a full read. Zone
+/// coordinates belong to their zone, so another zone's pins are never kept.
+func logKey(zone: [String], tracker: [String]) -> String {
+    let place = nameKey(zone.joined()), text = String(tracker.joined().lowercased().filter { $0.isLetter || $0.isNumber })
+    return place.isEmpty || text.isEmpty ? "" : place + "|" + text
+}
+
+let logMemoryAge = 3600.0  // a quest left out of the tracker could change unseen: an hour at most
+
+/// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
+func keptLog(_ memory: LogMemory?, key: String, at time: Double) -> [PlannedQuest]? {
+    guard let memory, !key.isEmpty, memory.key == key, time >= memory.readAt, time - memory.readAt < logMemoryAge else { return nil }
+    return memory.quests.map(\.planned)
+}
+
 func questKind(_ q: PlannedQuest) -> QuestKind {
     let text = q.objective.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "- "))
     if text.contains("ready for turn-in") { return .handIn }
