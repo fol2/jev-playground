@@ -805,7 +805,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             host.emit("acted", ["action": action.rawValue, "result": result])
             continue
         }
-        let latest = host.readSurvey().value
+        // Sightings are memory, as at the decision: a creature seen seconds ago has not gone because this frame's plate
+        // OCR missed its name (live run 24, 26 Sept: ten GO_TO_QUEST_CREATURE in a row rejected, and no fight).
+        let latest = host.readSurvey().value.map { l -> HuntObs in var l = l; l.seen = merged(o.seen, l.seen); return l }
         let latestAllowed = latest.map { huntAdmissible($0, steps: r.steps, blocked: blocked).map(\.rawValue) } ?? []
         if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),
                 current: latest?.stamp, candidates: latestAllowed, now: host.now(), maximumAge: FightLimits.maxFrameAge,
@@ -873,6 +875,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
 /// The selected quest's area is a circle, on the minimap within 5 units. A fight is not simulated: it
 /// kills the selected creature and costs health and mana, or ends as `fightOutcome` says.
 final class SimHunt: HuntHost {
+    var platesMissed: [Bool] = []  // per survey, in order: true reads no plate (live run 24)
     struct Mob {
         var name: String
         var x: Double
@@ -980,6 +983,7 @@ final class SimHunt: HuntHost {
         o.seen = mobs.filter { inView($0, within: 1.2) }.map {
             Seen(name: $0.name, hostile: $0.hostile, bearing: bearing(from: here, to: $0.point), near: distance(here, $0.point) <= 0.7)
         }
+        if !platesMissed.isEmpty, platesMissed.removeFirst() { o.seen = [] }  // a frame whose plates OCR did not read
         return o
     }
 

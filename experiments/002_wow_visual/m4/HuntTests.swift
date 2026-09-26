@@ -321,6 +321,13 @@ extension NavTests {
         let hunt = await runHunt(host: plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)]), jev: huntScripted([.fight, .lookAround]))
         check(hunt.fights.count >= 1 && hunt.steps.first?.action == .lookAround && hunt.outcome != "DEAD",
               "a hunt attacked from behind finds the attacker and fights it (\(hunt.outcome))")
+        // Live run 24: the plate of a creature that counts is not read on every frame. Seen at the decision, it is still
+        // there when the action is revalidated on a frame that missed it (surveys: the start, the decision, the check).
+        let flicker = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        flicker.platesMissed = [false, false, true]
+        let chased = await runHunt(host: flicker, jev: huntScripted([.toCreature, .lookAround]))
+        check(chased.steps.first?.action == .toCreature && chased.steps.first?.result.hasPrefix("not done") == false,
+              "a creature seen at the decision and missed by the next frame's plates is still walked to")
     }
 
     static func huntScripted(_ preference: [HuntAction]) -> ScriptedJev<HuntAction> {
