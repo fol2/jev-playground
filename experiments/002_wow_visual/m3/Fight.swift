@@ -87,7 +87,7 @@ enum FightLimits {
     // F11 held `zoomInSeconds` back in (setZoom).
     static let zoomOut: UInt16 = 109, zoomIn: UInt16 = 103
     static let zoomOutSeconds = 2.5  // the widest view from any zoom (24 Sept)
-    static var zoomInSeconds = 0.5  // calibration knob: set against the owner's zoom of 25-26 Sept
+    static var zoomInSeconds = 0.75  // calibration knob: the owner chose 0.75 over 0.5 ("too far"), 26 Sept
     static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut, zoomIn] }
 }
 

@@ -528,6 +528,7 @@ func glyphs(_ parts: [Blob]) -> [Blob] {
 struct Giver {
     var names: [String]
     var pin: MapPoint
+    var inView = false  // no minimap "!": a yellow mark in the world view (a giver a few yards away is under the arrow)
     var key: String { String(format: "%.1f,%.1f", pin.x, pin.y) }
 }
 
@@ -632,8 +633,11 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -
     let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg }
         .sorted { distance(read.player, $0.pin) < distance(read.player, $1.pin) }
     let accepts = givers.prefix(QuestLimits.giverSlots).enumerated().map { i, g in
-        ("ACCEPT_\(i + 1)", QuestStep.accept(g), "Walk to the quest giver shown by a \"!\" on the minimap (\(away(g.pin)) units away; its tooltip read "
-            + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
+        ("ACCEPT_\(i + 1)", QuestStep.accept(g), g.inView
+            ? "Walk to the yellow quest mark in view and accept the quest its NPC offers. The minimap showed no \"!\": a giver a few "
+                + "yards away is drawn under the player's arrow. A \"?\" of a quest to hand in looks alike, and offers nothing to accept."
+            : "Walk to the quest giver shown by a \"!\" on the minimap (\(away(g.pin)) units away; its tooltip read "
+                + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
     }
     let hunted = questPlan(read.quests, from: read.player).filter { q in
         [.kill, .collect].contains(questKind(q)) && !failed.contains(q.title)

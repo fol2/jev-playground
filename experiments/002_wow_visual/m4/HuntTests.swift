@@ -842,6 +842,9 @@ extension NavTests {
         let took = await runQuests(host: giving, jev: taker, graph: graph()!)
         check(taker.offered.first?.contains("DO:ACCEPT_1") == true && giving.handed == ["!43.2,22.4"] && took.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
               "a minimap \"!\" is offered as ACCEPT_1; after taking it, nothing is left to do here")
+        let near = questOffers(QuestRead(quests: [], player: thendal, missing: [], givers: [Giver(names: [], pin: thendal, inView: true)]), failed: [])
+        check(near.map(\.skill) == ["ACCEPT_1"] && near[0].criterion.contains("mark in view") && near[0].criterion.contains("under the player's arrow"),
+              "live, 26 Sept: with no minimap \"!\" (under the arrow), a mark in view is offered as ACCEPT_1, saying what it is")
         let refused = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [boros]),
                                   QuestRead(quests: [], player: thendal, missing: [], givers: [boros])])
         refused.outcomes = ["!43.2,22.4": "NO_ACCEPT_BUTTON"]

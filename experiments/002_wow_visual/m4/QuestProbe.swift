@@ -187,7 +187,13 @@ final class QuestRun {
             body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read, "offer": spot.offer])
             icons.append((minimapPoint(spot.x, spot.y, player: player!), spot.offer, read))
         }
-        let (givers, minimapNames, tooltips) = sortIcons(icons)
+        let (found, minimapNames, tooltips) = sortIcons(icons)
+        var givers = found
+        // A giver a few yards away is drawn under the player's arrow (live, 26 Sept: 20 yards from Windshaper
+        // Boro only its "!"'s dot showed). With no "!" on the minimap, a yellow mark in view is offered instead.
+        let inView = scanned.map { questMarks(rgba($0), box: QuestHUD.world).count } ?? 0
+        if givers.isEmpty && inView > 0, let player { givers.append(Giver(names: [], pin: player, inView: true)) }
+        body.emit("view_marks", ["count": inView])
         // Working memory: the same zone and tracker text as the last map read keep its quests and pins; the
         // minimap's givers above are read each time, as they change with where the player stands.
         // The key is read on the frame taken with the pointer parked, before any icon's tooltip could cover the
