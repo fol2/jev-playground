@@ -1053,20 +1053,30 @@ func changedSlots(_ old: BarPrint, _ new: BarPrint, tolerance: Int = 12) -> [Int
     }
 }
 
-/// What was read of the bar, and how it looked then.
+/// What was read of the bar, how it looked then, and when (seconds since 1970).
 struct BarMemory: Codable {
     var print: BarPrint
     var skills: [Skill?]
+    var readAt: Double
 }
 
-/// The slots to hover first: every changed one, and every remembered spell with a cast time. A rank learnt
-/// at a trainer keeps its icon, and the rank sets how long a cast is waited for (Lightning Bolt: 1.5 s at
-/// rank 1, 2.0 s at rank 2), so those are checked each run. No memory, or a bar of another size: all twelve.
-func slotsToRead(_ memory: BarMemory?, _ now: BarPrint) -> [Int] {
-    guard let memory, memory.skills.count == now.slots.count else { return Array(now.slots.indices) }
+/// How long a memory is trusted: a rank learnt at a trainer keeps its icon, so an instant spell's card
+/// (rank, mana, damage) could stay old for good (review, 26 Sept). After an hour the whole bar is read.
+let barMemoryAge = 3600.0
+
+/// The slots to hover first: every changed one, and every remembered spell with a cast time (the bolt's and
+/// the heal's roles come from their cast, and those cards matter most). No memory, a memory an hour old or
+/// a bar of another size: all twelve.
+func slotsToRead(_ memory: BarMemory?, _ now: BarPrint, at time: Double) -> [Int] {
+    guard let memory, memory.skills.count == now.slots.count, time - memory.readAt < barMemoryAge, time >= memory.readAt
+    else { return Array(now.slots.indices) }
     let changed = Set(changedSlots(memory.print, now))
     return now.slots.indices.filter { changed.contains($0) || memory.skills[$0]?.cast != nil }
 }
+
+/// When a saved memory counts from: the hour runs from the last full read, so a memory kept run after run
+/// still expires.
+func memoryReadAt(full: Bool, now: Double, previous: Double?) -> Double { full ? now : previous ?? now }
 
 /// Whether the memory still holds: every checked slot that kept its icon read as remembered. Otherwise the
 /// whole bar is read again.

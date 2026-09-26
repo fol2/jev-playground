@@ -67,9 +67,12 @@ The bar has a working memory (the owner, 25 Sept: remember what was read, to cut
 `runs/002_wow_visual/memory/skill-bar.json`, which is private and not in the repository.
 - **The icons.** Each slot's icon is kept as nine mean colours, compared with the pointer off the bar.
   - Reading all twelve tooltips took about 8 s a run.
-  - Now only a changed icon is hovered, plus every spell with a cast time: a rank learnt at a trainer
-    keeps its icon, and the rank sets how long a cast is waited for (Lightning Bolt: 1.5 s at rank
-    1, 2.0 s at rank 2).
+  - Now only a changed icon is hovered, plus every spell with a cast time: the bolt's and the heal's
+    roles come from their cast, and those cards matter most. (A live cast is waited for by the cast
+    bar, not by the tooltip's time.)
+  - A rank learnt at a trainer keeps its icon, so an instant spell's card (rank, mana, damage) could
+    stay old. The memory is therefore trusted for one hour from the last full read, then the whole
+    bar is read again. Deleting the file forces a full read.
 - **Stale memory.** If one of those reads differently from memory, the whole bar is read again.
 - **On saved frames:**
   - The prints of four runs on 25-26 Sept differed by 0-1 per value on average, so no slot changed.

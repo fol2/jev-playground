@@ -226,19 +226,25 @@ struct FightTests {
         let shield = Skill(name: "Lightning Shield", text: "Instant", cast: nil, rank: 1)
         var skills = [Skill?](repeating: nil, count: 12)
         skills[1] = bolt; skills[2] = shield
-        let memory = BarMemory(print: before, skills: skills)
-        check(slotsToRead(memory, before) == [1] && slotsToRead(nil, before) == Array(0..<12),
+        let memory = BarMemory(print: before, skills: skills, readAt: 1000)
+        check(slotsToRead(memory, before, at: 1100) == [1] && slotsToRead(nil, before, at: 1100) == Array(0..<12),
               "with the icons unchanged only the cast-time spell is read; with no memory, the whole bar")
         icon(3, (200, 200, 30))
         let after = barPrint(bar)
-        check(changedSlots(before, after) == [3] && slotsToRead(memory, after) == [1, 3],
+        check(changedSlots(before, after) == [3] && slotsToRead(memory, after, at: 1100) == [1, 3],
               "a changed icon is read again, besides the cast-time spells")
         var rank2 = bolt
         rank2.cast = 2.0; rank2.rank = 2
-        check(memoryHolds(memory, read: [1: bolt, 3: nil], changed: [3]) && !memoryHolds(memory, read: [1: rank2], changed: []),
+        check(memoryHolds(memory, read: [1: bolt, 2: bolt], changed: [2]) && !memoryHolds(memory, read: [1: rank2], changed: []),
               "a checked spell that reads as remembered keeps the memory; a new rank on the same icon does not")
         let round = try? JSONDecoder().decode(BarMemory.self, from: JSONEncoder().encode(memory))
-        check(round?.print == before && round?.skills == skills, "the memory survives its file")
+        check(round?.print == before && round?.skills == skills && round?.readAt == 1000, "the memory survives its file")
+        check(slotsToRead(memory, before, at: 1000 + barMemoryAge - 1) == [1] && slotsToRead(memory, before, at: 1000 + barMemoryAge) == Array(0..<12)
+              && slotsToRead(memory, before, at: 999) == Array(0..<12),
+              "a memory an hour old, or from a clock that went back, is read again in full (an instant spell's new rank keeps its icon)")
+        check(memoryReadAt(full: false, now: 5000, previous: 1000) == 1000 && memoryReadAt(full: true, now: 5000, previous: 1000) == 5000
+              && memoryReadAt(full: false, now: 5000, previous: nil) == 5000,
+              "the hour runs from the last full read, so a memory kept run after run still expires")
     }
 
     static func skills() {

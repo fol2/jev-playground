@@ -418,7 +418,8 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
     let remembered = (try? Data(contentsOf: memory)).flatMap { try? JSONDecoder().decode(BarMemory.self, from: $0) }
         .flatMap { $0.skills.count == SkillHUD.names.count ? $0 : nil }
     var readNow: [Int: Skill?] = [:]
-    for i in print.map({ slotsToRead(remembered, $0) }) ?? Array(SkillHUD.names.indices) { readNow[i] = try await read(i) }
+    let now = Date().timeIntervalSince1970
+    for i in print.map({ slotsToRead(remembered, $0, at: now) }) ?? Array(SkillHUD.names.indices) { readNow[i] = try await read(i) }
     if let remembered, let print, !memoryHolds(remembered, read: readNow, changed: Set(changedSlots(remembered.print, print))) {
         for i in SkillHUD.names.indices where !readNow.keys.contains(i) { readNow[i] = try await read(i) }
     }
@@ -431,7 +432,8 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
     }
     if let print {
         try? FileManager.default.createDirectory(at: memory.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(BarMemory(print: print, skills: bar)).write(to: memory)
+        let readAt = memoryReadAt(full: readNow.count == SkillHUD.names.count, now: now, previous: remembered?.readAt)
+        try? JSONEncoder().encode(BarMemory(print: print, skills: bar, readAt: readAt)).write(to: memory)
     }
     let (keys, problems) = assignRoles(bar, required: required)
     guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }
