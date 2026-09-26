@@ -78,6 +78,11 @@ final class GraphReplies: JevClient {
         let moved = try await graph.next(state: state, skills: all, jev: deep, now: { 0 }, deadline: 10)
         check(moved.action == "DETOUR_LEFT_45", "arbitrarily deeper data-defined branch uses existing skill")
         check(graph.path == ["hunt", "search", "travel", "detour"], "retain chosen subgoal after a skill")
+        let fightFirst = GraphReplies(["DO:FIGHT_TARGET"])
+        let fought = try await graph.next(state: state, skills: all, jev: fightFirst, now: { 0 }, deadline: 10)
+        let deepMenu = (fightFirst.questions.first?["criteria"] as? [String: String]) ?? [:]
+        check(fought.action == "FIGHT_TARGET" && deepMenu["DO:FIGHT_TARGET"] != nil && deepMenu["DO:LOOK_AROUND"] != nil && deepMenu["DO:GO_N"] == nil,
+              "live run 27: in a retained subgoal the skills above it stay offered (a fight at the root), not a sibling's")
         let back = GraphReplies(["BACK", "BACK", "BACK", "DO:REST"])
         _ = try await graph.next(state: state, skills: all, jev: back, now: { 0 }, deadline: 10)
         check(graph.path == ["hunt"], "Jev can reconsider and return from nested goal")

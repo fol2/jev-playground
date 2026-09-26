@@ -432,7 +432,7 @@ func motorProof(update: Bool) throws -> String {
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)
-    let graphChecks = try suite(graphTests, "decision graph", 58)
+    let graphChecks = try suite(graphTests, "decision graph", 59)
     let checks = try suite(tests, "motor", minChecks)
     try refuses(probe, [["--bogus"], ["--execute"], ["--execute", "--keys", "arrows"], ["--execute", "turn-left:100"],
                         ["--execute", "--keys", "arrows", "turn-left:300"], ["--release"], ["--preflight", "extra"]])

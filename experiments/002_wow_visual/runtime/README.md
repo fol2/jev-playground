@@ -161,7 +161,9 @@ existing ten-second decision deadline. This is a starting cost envelope, not a
 claim that four hops fit every real-time action. A decision's last call offers only
 the offered skills, flat, so it commits or fails within the budget: live run 23 (26 Sept)
 entered and left a branch twice and ended `GRAPH_callLimit` with no action taken. Jev
-still chooses. Graph-mode Hunt HTTP requests do not retry. Warm-up and nested Fight requests remain separate from this graph budget.
+still chooses. A retained subgoal narrows the menu but keeps the skills of every node
+above it: live run 27 left `FIGHT_TARGET`, a root skill, unseen for six decisions while
+the path sat in "compass". Graph-mode Hunt HTTP requests do not retry. Warm-up and nested Fight requests remain separate from this graph budget.
 Failed graph attempts are recorded. Exhaustion/error ends the candidate; there is
 no silent rules replacement. Flat baseline defaults and existing input checks are
 unchanged. No second confidence checker or safety framework is introduced.

@@ -158,7 +158,10 @@ final class GraphSession {
                 // chooses; this is no rules fallback.
                 for (skill, text) in skills { options["DO:" + skill] = text }
             } else {
-                for skill in node.skills { if let text = skills[skill] { options["DO:" + skill] = text } }
+                // A subgoal narrows the menu, never hides what is above it: the skills of every node on the path stay offered
+                // (live run 27, 26 Sept: FIGHT_TARGET at the root was offered six times while the path sat in "compass", and
+                // the hunt walked on without a fight).
+                for id in path { for skill in graph.nodes[id]!.skills { if let text = skills[skill] { options["DO:" + skill] = text } } }
                 // Offer only what can lead somewhere: a branch with an offered skill below it, and a snapshot
                 // read with at least one of its keys in this input. An empty menu would cost a call to leave.
                 for (child, text) in node.branches where leadsToSkill(child, skills) { options["ENTER:" + child] = text }
