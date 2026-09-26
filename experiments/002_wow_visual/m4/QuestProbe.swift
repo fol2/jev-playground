@@ -291,6 +291,9 @@ final class QuestRun {
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
         }
+        // Park the pointer: a minimap icon's tooltip left showing covers the player's arrow, and the next walk's first
+        // look reads no facing (live run 16, 26 Sept: "Coming of Age" over the arrow, WALK_HUD_UNREADABLE).
+        hover(1280, 60)
         let missing = missingFromLog(tooltips, quests) + uiFault  // a map not known to be open or shut stops the run: LOG_INCOMPLETE
         body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
