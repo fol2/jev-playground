@@ -26,6 +26,9 @@ extension NavTests {
               "the tracker's OCR lines parse into quests and objective counts")
         check(parseTracker(["Agitators", "Oyo Roiling Winds destroyed"]).isEmpty, "a misread count is not an objective")
         check(parseTracker(["- 0/6 Roiling Winds destroyed"]).isEmpty, "an objective with no quest title above is dropped")
+        check(parseTracker(["[1] Harmony in Balance", "- 0/8 Juvenile Vuldren slain"]) == [Objective(quest: "Harmony in Balance", done: 0, need: 8, text: "Juvenile Vuldren slain")]
+              && parseTracker(["(12] Agitators", "- 0/6 Roiling Winds destroyed"]).first?.quest == "Agitators",
+              "live run 22: a title led by its quest's level (\"[1] \") is still a title")
         check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
         // The owner's demo tracker (23 Sept): finished quests show "Ready for turn-in" instead of objectives.
         let demo = parseTracker(["Quests", "Aggressive Encroachment", "Ready for turn-in", "Harvesting Windstones",

@@ -56,7 +56,8 @@ func parseTracker(_ lines: [String]) -> [Objective] {
     let count = try! NSRegularExpression(pattern: #"^\W*(\d{1,3})\s*/\s*(\d{1,3})\s+(\S.*)$"#)
     var quest = "", underTitle = false, out: [Objective] = []
     for raw in lines {
-        let line = raw.trimmingCharacters(in: .whitespaces)
+        // A title may carry its quest's level, "[1] Harmony in Balance" (live run 22, 26 Sept: the hunt read no objective).
+        let line = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"^[\[(]\d{1,2}[\])]\s*"#, with: "", options: .regularExpression)
         if let m = count.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
            let done = Int(line[Range(m.range(at: 1), in: line)!]), let need = Int(line[Range(m.range(at: 2), in: line)!]) {
             if !quest.isEmpty && need > 0 {
