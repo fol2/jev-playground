@@ -334,8 +334,9 @@ func navTrap() throws {
     }
     let host = after("final class LiveQuestHost", quest).components(separatedBy: "func fightBack")[0]
     if !host.contains("walker?.releaseAll()") || !host.contains("lock.withLock { fighting }?.releaseAll()")
-        || !host.contains("(walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false }") {
-        throw GateError("the quest host's exit sweep and holding do not cover the current walk and fight")
+        || !host.contains("lock.withLock { hunting }?.releaseAll()")
+        || !host.contains("(walker?.holding ?? false) || lock.withLock { (fighting?.holdingKeys ?? false) || (hunting?.holding ?? false) }") {
+        throw GateError("the quest host's exit sweep and holding do not cover the current walk, fight and hunt")
     }
     if !quest.contains("if walker?.holding == true { return \"WALK_KEYS_HELD\" }")
         || !quest.contains("guard !legs.holding else { return \"WALK_KEYS_HELD\" }") {

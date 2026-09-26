@@ -81,10 +81,14 @@ enum FightLimits {
     static let turnRight: UInt16 = 14
     static let interact: UInt16 = 101  // F9, Interact With Target (owner-consented bind): turns, walks, auto-attacks
     static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
-    // F10, Camera Zoom Out (owner-consented bind, 24 Sept). No run presses it since 25 Sept: the camera stays
-    // at the owner's zoom (the widest view hid the NPCs' "?" and "!"). Still released on every exit.
-    static let zoomOut: UInt16 = 109
-    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut] }
+    // F10 and F11, Camera Zoom Out and In (owner-consented binds, 24 Sept). The widest view hid the NPCs' "?"
+    // and "!" (owner, 25 Sept), and a new character starts at the client's near default (owner, 26 Sept: "our
+    // default should be farer"). So a run sets its own zoom: F10 held to the widest view, from any zoom, then
+    // F11 held `zoomInSeconds` back in (setZoom).
+    static let zoomOut: UInt16 = 109, zoomIn: UInt16 = 103
+    static let zoomOutSeconds = 2.5  // the widest view from any zoom (24 Sept)
+    static var zoomInSeconds = 0.5  // calibration knob: set against the owner's zoom of 25-26 Sept
+    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut, zoomIn] }
 }
 
 

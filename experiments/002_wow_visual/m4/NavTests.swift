@@ -232,6 +232,12 @@ struct NavTests {
         check(fighting?.fightGraph == "f.json" && fighting?.graph == "q.json"
               && (try? parseNav(["--hunt", "--keys", "wqe", "--fight-graph", "f.json"]))?.fightGraph == "f.json",
               "a live quest run or hunt takes M3b's fight graph beside its own")
+        check((try? parseNav(["--quests", "--graph", "q.json", "--keys", "wqe", "--hunt-graph", "h.json"]))?.huntGraph == "h.json"
+              && (try? parseNav(["--hunt", "--keys", "wqe", "--hunt-graph", "h.json"])) == nil
+              && (try? parseNav(["--zoom", "--keys", "wqe"]))?.zoomIn == FightLimits.zoomInSeconds
+              && (try? parseNav(["--zoom", "--keys", "wqe", "--seconds", "0.8"]))?.zoomIn == 0.8
+              && (try? parseNav(["--zoom", "--keys", "wqe", "--seconds", "3"])) == nil && (try? parseNav(["--zoom"])) == nil,
+              "a quest run takes M4b's hunt graph for its hunts (a hunt names its own with --graph); --zoom needs the keys, and 0-2 s of F11")
         let refused: [[String]] = [
             ["--hunt-dry-run", "--fight-graph", "f.json"], ["--execute", "--keys", "wqe", "--to", "47.1,21.8", "--fight-graph", "f.json"],
             ["--quests", "--graph", "q.json", "--keys", "wqe", "--fight-graph"],

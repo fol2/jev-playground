@@ -473,23 +473,30 @@ final class LiveQuestHost: QuestHost {
     let key: String
     let newWalker: (URL) -> LiveNavBody  // each walk's frames in its own folder, as a fight's
     let newFighter: (URL, LiveKeys) -> LiveHost  // M3's host on a child key set, its frames in the folder
+    let newHunter: (URL) -> LiveHuntHost  // M4b's host on its own key set, as a walk's
+    let huntGraph: URL?  // each hunt's own session of the hunt graph; nil: the legacy flat hunt
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
-    private var fights = 0, walks = 0
+    private var hunting: LiveHuntHost?  // the same
+    private var fights = 0, walks = 0, hunts = 0
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
     init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
-         tactics: FightTactics? = nil) {
-        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter; self.tactics = tactics
+         newHunter: @escaping (URL) -> LiveHuntHost, huntGraph: URL? = nil, tactics: FightTactics? = nil) {
+        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter
+        self.newHunter = newHunter; self.huntGraph = huntGraph; self.tactics = tactics
     }
 
-    var holding: Bool { (walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false } }
+    var holding: Bool {
+        (walker?.holding ?? false) || lock.withLock { (fighting?.holdingKeys ?? false) || (hunting?.holding ?? false) }
+    }
 
-    /// The exit sweep over the walk's and the fight's key sets.
+    /// The exit sweep over the walk's, the fight's and the hunt's key sets.
     func releaseAll() {
         walker?.releaseAll()
         lock.withLock { fighting }?.releaseAll()
+        lock.withLock { hunting }?.releaseAll()
     }
 
     /// Attacked on a walk: one M3 episode, in combat, on a child of the run's own key set, as the hunt's
@@ -562,6 +569,29 @@ final class LiveQuestHost: QuestHost {
         return outcome
     }
 
+    /// Walk to the quest's area (from here when the map showed none), then one M4b hunt, as `--hunt` runs
+    /// it, in its own folder. A hunt that ends with keys held stays tracked for the exit sweep.
+    func hunt(_ quest: PlannedQuest, seconds: Double) async -> String {
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        guard walker?.holding != true else { return "WALK_KEYS_HELD" }
+        let graph: GraphSession?
+        do { graph = try huntGraph.map { try GraphSession.load($0) } } catch { return "HUNT_GRAPH_UNREADABLE" }
+        hunts += 1
+        let folder = quester.body.directory.appendingPathComponent(String(format: "hunt%d", hunts))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let hunter = newHunter(folder)
+        lock.withLock { hunting = hunter }
+        emit("hunt_start", ["hunt": hunts, "quest": quest.title, "seconds": Int(seconds), "decision_graph": graph?.graph.id as Any? ?? NSNull()])
+        let result = await runHunt(host: hunter, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
+                                   graph: graph, seconds: seconds)
+        let outcome = huntOutcome(result.outcome, start: result.start, end: result.end)
+        emit("hunt_end", ["hunt": hunts, "quest": quest.title, "code": result.outcome, "outcome": outcome,
+                          "fights": result.fights.map(\.outcome), "decisions": result.decisions])
+        guard !hunter.holding else { return "HUNT_KEYS_HELD" }
+        lock.withLock { hunting = nil }
+        return outcome
+    }
+
     func now() -> Double { hostNow() }
     func ownerTookFocus() -> Bool { quester.body.ownerTookFocus() }
     func emit(_ event: String, _ fields: [String: Any]) { quester.body.emit(event, fields) }
@@ -570,7 +600,7 @@ final class LiveQuestHost: QuestHost {
 /// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
 /// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
 @MainActor
-func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -595,16 +625,23 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     // the 23 Sept bar, where key 3 was the heal (Earth Shock by 24 Sept) and key 4 the buff (Healing Wave).
     let bar = try await readSkillBar(session, feed, log, required: fightRoles)
     applyRoles(bar.keys)
+    HuntLimits.drink = bar.keys[.drink] ?? HuntLimits.drink  // a hunt eats and drinks from the bar, as --hunt
+    HuntLimits.eat = bar.keys[.food] ?? HuntLimits.eat
     let tactics = try fightTactics(fightGraph, bar, log)
+    let hunting = huntGraph.map { URL(fileURLWithPath: $0) }  // read at start, so a bad file stops the run before any walk
+    if let hunting { _ = try GraphSession.load(hunting) }
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
                              newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: $0, log: log) },
                              newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) },
-                             tactics: tactics)
+                             newHunter: { LiveHuntHost(session: session, feed: feed, sink: sink, directory: $0, log: log, fightJev: LiveJev(key: key),
+                                                       fightTactics: tactics) },
+                             huntGraph: hunting, tactics: tactics)
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
+    await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
     let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
     try? await stream.stopCapture()
@@ -614,6 +651,33 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     for s in result.steps { print("\(s.quest): \(s.outcome)") }
     print("run: \(result.outcome)")
     return body.holding || host.holding ? 3 : 0
+}
+
+/// `--zoom --keys wqe [--seconds S]`: set the engine's zoom (F11 held S s back from the widest view) and save
+/// the frame after it as zoom.png, to calibrate `zoomInSeconds` against the owner's zoom.
+@MainActor
+func zoomExecute(_ inSeconds: Double) async throws -> Int32 {
+    let session = try await wowSession(input: true, full: true)
+    let run = try runDirectory("m4_zoom")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await setZoom(body.keys, log, inSeconds: inSeconds)
+    let set = hostNow()
+    try? await Task.sleep(nanoseconds: 700_000_000)  // the camera eases to its new distance
+    let after = await (try QuestRun(body: body)).frame(after: set + 0.5)
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    guard let after else { throw ProbeError("no frame after the zoom") }
+    write(after, to: run.url.appendingPathComponent("zoom.png"), type: .png)
+    print("zoom: in \(inSeconds) s; \(run.url.appendingPathComponent("zoom.png").path)")
+    return body.holding ? 3 : 0
 }
 
 /// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.

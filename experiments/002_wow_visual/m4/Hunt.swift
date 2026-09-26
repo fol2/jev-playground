@@ -33,7 +33,7 @@ enum HuntLimits {
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53
-    static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat, FightLimits.zoomOut] }
+    static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat, FightLimits.zoomOut, FightLimits.zoomIn] }
     static let continueAfter: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE", "JEV_STOP"]
 }
 
@@ -658,7 +658,8 @@ struct HuntResult {
 }
 
 func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
-             experience: ExperienceStore? = nil, experienceRun: String = UUID().uuidString) async -> HuntResult {
+             experience: ExperienceStore? = nil, experienceRun: String = UUID().uuidString,
+             seconds: Double = HuntLimits.maxSeconds) async -> HuntResult {
     var r = HuntResult()
     r.graphID = graph?.graph.id
     r.experience = experience?.summary
@@ -710,7 +711,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
     if wanted.isEmpty { return finish("NO_UNFINISHED_OBJECTIVE") }
 
     while r.decisions < HuntLimits.maxDecisions {
-        if host.now() - began >= HuntLimits.maxSeconds { return finish("TIME_LIMIT") }
+        if host.now() - began >= seconds { return finish("TIME_LIMIT") }
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
         guard var o = host.readSurvey().value else {
             misses += 1
@@ -750,7 +751,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         let candidates = allowed.map(\.rawValue) + reviewTools.keys.sorted()
         guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: candidates,
                 policy: graph?.graph.id ?? "hunt-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
-                deadline: min(asked + HuntLimits.jevTimeout, began + HuntLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
+                deadline: min(asked + HuntLimits.jevTimeout, began + seconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
         let selectedName: String?
         func recordGraphCalls() {

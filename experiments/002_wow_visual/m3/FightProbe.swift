@@ -445,6 +445,18 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
     return SkillBar(keys: keys, slots: bar.enumerated().compactMap { i, skill in skill.map { (SkillHUD.names[i], $0) } })
 }
 
+/// The engine's zoom, whatever the camera had: F10 held to the widest view, then F11 held `inSeconds` back
+/// in. Each hold is under a watchdog grant. Scroll events do nothing in the background (24 Sept).
+func setZoom(_ keys: LiveKeys, _ log: Log, inSeconds: Double = FightLimits.zoomInSeconds) async {
+    for (code, seconds) in [(FightLimits.zoomOut, FightLimits.zoomOutSeconds), (FightLimits.zoomIn, inSeconds)] where seconds > 0 {
+        keys.grant(code, seconds: seconds + 1)
+        keys.press(code)
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        keys.lift(code)
+    }
+    log.emit("zoom_set", ["out_s": FightLimits.zoomOutSeconds, "in_s": inSeconds, "t": hostNow()])
+}
+
 /// The fight graph's tactics for this bar, when a fight graph was given; M3b's chains then run the fights.
 func fightTactics(_ path: String?, _ bar: SkillBar, _ log: Log) throws -> FightTactics? {
     guard let path else { return nil }

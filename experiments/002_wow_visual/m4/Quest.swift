@@ -545,6 +545,7 @@ protocol QuestHost: AnyObject {
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
+    func hunt(_ quest: PlannedQuest, seconds: Double) async -> String  // walk to its area, then one M4b hunt: huntOutcome
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -553,7 +554,15 @@ protocol QuestHost: AnyObject {
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
-    static let maxSteps = 8
+    static let huntSlots = 2  // HUNT_1 and HUNT_2
+    static let maxSteps = 12
+    // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
+    // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
+    static let runSeconds = 1500.0
+    // A hunt that ends at one of its limits with no count risen fails its step; any other code that is
+    // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
+    static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
+                                         "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE"]
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
     // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a
@@ -569,32 +578,47 @@ enum QuestLimits {
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
 }
 
-/// A step local code can run here: a hand-in, a quest to take, or a way back from danger (M4h).
+/// A step local code can run here: a hand-in, a quest to take, a hunt for a quest's creatures, or a way
+/// back from danger (M4h).
 enum QuestStep {
     case handIn(PlannedQuest)
     case accept(Giver)
+    case hunt(PlannedQuest)
     case retreat
     var name: String {
         switch self {
         case .handIn(let q): return q.title
         case .accept(let g): return g.names.first.map { "\"!\" \($0)" } ?? "\"!\" at \(g.key)"
+        case .hunt(let q): return "hunt: " + q.title
         case .retreat: return "retreat"
         }
     }
     var key: String {  // what a failure is remembered by
         switch self {
-        case .handIn(let q): return q.title
+        case .handIn(let q), .hunt(let q): return q.title
         case .accept(let g): return "!" + g.key
         case .retreat: return "RETREAT"
         }
     }
 }
 
+/// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
+/// a count rose or a quest became ready, so the step may be offered again. Otherwise "HUNT_" and its code.
+func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String {
+    if code == "OBJECTIVES_COMPLETE" { return "HUNTED" }
+    let rose = end.contains { e in
+        start.contains { s in s.unfinished && s.quest == e.quest && (e.text == Objective.ready || (s.text == e.text && e.done > s.done)) }
+    }
+    return rose && QuestLimits.huntFails.contains("HUNT_" + code) ? "HUNTED_SOME" : "HUNT_" + code
+}
+
 /// The steps local code offers, none already failed this run and each within one walk of the player:
 /// hand-ins for quests a hand-in can finish (ready, or a delivery to someone), in the owner's order; then
-/// the minimap's "!" givers, nearest first (the owner: always accept quests). After a walk stopped for a
-/// red name ahead, RETREAT comes first (the owner: survive first). Kill, collect and use-at quests have no
-/// skill in this graph yet and are not offered.
+/// the minimap's "!" givers, nearest first (the owner: always accept quests); then hunts for kill and
+/// collect quests, in the owner's order. A hunt fights for every unfinished objective the tracker shows,
+/// so quests that share a place finish together. A quest whose area the map did not show is hunted from
+/// here, by the minimap's quest area. After a walk stopped for a red name ahead, RETREAT comes first (the
+/// owner: survive first). Use-at quests have no skill yet and are not offered.
 func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -> [(skill: String, step: QuestStep, criterion: String)] {
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
@@ -611,9 +635,19 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -
         ("ACCEPT_\(i + 1)", QuestStep.accept(g), "Walk to the quest giver shown by a \"!\" on the minimap (\(away(g.pin)) units away; its tooltip read "
             + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
     }
+    let hunted = questPlan(read.quests, from: read.player).filter { q in
+        [.kill, .collect].contains(questKind(q)) && !failed.contains(q.title)
+            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false
+    }
+    let hunts = hunted.prefix(QuestLimits.huntSlots).enumerated().map { i, q in
+        ("HUNT_\(i + 1)", QuestStep.hunt(q), (q.pin.map { "Walk to the area of \"\(q.title)\" (level \(q.level), \(away($0)) units away), then hunt" }
+            ?? "Hunt for \"\(q.title)\" (level \(q.level)) from here, by the minimap's quest area (the map showed no area),")
+            + " the creatures that the tracker's unfinished objectives name: fight, loot, rest and eat as the hunt chooses, up to "
+            + "\(HuntLimits.maxFights) fights. Objects on the ground are not picked up. The log reads: \(q.objective)")
+    }
     let back = danger && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
         + "a hostile creature's red name came into view ahead of it.")] : []
-    return back + handIns + accepts
+    return back + handIns + accepts + hunts
 }
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
@@ -643,11 +677,14 @@ struct QuestResult {
 /// A walk that stops for a red name ahead fails only its step, and RETREAT is offered next; a retreat that
 /// does not get back ends the run. A walk that is attacked hands over to one M3 fight at once (SAFETY: in
 /// combat the only choice is to fight back); a won fight lets the run go on, and the interrupted step may
-/// be offered again. A failed step is not offered again this run. There is no rules fallback when Jev fails.
+/// be offered again. A failed step is not offered again this run. A hunt that completes or counts some kills
+/// lets the run go on; one that ends at a limit with nothing counted fails its step; any other hunt code
+/// ends the run. No step starts after `runSeconds`. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
     var stuck = 0
+    let began = host.now()
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
         host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
@@ -655,11 +692,12 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
     }
     while r.steps.count < QuestLimits.maxSteps {
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        if host.now() - began >= QuestLimits.runSeconds { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD")
         if offers.isEmpty {
-            let deliveries = read.quests.filter { [.handIn, .travel].contains(questKind($0)) && !failed.contains($0.title) }
+            let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains($0.title) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
         let decision: GraphDecision
@@ -678,6 +716,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
         case .accept(let g): outcome = await host.accept(g)
+        case .hunt(let q): outcome = await host.hunt(q, seconds: min(HuntLimits.maxSeconds, QuestLimits.runSeconds - (host.now() - began)))
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
@@ -688,13 +727,15 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
             guard QuestLimits.fightWon.contains(fought) else { return finish("FIGHT_" + fought) }
             continue
         }
-        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "RETREATED" { continue }
+        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("HUNTED") || outcome == "RETREATED" { continue }
         if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
         failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {
             stuck += 1
             if stuck >= 2 { return finish("NO_PROGRESS_TWICE") }
         } else if outcome.hasPrefix("WALK_") && outcome != "WALK_DANGER_AHEAD" {  // danger: the step is not offered again
+            return finish(outcome)
+        } else if outcome.hasPrefix("HUNT_") && !QuestLimits.huntFails.contains(outcome) {
             return finish(outcome)
         }
     }

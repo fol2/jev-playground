@@ -1,11 +1,11 @@
 {
-  "id": "skyborne-quest-tools-v3",
-  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, and quests from a \"!\" giver on the minimap, within one walk of the player only; a walk stops when a hostile creature's red name comes into view ahead; kill, collect and use-at quests and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
+  "id": "skyborne-quest-tools-v4",
+  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, quests from a \"!\" giver on the minimap, and bounded hunts for kill and collect quests, within one walk of the player only; a walk stops when a hostile creature's red name comes into view ahead; use-at quests, objects on the ground and travel between zones are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
   "root": "quest",
   "nodes": {
     "quest": {
-      "question": "Choose the next quest step toward `goal`. Each offered hand-in walks to that quest's giver and completes the quest; the reward is then picked by the owner's reward rule. Each offered accept walks to a quest giver shown by a \"!\" and takes the quest it offers. RETREAT, offered after a walk stopped for a hostile creature's red name ahead, walks back to where that walk began. You may first read the quest log, the steps already taken or the owner's quest rules. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
-      "skills": ["RETREAT", "HAND_IN_1", "HAND_IN_2", "HAND_IN_3", "HAND_IN_4", "ACCEPT_1", "ACCEPT_2", "ACCEPT_3"],
+      "question": "Choose the next quest step toward `goal`. Each offered hand-in walks to that quest's giver and completes the quest; the reward is then picked by the owner's reward rule. Each offered accept walks to a quest giver shown by a \"!\" and takes the quest it offers. Each offered hunt walks to a kill or collect quest's area and runs one bounded hunt there: it fights and loots the creatures that the tracker's unfinished objectives name, resting and eating between fights, until they are complete or the hunt's limits end it. RETREAT, offered after a walk stopped for a hostile creature's red name ahead, walks back to where that walk began. You may first read the quest log, the steps already taken or the owner's quest rules. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
+      "skills": ["RETREAT", "HAND_IN_1", "HAND_IN_2", "HAND_IN_3", "HAND_IN_4", "ACCEPT_1", "ACCEPT_2", "ACCEPT_3", "HUNT_1", "HUNT_2"],
       "branches": {},
       "reads": ["quest_log", "recent", "owner_rules"]
     }
