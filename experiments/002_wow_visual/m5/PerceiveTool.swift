@@ -2,8 +2,10 @@
 // captures); the teacher that labels the candidates is its own binary (Teacher.swift).
 //   m5-perceive --propose       frame paths under runs/002_wow_visual on stdin; candidates appended, resumable
 //   m5-perceive --sheet N       contact sheets of up to N labels not yet audited, 48 a sheet, for audit
+//   m5-perceive --sheet-held N  the same, of held-out runs only: those are audited in full, as the test set
 //   m5-perceive --audit FILE    the auditor's corrections to the last sheets ("id kind" lines); the rest confirmed
-//   m5-perceive --baseline      the rule reader (questMarks) against the labels, audited first, train and held out
+//   m5-perceive --baseline      the teacher and the rule reader (questMarks) against the audited labels; wrong frames
+//                               to baseline-errors.txt
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -89,11 +91,11 @@ func propose() throws -> Int32 {
 /// Up to `limit` labels not yet audited, of the current candidates: every mark and refusal first, then a spread of
 /// the rest, drawn 48 a sheet with each one's id and the teacher's kind, for an auditor to check by eye. The ids
 /// index sheet-index.json.
-func sheet(limit: Int) throws -> Int32 {
+func sheet(limit: Int, heldOnly: Bool = false) throws -> Int32 {
     let done = Set(rows(auditFile, MarkLabel.self).map { "\($0.frame)|\($0.box)" })
     let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
     let all = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
-        .filter { !done.contains("\($0.frame)|\($0.box)") }
+        .filter { !done.contains("\($0.frame)|\($0.box)") && (!heldOnly || heldOut(run: String($0.frame.split(separator: "/").first ?? ""))) }
     let marks = all.filter { $0.kind != "none" }, rest = all.filter { $0.kind == "none" }
     let step = max(1, rest.count / max(1, limit - marks.count))
     let chosen = Array((marks + stride(from: 0, to: rest.count, by: step).map { rest[$0] }).prefix(limit))
@@ -156,14 +158,29 @@ func audit(_ path: String) throws -> Int32 {
 /// audited label replaces the teacher's.
 func baseline() -> Int32 {
     let audit = rows(auditFile, MarkLabel.self)
-    let all = merged(teacher: rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher }, audit: audit)
+    let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
+    let taught = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
+    let all = merged(teacher: taught, audit: audit)
+    // The teacher against the auditor, candidate by candidate: how good a first filter it is.
+    let isMark = { (k: String) in k == "exclamation" || k == "question" }
+    var teacher = MarkScore()
+    for (t, a) in zip(taught, all) where a.teacher == "audit" {
+        switch (isMark(t.kind), isMark(a.kind)) {
+        case (true, true): teacher.hits += 1
+        case (true, false): teacher.falseMarks += 1
+        case (false, true): teacher.missed += 1
+        default: break
+        }
+    }
     let marks = Dictionary(grouping: all.filter { ["exclamation", "question"].contains($0.kind) }, by: \.frame)  // refused is no mark
     let labelled = Dictionary(grouping: all, by: \.frame).mapValues(\.count)
-    var train = MarkScore(), held = MarkScore(), framesRead = 0
+    var train = MarkScore(), held = MarkScore(), framesRead = 0, errors: [String] = []
     for frame in rows(framesFile, FrameRow.self).filter({ (labelled[$0.frame] ?? 0) >= $0.candidates }).map(\.frame) {
         guard let image = loadImage(runsRoot.appendingPathComponent(frame)) else { continue }
         let found = questMarks(pixels(image), box: MarkLabels.world).map { (x: $0.x, y: $0.y) }
         let s = score(found: found, labels: (marks[frame] ?? []).map(\.box))
+        // The frames to look at again: a false mark may be a real one no candidate caught.
+        if s.falseMarks + s.missed > 0 { errors.append("\(frame) found \(found.map { "\(Int($0.x)),\(Int($0.y))" }) labels \((marks[frame] ?? []).map(\.box))") }
         if heldOut(run: String(frame.split(separator: "/").first ?? "")) { held = held + s } else { train = train + s }
         framesRead += 1
     }
@@ -171,9 +188,11 @@ func baseline() -> Int32 {
         "hits \(s.hits), false \(s.falseMarks), missed \(s.missed), precision \(s.precision.map { String(format: "%.2f", $0) } ?? "-"), "
             + "recall \(s.recall.map { String(format: "%.2f", $0) } ?? "-")"
     }
-    print("rule reader (questMarks) against \(MarkLabels.teacher), \(all.filter { $0.teacher == "audit" }.count) labels audited, on \(framesRead) frames")
+    print("teacher (\(MarkLabels.teacher)) against the audit, per candidate: " + show(teacher))
+    print("rule reader (questMarks) against \(all.filter { $0.teacher == "audit" }.count) audited labels of \(all.count), on \(framesRead) frames")
     print("  train:    " + show(train))
     print("  held out: " + show(held))
+    try? (errors.joined(separator: "\n") + "\n").write(to: perceptionDir.appendingPathComponent("baseline-errors.txt"), atomically: true, encoding: .utf8)
     return 0
 }
 
@@ -189,13 +208,16 @@ struct PerceiveTool {
                 exit(try sheet(limit: n))
             case ("--baseline", 1): exit(baseline())
             case ("--audit", 2): exit(try audit(args[1]))
+            case ("--sheet-held", 2):
+                guard let n = Int(args[1]), (1...600).contains(n) else { break }
+                exit(try sheet(limit: n, heldOnly: true))
             default: break
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --sheet N (1-600) | --audit FILE | --baseline\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --sheet N | --sheet-held N (1-600) | --audit FILE | --baseline\n", stderr)
         exit(64)
     }
 }

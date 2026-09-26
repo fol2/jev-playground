@@ -29,9 +29,20 @@ struct MarkVerdict {
     var kind: MarkKind
 }
 
+/// The crop scaled down, never up, so its longest side is at most `longest` pixels.
+func fitted(_ image: CGImage, longest: Int) -> CGImage {
+    let scale = Double(longest) / Double(max(image.width, image.height))
+    guard scale < 1, let ctx = CGContext(data: nil, width: Int(Double(image.width) * scale), height: Int(Double(image.height) * scale),
+        bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+    return ctx.makeImage() ?? image
+}
+
 /// One crop, one fresh session: a session's context is 8k tokens, and no crop should see another's verdict.
 @available(macOS 27, *)
 func teach(_ crop: CGImage) async throws -> String {
+    let crop = fitted(crop, longest: 400)  // a crop past about 400 px overflowed the 8k context (26 Sept)
     let session = LanguageModelSession(instructions: "You label crops of World of Warcraft screenshots.")
     let reply = try await session.respond(generating: MarkVerdict.self, options: GenerationOptions(samplingMode: .greedy)) {  // the same crop, the same verdict
         "Near the top centre of this crop is a small yellow or orange shape. Is it a quest mark floating above a "

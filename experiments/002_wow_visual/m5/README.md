@@ -47,7 +47,7 @@ saved frames (runs/002_wow_visual, private) -> m5-perceive --propose -> candidat
 | File | Role | Proof |
 |---|---|---|
 | `Marks.swift` | Pure: candidate glyphs (`markWarm`, `markCandidates`), the teacher's crop, the run split, the score | `MarksTests.swift` |
-| `PerceiveTool.swift` | `m5-perceive`: `--propose` (frames on stdin), `--sheet N`, `--audit FILE`, `--baseline` | argument refusal in `tools/MotorProof.swift` |
+| `PerceiveTool.swift` | `m5-perceive`: `--propose` (frames on stdin), `--sheet N`, `--sheet-held N`, `--audit FILE`, `--baseline` | argument refusal in `tools/MotorProof.swift` |
 | `Teacher.swift` | `m5-teach`: one crop, one fresh on-device session, a guided answer (`exclamation`, `question`, `none`); `--eval SET` | built, never run by the proof |
 
 - **Candidates cast wide.** Solid warm parts, yellow to orange, each joined with a dot under it.
@@ -114,12 +114,48 @@ The set is 91 crops, all checked by eye by the author, and kept in `runs/`.
   - The author checks each sheet by eye, and `--audit FILE` records the corrections.
   - `--baseline` uses an audited label wherever there is one.
 
-Pending: the audited labels, and the rule reader's baseline against them.
+### Every candidate audited, and the two readers scored (26 Sept)
+
+The author checked all 1813 candidates of 866 frames (92 runs) by eye on contact sheets, zooming in where a
+glyph was a few pixels high. Far marks were labelled by their shape: a round hook is a "?", a wedge is a "!".
+
+- 76 are quest marks: 55 "?" and 21 "!".
+  - They are over Rorian, Windshaper Boro, Ventaari Brightwish, Dalia the Collector and Ailee Farheart.
+  - Many are far, 4 to 10 px high.
+- The rest are fireflies and Cirrusflies, damage numbers, settings text, quest log and map icons, lamps and grass.
+- The run split puts 8 marks in the held-out runs.
+
+`m5-perceive --baseline`, on the audited labels:
+
+| Reader | Hits | False marks | Missed | Precision | Recall |
+|---|---|---|---|---|---|
+| Teacher (`fm-marks-v2`), per candidate | 35 | 122 | 41 | 0.22 | 0.46 |
+| Rule reader (`questMarks`), training runs | 65 | 11 | 3 | 0.86 | 0.96 |
+| Rule reader, held-out runs | 5 | 0 | 3 | 1.00 | 0.62 |
+
+- **The teacher is not good enough to label alone.** On real candidates it found fewer than half the marks, and
+  most of what it called a mark was not one.
+  - The hand-checked set above overstated it: that set held clear marks and hand-picked negatives.
+  - Every label the detector learns from must be audited. The teacher saves no audit time here.
+- **The rule reader looks strong, but the numbers flatter it.**
+  - Its rules were tuned on these same frames, from both splits, before the split existed.
+  - Its errors are the failures seen live. `--baseline` writes each wrong frame to `perception/baseline-errors.txt`:
+    - a near "!" read twice, as a glyph and its orange foot (3 frames);
+    - a near "!" missed: the failure of the live runs of 26 Sept (3 frames);
+    - grass flecks, a green spell and name text read as marks (4 frames, 8 false marks);
+    - far marks of 4 to 10 px missed (3 frames).
+- The score counts only marks some candidate caught. A mark the candidates missed is invisible to it.
+
+8 held-out marks are too few to show that a learned reader beats the rules. The next live runs add frames, and
+the audit continues on them.
 
 ## Next
 
-1. Train a Create ML object detector (`MLObjectDetector`) on the audited training-split labels, in
-   tiles at native resolution, because a far mark is 5-10 px high.
+1. Train a Create ML image classifier (`MLImageClassifier`: "!", "?" or none) on the audited candidates of the
+   training runs, one small crop around each glyph.
+   - 76 marks are too few for an object detector on whole frames. The candidates already locate the glyphs,
+     so the classifier only has to say what each one is.
+   - An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
 2. Score it on the held-out runs against the rule reader, then run it in shadow beside `questMarks` on live
    runs.
 3. Promote it only when it beats the rules on held-out frames.
