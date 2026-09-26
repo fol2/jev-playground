@@ -213,6 +213,62 @@ struct PlannedQuest {
     var pin: MapPoint?  // from hovering the world map's pins
 }
 
+// MARK: - Working memory: the quest log (the owner, 25 Sept: remember what was read, to cut rescans)
+
+/// The log as last read from the map: opening it and resting on each pin took 3-4 s of each 5-6 s read
+/// (live run 4). It is kept under a key of the zone's name and the objective tracker's text, which change
+/// when a quest is handed in, taken or advanced ("12/15" to "13/15").
+struct LogMemory: Codable {
+    struct Quest: Codable {
+        var title: String, level: Int, ready: Bool, objective: String, pin: [Double]?
+    }
+    var key: String
+    var quests: [Quest]
+    var readAt: Double  // seconds since 1970
+}
+
+extension LogMemory.Quest {
+    init(_ q: PlannedQuest) { self.init(title: q.title, level: q.level, ready: q.ready, objective: q.objective, pin: q.pin.map { [$0.x, $0.y] }) }
+    var planned: PlannedQuest {
+        PlannedQuest(title: title, level: level, ready: ready, objective: objective, pin: pin.flatMap { $0.count == 2 ? ($0[0], $0[1]) : nil })
+    }
+}
+
+/// The memory's key: the zone's name by its letters (the clock beside it changes each minute), the tracker's
+/// lines by letters and digits (OCR's stray apostrophes drop out). Either unread: no key, a full read. Zone
+/// coordinates belong to their zone, so another zone's pins are never kept.
+func logKey(zone: [String], tracker: [String]) -> String {
+    let place = nameKey(zone.joined()), text = String(tracker.joined().lowercased().filter { $0.isLetter || $0.isNumber })
+    return place.isEmpty || text.isEmpty ? "" : place + "|" + text
+}
+
+let logMemoryAge = 3600.0  // a quest left out of the tracker could change unseen: an hour at most
+
+/// Whether the tracker shows every quest of the log read: only then does its text stand for the log. A
+/// collapsed tracker ("All Objectives" alone), a filter or a list longer than the box would let two logs
+/// share a key (review, 26 Sept), so such a read is not remembered.
+func trackerShows(_ quests: [PlannedQuest], _ tracker: [String]) -> Bool {
+    let text = nameKey(tracker.joined())
+    return quests.allSatisfy { text.contains(nameKey($0.title)) }
+}
+
+/// Whether a map read may be remembered: a key; a log that is not empty; nothing the minimap named that the
+/// log lacks; and the tracker and the log agree both ways (each quest in the tracker, and each tracker line in
+/// a title or an objective). A read that parsed one quest of four passed a one-way test and would have been
+/// kept for the hour, with `LOG_INCOMPLETE` every run (review, 26 Sept). OCR noise only costs a full read.
+func rememberLog(_ quests: [PlannedQuest], tracker: [String], key: String, missing: [String]) -> Bool {
+    let log = nameKey(quests.map { $0.title + " " + $0.objective }.joined(separator: " "))
+    let lines = tracker.map(nameKey).filter { !$0.isEmpty }
+    return !key.isEmpty && !quests.isEmpty && missing.isEmpty && !lines.isEmpty && trackerShows(quests, tracker)
+        && lines.allSatisfy { log.contains($0) }
+}
+
+/// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
+func keptLog(_ memory: LogMemory?, key: String, at time: Double) -> [PlannedQuest]? {
+    guard let memory, !key.isEmpty, memory.key == key, time >= memory.readAt, time - memory.readAt < logMemoryAge else { return nil }
+    return memory.quests.map(\.planned)
+}
+
 func questKind(_ q: PlannedQuest) -> QuestKind {
     let text = q.objective.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "- "))
     if text.contains("ready for turn-in") { return .handIn }

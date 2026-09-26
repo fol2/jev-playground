@@ -673,6 +673,45 @@ extension NavTests {
             ("6] C Quest", 804, 350), ("obj C", 816, 366)]))
         check(column.map(\.title) == ["A Quest", "B Quest"] && column[1].objective == "Speak to X",
               "a prefixed title keeps the clean titles' column: a garbled title at that column ends the quest above, not joins it")
+        // Working memory of the log, keyed by the zone and the tracker (live OCR of runs 5, 6 and 7, 26 Sept).
+        let tracked5 = ["All Objectives", "Quests", "The Next Step", "Report to Constable Aonda in", "Shen' dar Village.",
+                        "Harvesting Windstones", "Ready for turn-in", "The Adventurer", "Speak to Raan Wildwind near", "Shen' dar Village."]
+        var tracked6 = tracked5
+        tracked6[4] = "Shen dar Village."
+        let tracked7 = ["All Objectives", "Quests", "The Next Step", "Report to Constable Aonda in", "Shen' dar Village.",
+                        "The Adventurer", "Speak to Raan Wildwind near", "Shen dar Village."]
+        let key5 = logKey(zone: ["12:32", "Thendal Village"], tracker: tracked5)
+        check(key5 == logKey(zone: ["12:58", "Thendal Village"], tracker: tracked6) && key5 != logKey(zone: ["12:58", "Thendal Village"], tracker: tracked7)
+              && key5 != logKey(zone: ["* Thendal Grove"], tracker: tracked5) && logKey(zone: [], tracker: tracked5).isEmpty
+              && logKey(zone: ["Thendal Village"], tracker: []).isEmpty,
+              "the log's key: the clock and stray apostrophes drop out; a hand-in, another zone or an unread box change it")
+        check(logKey(zone: ["Thendal Village"], tracker: ["- 12/15 Windstone Cluster"]) != logKey(zone: ["Thendal Village"], tracker: ["- 13/15 Windstone Cluster"]),
+              "an objective's count is part of the key")
+        let saved = LogMemory(key: key5, quests: [LogMemory.Quest(PlannedQuest(title: "The Next Step", level: 5, ready: false,
+                              objective: "Report to Constable Aonda in Shen'dar Village.", pin: (46, 45.1)))], readAt: 1000)
+        let kept = keptLog(try? JSONDecoder().decode(LogMemory.self, from: JSONEncoder().encode(saved)), key: key5, at: 1000 + logMemoryAge - 1)
+        check(kept?.count == 1 && kept?[0].title == "The Next Step" && kept?[0].pin.map { $0 == (46, 45.1) } == true && questKind(kept![0]) == .travel,
+              "a remembered log keeps its titles, objectives and pins through its file")
+        check(keptLog(saved, key: key5, at: 1000 + logMemoryAge) == nil && keptLog(saved, key: key5, at: 999) == nil
+              && keptLog(saved, key: "", at: 1100) == nil && keptLog(saved, key: key5 + "x", at: 1100) == nil && keptLog(nil, key: key5, at: 1100) == nil,
+              "the map is read again after an hour, a clock that went back, an unread key, a changed key or no memory")
+        let log5 = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "", pin: nil),
+                    PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "", pin: nil),
+                    PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "", pin: nil)]
+        check(trackerShows(log5, tracked5) && !trackerShows(log5, ["All Objectives", "Quests"]) && !trackerShows(log5, Array(tracked5.prefix(7)))
+              && trackerShows([], ["All Objectives"]),
+              "a log is remembered only when the tracker shows each of its quests: not collapsed, filtered or cut off by the box")
+        // The live log of run 5 against its upscaled tracker (x 2200, y 400): what may be remembered.
+        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: nil),
+                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: nil),
+                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: nil)]
+        let tracker5 = Array(tracked5.dropFirst(2))  // the box starts below "All Objectives" and "Quests"
+        check(rememberLog(log5Full, tracker: tracker5, key: key5, missing: []),
+              "a complete read, agreeing with the tracker both ways, is remembered")
+        check(!rememberLog([log5Full[1]], tracker: tracker5, key: key5, missing: []) && !rememberLog([], tracker: tracker5, key: key5, missing: [])
+              && !rememberLog(log5Full, tracker: tracker5, key: key5, missing: ["Call of Earth"]) && !rememberLog(log5Full, tracker: tracker5, key: "", missing: [])
+              && !rememberLog(log5Full, tracker: [], key: key5, missing: []),
+              "one quest parsed of three, an empty parse, a quest the minimap named but the log lacks, no key or no tracker: not remembered (review of #46)")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")

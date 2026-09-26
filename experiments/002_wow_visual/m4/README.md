@@ -403,6 +403,27 @@ without a pin counts as here (a finished quest's NPC is usually at this hub). Ro
 built yet: a greedy walk from Thendal Village towards Shen'dar Village ended NO_PROGRESS against a ridge
 after 33 decisions, and colour alone did not separate the map's ridges, sea and flat land.
 
+**Working memory** (the owner, 25 Sept: remember what was read, to cut rescans). Opening the map and
+resting on each pin took 3-4 s of each 5-6 s read (live run 4). The log is kept in
+`runs/002_wow_visual/memory/quest-log.json`, which is private.
+- **The key.** The zone's name above the minimap, by its letters (the clock beside it changes each
+  minute), and the objective tracker's lines, by letters and digits. Both are read after a x3 upscale on
+  the frame taken with the pointer parked, before any minimap icon's tooltip can cover the zone's name.
+- **When it is not saved.** A read is remembered only when it is complete: not empty; nothing the minimap
+  named is missing from it; and the tracker and the log agree both ways (every quest in the tracker, and
+  every tracker line in a title or an objective). A collapsed or filtered tracker, one too long for its
+  box, or a parse that caught one quest of four would otherwise let a wrong plan stand for the hour.
+- **What changes it.** A hand-in, a quest taken or an objective's count ("12/15" to "13/15") changes the
+  key, and so does another zone, whose coordinates are its own. An unread box gives no key.
+- **When it is used.** While the key is the same and the memory is under an hour old, the next read keeps
+  the quests and pins without opening the map. The minimap's givers are still read each time, as they
+  change with where the player stands.
+- **What clears it.** A `COMPLETED` or `ACCEPTED` step removes the file, in `--quests` and `--turn-in` alike.
+  A kept quest whose pin the last read missed takes one from this read's minimap, if it shows one.
+- **Why the hour.** A quest left out of the tracker could change unseen for at most that hour.
+- **On saved frames.** The tracker OCR of runs 5 and 6 differs only by an apostrophe ("Shen' dar" and
+  "Shen dar"), which the key drops. Run 7, after the hand-in, gives another key.
+
 Live, 24 Sept (read-only): the log read five quests; after three fixes (a "- Ready for turn-in" line at
 the title's x is an objective; "Bring X to NPC" is a delivery; a pointer left on a pin leaves a yellow
 tooltip that reads as pins) the order was Harvesting Windstones and The Gift of Skysight (hand-ins here),

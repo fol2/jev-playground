@@ -28,6 +28,14 @@ enum QuestHUD {
     static let mapKey: UInt16 = 37  // L, the Map & Quest Log
     static let questList = CGRect(x: 775, y: 225, width: 345, height: 560)
     static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
+    static let zone = CGRect(x: 2290, y: 24, width: 230, height: 30)  // the zone's name above the minimap, beside the clock
+    static let logMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/quest-log.json")  // private, under runs/
+}
+
+/// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too, in
+/// `--quests` and `--turn-in` alike.
+func forgetLog(_ outcome: String) {
+    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
 }
 
 final class QuestRun {
@@ -164,8 +172,9 @@ final class QuestRun {
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
         let player = (await frame()).flatMap { readCoords($0).at }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
+        let parked = hostNow()
         await sleep(0.4)
-        let scanned = await frame()
+        let scanned = await frame(after: parked + 0.3)  // never a frame from before the pointer left an icon
         if let scanned { write(scanned, to: body.directory.appendingPathComponent("minimap-scan.png"), type: .png) }
         let nearby = player == nil ? [] : scanned.map { minimapPins(rgba($0)) } ?? []
         body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
@@ -179,29 +188,51 @@ final class QuestRun {
             icons.append((minimapPoint(spot.x, spot.y, player: player!), spot.offer, read))
         }
         let (givers, minimapNames, tooltips) = sortIcons(icons)
-        await tap(QuestHUD.mapKey)
-        await sleep(1.2)
-        let listed = await frame()
-        if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
-        var quests = parseQuestLog(lines(QuestHUD.questList, listed))
-        for i in quests.indices {
-            quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
-        }
-        hover(1280, 60)
-        await sleep(0.4)
-        var spots = (await frame()).map { mapPins(rgba($0)) } ?? []
-        body.emit("map_scan", ["pins": spots.count])
-        if let player { spots.append(mapPixel(player)) }
-        for spot in spots {
-            hover(spot.x, spot.y)
-            await sleep(0.7)
-            let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
-            let read = lines(box, await frame()).map { nameKey($0.text) }
-            for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
-                quests[i].pin = zonePoint(spot.x, spot.y)
+        // Working memory: the same zone and tracker text as the last map read keep its quests and pins; the
+        // minimap's givers above are read each time, as they change with where the player stands.
+        // The key is read on the frame taken with the pointer parked, before any icon's tooltip could cover the
+        // zone's name (review, 26 Sept), and after a x3 upscale: at 1x a count such as "0/6" read as "Oyo".
+        let now = Date().timeIntervalSince1970
+        let zoneText = scanned.map { upscaledText($0, QuestHUD.zone) } ?? [], trackerText = scanned.map { upscaledText($0, HuntHUD.tracker) } ?? []
+        let key = logKey(zone: zoneText, tracker: trackerText)
+        let remembered = (try? Data(contentsOf: QuestHUD.logMemory)).flatMap { try? JSONDecoder().decode(LogMemory.self, from: $0) }
+        var quests: [PlannedQuest]
+        if let kept = keptLog(remembered, key: key, at: now) {
+            quests = kept
+            for i in quests.indices where quests[i].pin == nil {  // a pin the last read missed, from this read's minimap
+                quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
+            }
+            body.emit("quest_log_memory", ["quests": kept.count, "age_s": Int(now - remembered!.readAt)])
+        } else {
+            await tap(QuestHUD.mapKey)
+            await sleep(1.2)
+            let listed = await frame()
+            if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
+            quests = parseQuestLog(lines(QuestHUD.questList, listed))
+            for i in quests.indices {
+                quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
+            }
+            hover(1280, 60)
+            let offPins = hostNow()
+            await sleep(0.4)
+            var spots = (await frame(after: offPins + 0.3)).map { mapPins(rgba($0)) } ?? []  // no tooltip read as pins
+            body.emit("map_scan", ["pins": spots.count])
+            if let player { spots.append(mapPixel(player)) }
+            for spot in spots {
+                hover(spot.x, spot.y)
+                await sleep(0.7)
+                let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
+                let read = lines(box, await frame()).map { nameKey($0.text) }
+                for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
+                    quests[i].pin = zonePoint(spot.x, spot.y)
+                }
+            }
+            await tap(QuestHUD.mapKey)
+            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests)) {
+                try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
         }
-        await tap(QuestHUD.mapKey)
         let missing = missingFromLog(tooltips, quests)
         body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
@@ -512,6 +543,7 @@ final class LiveQuestHost: QuestHost {
         if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
+        forgetLog(outcome)
         return outcome
     }
 
@@ -526,6 +558,7 @@ final class LiveQuestHost: QuestHost {
         if let stop = await walk(to: giver.pin, label: "quest giver") { return stop }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
+        forgetLog(outcome)
         return outcome
     }
 
@@ -641,6 +674,7 @@ func questExecute(_ command: NavCommand) async throws -> Int32 {
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
     body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
     let outcome = await (try QuestRun(body: body)).turnIn(quest)
+    forgetLog(outcome)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     let manifest: [String: Any] = [
