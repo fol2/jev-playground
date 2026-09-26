@@ -635,6 +635,15 @@ extension NavTests {
                                            player: (42.1, 23.5), missing: []), failed: [])
         check(hidden.map(\.skill) == ["HAND_IN_1"] && hidden[0].criterion.contains("no pin"),
               "live runs 19-20: a delivery whose pin hid under the player's arrow is offered from here, and says so")
+        let misread = questOffers(QuestRead(quests: [PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: (42.1, 22.7))],
+                                            player: (42.5, 23.1), missing: [], givers: [Giver(names: ["Coming of Age"], pin: (42.13, 23.3))]), failed: [])
+        check(misread.map(\.skill) == ["HAND_IN_1"], "live run 21: a minimap icon naming a quest in the log is its \"?\", not a \"!\" to accept")
+        // Live run 21: the learned reader read Rorian's near "?" at (1260, 482, 21 x 46), which the rules missed.
+        let near = learnedMark([1260, 482, 21, 46]), rule: QuestMark = (1270, 500, 20, 700, 1270, 540)
+        check(near.x == 1270 && near.y == 504.5 && near.body > near.nameTop && near.nameTop > near.y
+              && extraMarks([near], beside: [rule]).isEmpty && extraMarks([near], beside: []).count == 1
+              && extraMarks([learnedMark([400, 300, 8, 16])], beside: [rule]).count == 1,
+              "a learned mark is a click target placed as the rules place one; one the rules also found is not added twice")
         check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
               && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
               "a finished quest is a hand-in; a slain count is a kill")

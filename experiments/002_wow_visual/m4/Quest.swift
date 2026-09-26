@@ -195,6 +195,20 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) ->
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
 }
 
+/// A mark the learned reader (M5) found, as a click target: its glyph box (x, y, width, height) with the NPC's name
+/// and body placed below it as questMarks places them for a mark of that height (the name about one height under
+/// the glyph, the body 4 heights). The rules miss a near mark (live run 21, 26 Sept: Rorian's 21 x 46 px "?" beside
+/// him, which the learned reader read), so the learned reader adds click targets; a hover must confirm each one.
+func learnedMark(_ box: [Int]) -> QuestMark {
+    let h = Double(box[3]), x = Double(box[0]) + Double(box[2] - 1) / 2, y = Double(box[1]) + (h - 1) / 2
+    return (x, y, h, y + 4 * h, x, y + 0.9 * h)
+}
+
+/// The learned marks the rules did not find: none within a mark's height of a rule mark.
+func extraMarks(_ learned: [QuestMark], beside rules: [QuestMark]) -> [QuestMark] {
+    learned.filter { l in !rules.contains { hypot($0.x - l.x, $0.y - l.y) <= max(12, max($0.h, l.h)) } }
+}
+
 // MARK: - The quest plan (M4d)
 
 /// What a quest's objective asks for, read from the quest log's text.
@@ -687,7 +701,11 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
             + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
     }
     // A mark in view is offered only with no hand-in here: beside a quest to hand in, it is most likely that "?" (review of #47).
-    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg && (!$0.inView || handIns.isEmpty) }
+    // A "!" offers a quest not yet taken: an icon whose tooltip names a quest in the log is that quest's "?", misread
+    // by its width (live run 21, 26 Sept: Rorian's "Coming of Age" offered as ACCEPT_1 beside its own hand-in).
+    let logged = Set(read.quests.map { nameKey($0.title) })
+    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg && (!$0.inView || handIns.isEmpty)
+        && !$0.names.contains { logged.contains(nameKey($0)) } }
         .sorted { distance(read.player, $0.pin) < distance(read.player, $1.pin) }
     let accepts = givers.prefix(QuestLimits.giverSlots).enumerated().map { i, g in
         ("ACCEPT_\(i + 1)", QuestStep.accept(g), g.inView

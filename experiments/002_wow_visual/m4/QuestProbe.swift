@@ -51,6 +51,19 @@ final class QuestRun {
     private var shadow: MarkReader?, shadowTried = false  // touched on shadowQueue only
     private let shadowLock = NSLock()
     private var shadowBusy = false  // a read still running: the next frame is skipped, never queued behind it
+    /// The learned reader's own instance for click targets (not the shadow's, which its queue owns): marks the rules
+    /// miss are clicked only once a hover confirms an NPC under them (live run 21: a near "?" the rules missed).
+    private lazy var clickReader: MarkReader? = try? MarkReader()
+    private var learnedOnly: [(x: Double, y: Double)] = []  // the click targets only the learned reader found
+
+    /// The rules' marks, then the learned reader's that the rules did not find, as click targets.
+    func clickMarks(_ image: CGImage, _ pixels: RGBA) -> [QuestMark] {
+        let rules = questMarks(pixels, box: QuestHUD.world)
+        let extra = extraMarks(((try? clickReader?.marks(image, pixels)) ?? []).map { learnedMark($0.box) }, beside: rules)
+        learnedOnly = extra.map { ($0.x, $0.y) }
+        if !extra.isEmpty { body.emit("learned_targets", ["count": extra.count, "marks": extra.prefix(3).map { [Int($0.x), Int($0.y), Int($0.h)] }]) }
+        return rules + extra
+    }
 
     init(body: LiveNavBody) throws {
         self.body = body
@@ -355,7 +368,8 @@ final class QuestRun {
         let bottom = mark.body - 2.4 * mark.h
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text else { return nil }
+        // An unread name leaves the NPC's own tooltip to confirm it (npcTip).
+        let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text ?? ""
         let start = hostNow()
         /// Whether the tooltip names the NPC once the pointer rests at `p`, on a frame captured after the move:
         /// a frame from before it must not answer for this point. Any line of the box may (the box can hold
@@ -401,7 +415,7 @@ final class QuestRun {
             body.keys.lift(pulse.code)
             let turned = hostNow()
             guard let seen = await frame(after: turned + 0.3) else { continue }
-            let pixels = rgba(seen), marks = questMarks(pixels, box: QuestHUD.world)
+            let pixels = rgba(seen), marks = clickMarks(seen, pixels)
             shadowMarks(seen, pixels, at: "around")
             body.emit("look_around", ["marks": marks.count])
             if !marks.isEmpty { return (seen, marks) }
@@ -416,7 +430,7 @@ final class QuestRun {
     func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
         guard var image = await frame() else { return (nil, "NO_FRESH_FRAME") }
         let pixels = rgba(image)
-        var marks = questMarks(pixels, box: QuestHUD.world)
+        var marks = clickMarks(image, pixels)
         shadowMarks(image, pixels, at: "open")
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
         if marks.isEmpty, let around = await lookAround() { (image, marks) = around }
@@ -433,6 +447,8 @@ final class QuestRun {
             if repeatsClick((mark.x, mark.body), blind, h: mark.h) { marks.removeFirst(); continue }
             let confirmed = await onUnit(mark, in: image)
             body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull()])
+            // A target only the learned reader found is clicked only where a hover confirmed an NPC, never blind.
+            if confirmed == nil, learnedOnly.contains(where: { $0.x == mark.x && $0.y == mark.y }) { marks.removeFirst(); continue }
             let point = confirmed ?? (mark.x, mark.body)
             if confirmed == nil { blind = point }
             guard click(point.x, point.y, right: true) else { return (nil, "CLICK_FAILED") }
@@ -455,7 +471,7 @@ final class QuestRun {
                     guard let again = await frame(after: looked + 0.3) else { continue }
                     image = again
                     let againPixels = rgba(again)
-                    marks = questMarks(againPixels, box: QuestHUD.world)
+                    marks = clickMarks(again, againPixels)
                     shadowMarks(again, againPixels, at: "again")
                     body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
                     if !marks.isEmpty { break }
