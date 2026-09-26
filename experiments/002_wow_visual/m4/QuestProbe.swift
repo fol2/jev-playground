@@ -26,6 +26,8 @@ enum QuestHUD {
         "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
     static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
     static let mapKey: UInt16 = 37  // L, the Map & Quest Log
+    static let mapTitle = CGRect(x: 450, y: 150, width: 300, height: 34)  // "Map & Quest Log" in its title bar (26 Sept)
+    static let mapCursor = CGRect(x: 80, y: 688, width: 300, height: 24)  // "Cursor: 42.3, 22.9" at the map's bottom left
     static let questList = CGRect(x: 775, y: 225, width: 345, height: 560)
     static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
     static let zone = CGRect(x: 2290, y: 24, width: 230, height: 30)  // the zone's name above the minimap, beside the clock
@@ -187,7 +189,13 @@ final class QuestRun {
             body.emit("minimap_pin", ["at": [Int(spot.x), Int(spot.y)], "read": read, "offer": spot.offer])
             icons.append((minimapPoint(spot.x, spot.y, player: player!), spot.offer, read))
         }
-        let (givers, minimapNames, tooltips) = sortIcons(icons)
+        let (found, minimapNames, tooltips) = sortIcons(icons)
+        var givers = found
+        // A giver a few yards away is drawn under the player's arrow (live, 26 Sept: 20 yards from Windshaper
+        // Boro only its "!"'s dot showed). With no "!" on the minimap, a yellow mark in view is offered instead.
+        let inView = scanned.map { questMarks(rgba($0), box: QuestHUD.world).count } ?? 0
+        if givers.isEmpty && inView > 0, let player { givers.append(Giver(names: [], pin: player, inView: true)) }
+        body.emit("view_marks", ["count": inView])
         // Working memory: the same zone and tracker text as the last map read keep its quests and pins; the
         // minimap's givers above are read each time, as they change with where the player stands.
         // The key is read on the frame taken with the pointer parked, before any icon's tooltip could cover the
@@ -196,7 +204,7 @@ final class QuestRun {
         let zoneText = scanned.map { upscaledText($0, QuestHUD.zone) } ?? [], trackerText = scanned.map { upscaledText($0, HuntHUD.tracker) } ?? []
         let key = logKey(zone: zoneText, tracker: trackerText)
         let remembered = (try? Data(contentsOf: QuestHUD.logMemory)).flatMap { try? JSONDecoder().decode(LogMemory.self, from: $0) }
-        var quests: [PlannedQuest]
+        var quests: [PlannedQuest], uiFault: [String] = []
         if let kept = keptLog(remembered, key: key, at: now) {
             quests = kept
             for i in quests.indices where quests[i].pin == nil {  // a pin the last read missed, from this read's minimap
@@ -204,8 +212,7 @@ final class QuestRun {
             }
             body.emit("quest_log_memory", ["quests": kept.count, "age_s": Int(now - remembered!.readAt)])
         } else {
-            await tap(QuestHUD.mapKey)
-            await sleep(1.2)
+            if !(await setMap(open: true)) { body.emit("map_toggle_failed", ["open": true]); uiFault.append("the Map & Quest Log did not open") }
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             quests = parseQuestLog(lines(QuestHUD.questList, listed))
@@ -222,23 +229,49 @@ final class QuestRun {
                 hover(spot.x, spot.y)
                 await sleep(0.7)
                 let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
-                let read = lines(box, await frame()).map { nameKey($0.text) }
+                let shown = await frame()
+                let read = lines(box, shown).map { nameKey($0.text) }
+                let at = shown.flatMap { mapCursor(upscaledText($0, QuestHUD.mapCursor)) }
+                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "read": read])
                 for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
-                    quests[i].pin = zonePoint(spot.x, spot.y)
+                    quests[i].pin = at  // unread, no pin: the fixed transform held on one map only (review of #47)
                 }
             }
-            await tap(QuestHUD.mapKey)
-            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests)) {
+            if !(await setMap(open: false)) { body.emit("map_toggle_failed", ["open": false]); uiFault.append("the Map & Quest Log did not close") }
+            if rememberLog(quests, tracker: trackerText, key: key, missing: missingFromLog(tooltips, quests) + uiFault) {
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
         }
-        let missing = missingFromLog(tooltips, quests)
+        let missing = missingFromLog(tooltips, quests) + uiFault  // a map not known to be open or shut stops the run: LOG_INCOMPLETE
         body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
         return (quests, player, missing, givers)
+    }
+
+    /// L toggles the Map & Quest Log, so it is pressed only while the panel is known not to be as wanted (live run
+    /// 12, 26 Sept: the run ended with the map open, and the next run's L would have closed it). Open is its title
+    /// read; closed is two fresh frames in a row without it. No frame proves either (review of #47: an empty read
+    /// had passed for closed). false: not known to be as wanted after three presses.
+    func setMap(open: Bool) async -> Bool {
+        func titled(_ image: CGImage) -> Bool {
+            lines(QuestHUD.mapTitle, image).contains { $0.text.lowercased().filter { !$0.isWhitespace }.contains("questlog") }
+        }
+        for press in 0...3 {
+            guard let first = await frame() else { return false }
+            var shown = titled(first)
+            if !shown && !open {
+                guard let second = await frame(after: hostNow() + 0.2) else { return false }
+                shown = titled(second)
+            }
+            if shown == open { return true }
+            if press == 3 { break }
+            await tap(QuestHUD.mapKey)
+            await sleep(1.2)
+        }
+        return false
     }
 
     enum Page { case wanted([TipLine]), other([TipLine]), failed(String) }
@@ -342,10 +375,18 @@ final class QuestRun {
                 await tap(QuestHUD.escape)
                 await sleep(0.8)
                 marks.removeFirst()
-            } else if let again = await frame() {  // nothing opened: Click-to-Move walked towards it; look again
-                image = again
-                marks = questMarks(rgba(again), box: QuestHUD.world)
-                body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+            } else {  // nothing opened: Click-to-Move walked towards it; look again, over a few frames while the
+                // view settles (live run 12, 26 Sept: beside Ailee Farheart the first frame found no mark; a later one did)
+                for _ in 0..<3 {
+                    let looked = hostNow()
+                    guard let again = await frame(after: looked + 0.3) else { continue }
+                    image = again
+                    marks = questMarks(rgba(again), box: QuestHUD.world)
+                    body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+                    if !marks.isEmpty { break }
+                    await sleep(0.4)
+                }
+                if marks.isEmpty { write(image, to: body.directory.appendingPathComponent("no-marks-after.png"), type: .png) }
             }
         }
         return (nil, "DIALOGUE_NOT_OPEN")
@@ -473,23 +514,30 @@ final class LiveQuestHost: QuestHost {
     let key: String
     let newWalker: (URL) -> LiveNavBody  // each walk's frames in its own folder, as a fight's
     let newFighter: (URL, LiveKeys) -> LiveHost  // M3's host on a child key set, its frames in the folder
+    let newHunter: (URL) -> LiveHuntHost  // M4b's host on its own key set, as a walk's
+    let huntGraph: URL?  // each hunt's own session of the hunt graph; nil: the legacy flat hunt
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
-    private var fights = 0, walks = 0
+    private var hunting: LiveHuntHost?  // the same
+    private var fights = 0, walks = 0, hunts = 0
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
     init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
-         tactics: FightTactics? = nil) {
-        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter; self.tactics = tactics
+         newHunter: @escaping (URL) -> LiveHuntHost, huntGraph: URL? = nil, tactics: FightTactics? = nil) {
+        self.quester = quester; self.key = key; self.newWalker = newWalker; self.newFighter = newFighter
+        self.newHunter = newHunter; self.huntGraph = huntGraph; self.tactics = tactics
     }
 
-    var holding: Bool { (walker?.holding ?? false) || lock.withLock { fighting?.holdingKeys ?? false } }
+    var holding: Bool {
+        (walker?.holding ?? false) || lock.withLock { (fighting?.holdingKeys ?? false) || (hunting?.holding ?? false) }
+    }
 
-    /// The exit sweep over the walk's and the fight's key sets.
+    /// The exit sweep over the walk's, the fight's and the hunt's key sets.
     func releaseAll() {
         walker?.releaseAll()
         lock.withLock { fighting }?.releaseAll()
+        lock.withLock { hunting }?.releaseAll()
     }
 
     /// Attacked on a walk: one M3 episode, in combat, on a child of the run's own key set, as the hunt's
@@ -562,6 +610,32 @@ final class LiveQuestHost: QuestHost {
         return outcome
     }
 
+    /// Walk to the quest's area (from here when the map showed none), then one M4b hunt, as `--hunt` runs
+    /// it, in its own folder, with what is left to the deadline after the walk (review of #47: a walk of up to
+    /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
+    func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        let seconds = min(HuntLimits.maxSeconds, deadline - hostNow())
+        guard seconds > 0 else { return "HUNT_TIME_LIMIT" }
+        guard walker?.holding != true else { return "WALK_KEYS_HELD" }
+        let graph: GraphSession?
+        do { graph = try huntGraph.map { try GraphSession.load($0) } } catch { return "HUNT_GRAPH_UNREADABLE" }
+        hunts += 1
+        let folder = quester.body.directory.appendingPathComponent(String(format: "hunt%d", hunts))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let hunter = newHunter(folder)
+        lock.withLock { hunting = hunter }
+        emit("hunt_start", ["hunt": hunts, "quest": quest.title, "seconds": Int(seconds), "decision_graph": graph?.graph.id as Any? ?? NSNull()])
+        let result = await runHunt(host: hunter, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
+                                   graph: graph, seconds: seconds)
+        let outcome = huntOutcome(result.outcome, start: result.start, end: result.end)
+        emit("hunt_end", ["hunt": hunts, "quest": quest.title, "code": result.outcome, "outcome": outcome,
+                          "fights": result.fights.map(\.outcome), "decisions": result.decisions])
+        guard !hunter.holding else { return "HUNT_KEYS_HELD" }
+        lock.withLock { hunting = nil }
+        return outcome
+    }
+
     func now() -> Double { hostNow() }
     func ownerTookFocus() -> Bool { quester.body.ownerTookFocus() }
     func emit(_ event: String, _ fields: [String: Any]) { quester.body.emit(event, fields) }
@@ -570,7 +644,7 @@ final class LiveQuestHost: QuestHost {
 /// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
 /// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
 @MainActor
-func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -595,16 +669,23 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     // the 23 Sept bar, where key 3 was the heal (Earth Shock by 24 Sept) and key 4 the buff (Healing Wave).
     let bar = try await readSkillBar(session, feed, log, required: fightRoles)
     applyRoles(bar.keys)
+    HuntLimits.drink = bar.keys[.drink] ?? HuntLimits.drink  // a hunt eats and drinks from the bar, as --hunt
+    HuntLimits.eat = bar.keys[.food] ?? HuntLimits.eat
     let tactics = try fightTactics(fightGraph, bar, log)
+    let hunting = huntGraph.map { URL(fileURLWithPath: $0) }  // read at start, so a bad file stops the run before any walk
+    if let hunting { _ = try GraphSession.load(hunting) }
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
                              newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: $0, log: log) },
                              newFighter: { LiveHost(session: session, feed: feed, sink: sink, directory: $0, log: log, input: $1) },
-                             tactics: tactics)
+                             newHunter: { LiveHuntHost(session: session, feed: feed, sink: sink, directory: $0, log: log, fightJev: LiveJev(key: key),
+                                                       fightTactics: tactics) },
+                             huntGraph: hunting, tactics: tactics)
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
+    await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
     let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
     try? await stream.stopCapture()
@@ -614,6 +695,33 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil) async throws 
     for s in result.steps { print("\(s.quest): \(s.outcome)") }
     print("run: \(result.outcome)")
     return body.holding || host.holding ? 3 : 0
+}
+
+/// `--zoom --keys wqe [--seconds S]`: set the engine's zoom (F11 held S s back from the widest view) and save
+/// the frame after it as zoom.png, to calibrate `zoomInSeconds` against the owner's zoom.
+@MainActor
+func zoomExecute(_ inSeconds: Double) async throws -> Int32 {
+    let session = try await wowSession(input: true, full: true)
+    let run = try runDirectory("m4_zoom")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    await setZoom(body.keys, log, inSeconds: inSeconds)
+    let set = hostNow()
+    try? await Task.sleep(nanoseconds: 700_000_000)  // the camera eases to its new distance
+    let after = await (try QuestRun(body: body)).frame(after: set + 0.5)
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    guard let after else { throw ProbeError("no frame after the zoom") }
+    write(after, to: run.url.appendingPathComponent("zoom.png"), type: .png)
+    print("zoom: in \(inSeconds) s; \(run.url.appendingPathComponent("zoom.png").path)")
+    return body.holding ? 3 : 0
 }
 
 /// `--plan --keys wqe`: read the log and the pins, and print the owner's zone-first order. Read-only.

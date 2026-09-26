@@ -266,6 +266,8 @@ struct FightTests {
               "24 Sept bar: heal is key 4 and the enchant key 8, not the 23 Sept 3 and 4")
         check(assignRoles(bar.enumerated().map { $0.offset == 3 ? nil : $0.element }).problems == ["no heal skill on the bar"],
               "a missing heal holds a live run")
+        check(assignRoles(bar.enumerated().map { $0.offset == 7 ? nil : $0.element }, required: fightRoles).problems.isEmpty,
+              "live, 26 Sept: a level-1 bar with no weapon enchant still fights")
         check(assignRoles(bar.enumerated().map { $0.offset == 4 ? bar[1] : $0.element }).problems.first?.contains("two slots") == true,
               "one tooltip on two slots holds a live run (the pointer was contested)")
         check(parseTooltip(["Earth Shock", "30 Mana"]) == nil, "no tooltip footer: not a tooltip")
@@ -569,6 +571,10 @@ struct FightTests {
                        level: nil).chains.allSatisfy { !$0.requires.contains("shock") }, "a chain needing a skill not on the bar is left out")
         check(FightKit(bar: slots, dictionary: dictionary, book: book, className: "warrior", level: 6).chains.isEmpty,
               "another class's book rows are not this one's")
+        let bare = FightKit(bar: slots.filter { $0.skill.name != "Rockbiter Weapon" }, dictionary: dictionary, book: book, className: "shaman", level: nil)
+        check(!has(admissible(Obs(buff: false), Episode(), kit: bare), .buffWeapon) && has(admissible(Obs(buff: false), Episode(), kit: kit), .buffWeapon)
+              && bare.chains.allSatisfy { !$0.requires.contains("buff") },
+              "with no enchant on the bar, neither BUFF_WEAPON nor a chain that needs it is offered")
         let row = #"{"id":"x","class":"shaman","levels":[1,20],"requires":["bolt"],"steps":[{"do":"bolt","until":"dead"}],"summary":"s","source":"t","status":"accepted"}"#
         check((try? FightChain.book(row))?.count == 1, "a well-formed chain loads")
         for bad in [row + "\n" + row, row.replacingOccurrences(of: #""until":"dead""#, with: #""until":"soon""#),

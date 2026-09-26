@@ -728,20 +728,33 @@ extension NavTests {
                              log24Sept).isEmpty, "live 25 Sept: an NPC's name above a quest the log holds is not a missing quest")
         check(missingFromLog([["Dalia the Collector", "Harvesting Windstones"], ["Dalia the Collector", "18 m"]], log24Sept)
               == ["Dalia the Collector"], "a tooltip naming no quest the log holds still counts, NPC name or not")
+        check(mapCursor(["Cursor: 42.3, 22.9", "Player: 42.8, 23.3"]).map { $0 == (42.3, 22.9) } == true
+              && mapCursor(["Cursor 7.5,60.0"]).map { $0 == (7.5, 60.0) } == true && mapCursor(["Player: 42.8, 23.3"]) == nil && mapCursor([]) == nil,
+              "live, 26 Sept: the map's own cursor line gives a pin's zone coordinates on any map; the player's line is not the cursor")
+        check(mapCursor(["Cursor: 100.0, 7.25"]).map { $0 == (100, 7.25) } == true && mapCursor(["Cursor: 142.0, 7.0"]) == nil,
+              "review of #47: the whole 0-100 range and any decimals parse; a number off the map does not")
     }
 
-    /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed).
+    /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed; every hunt completes unless listed).
     final class FakeQuests: QuestHost {
         var reads: [QuestRead]
         var outcomes: [String: String] = [:]
         var handed: [String] = []
         var clock = 0.0
         init(_ reads: [QuestRead]) { self.reads = reads }
-        func readQuests() async -> QuestRead? { reads.isEmpty ? nil : reads.removeFirst() }
+        func readQuests() async -> QuestRead? {
+            if !readTakes.isEmpty { clock += readTakes.removeFirst() }
+            return reads.isEmpty ? nil : reads.removeFirst()
+        }
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
+        var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
+        func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
+            handed.append("HUNT " + quest.title); budgets.append(min(HuntLimits.maxSeconds, deadline - clock)); clock += huntTakes
+            return outcomes["HUNT " + quest.title] ?? "HUNTED"
+        }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -837,6 +850,9 @@ extension NavTests {
         let took = await runQuests(host: giving, jev: taker, graph: graph()!)
         check(taker.offered.first?.contains("DO:ACCEPT_1") == true && giving.handed == ["!43.2,22.4"] && took.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
               "a minimap \"!\" is offered as ACCEPT_1; after taking it, nothing is left to do here")
+        let near = questOffers(QuestRead(quests: [], player: thendal, missing: [], givers: [Giver(names: [], pin: thendal, inView: true)]), failed: [])
+        check(near.map(\.skill) == ["ACCEPT_1"] && near[0].criterion.contains("mark in view") && near[0].criterion.contains("under the player's arrow"),
+              "live, 26 Sept: with no minimap \"!\" (under the arrow), a mark in view is offered as ACCEPT_1, saying what it is")
         let refused = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [boros]),
                                   QuestRead(quests: [], player: thendal, missing: [], givers: [boros])])
         refused.outcomes = ["!43.2,22.4": "NO_ACCEPT_BUTTON"]
@@ -847,5 +863,69 @@ extension NavTests {
         let invalid = await runQuests(host: wrong, jev: CannedGraph(["DO:HAND_IN_3"]), graph: graph()!)
         check(invalid.outcome == "GRAPH_invalidReply" && wrong.handed.isEmpty,
               "a reply naming a step not offered runs nothing: no rules fallback")
+
+        // Kill and collect quests are hunted: within one walk, or from here when the map showed no area.
+        let winds = PlannedQuest(title: "Agitators", level: 2, ready: false, objective: "- 0/6 Roiling Winds destroyed", pin: (43.0, 25.0))
+        let shards = PlannedQuest(title: "Wind Shards", level: 2, ready: false, objective: "- 2/8 Wind Shard", pin: nil)
+        let boars = PlannedQuest(title: "Far Boars", level: 3, ready: false, objective: "- 0/5 Boar slain", pin: (42, 44))
+        let offered = questOffers(QuestRead(quests: [winds, shards, boars, hub[0]], player: thendal, missing: []), failed: [])
+        let hunted = offered.compactMap { o -> String? in if case .hunt(let q) = o.step { return o.skill + " " + q.title }; return nil }
+        check(offered.map(\.skill).filter { $0.hasPrefix("HAND_IN") } == ["HAND_IN_1"]
+              && (Set(hunted) == ["HUNT_1 Agitators", "HUNT_2 Wind Shards"] || Set(hunted) == ["HUNT_1 Wind Shards", "HUNT_2 Agitators"]),
+              "a kill and a collect quest are hunted; one 20 units away is not, nor the ready quest")
+        check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
+              && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
+              && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: ["Agitators"]).isEmpty,
+              "a hunt's criterion says where it starts; a failed hunt is not offered again")
+        let start = [Objective(quest: "Agitators", done: 0, need: 6, text: "Roiling Winds destroyed")]
+        let four = [Objective(quest: "Agitators", done: 4, need: 6, text: "Roiling Winds destroyed")]
+        check(huntOutcome("OBJECTIVES_COMPLETE", start: start, end: start) == "HUNTED"
+              && huntOutcome("FIGHT_LIMIT", start: start, end: four) == "HUNTED_SOME"
+              && huntOutcome("TIME_LIMIT", start: start, end: [Objective(quest: "Agitators", done: 1, need: 1, text: Objective.ready)]) == "HUNTED_SOME"
+              && huntOutcome("FIGHT_LIMIT", start: start, end: start) == "HUNT_FIGHT_LIMIT"
+              && huntOutcome("FIGHT_LIMIT", start: four, end: [Objective(quest: "Other", done: 5, need: 6, text: "Roiling Winds destroyed")]) == "HUNT_FIGHT_LIMIT"
+              && huntOutcome("DEAD", start: start, end: four) == "HUNT_DEAD" && huntOutcome("FIGHT_LOW_HEALTH", start: start, end: four) == "HUNT_FIGHT_LOW_HEALTH",
+              "a hunt completes, counts some kills at a limit, or fails; death or a lost fight is never progress")
+        let ready = PlannedQuest(title: "Agitators", level: 2, ready: true, objective: "- Ready for turn-in", pin: (43.0, 25.0))
+        let camp = FakeQuests([QuestRead(quests: [winds], player: thendal, missing: []), QuestRead(quests: [ready], player: (43.0, 25.0), missing: []),
+                               QuestRead(quests: [], player: (43.0, 25.0), missing: [])])
+        let hunter = CannedGraph(["DO:HUNT_1", "DO:HAND_IN_1"])
+        let done = await runQuests(host: camp, jev: hunter, graph: graph()!)
+        check(camp.handed == ["HUNT Agitators", "Agitators"] && done.outcome == "NOTHING_TO_HAND_IN_OR_TAKE"
+              && hunter.offered[0].filter { $0.hasPrefix("DO:") } == ["DO:HUNT_1"] && camp.budgets == [HuntLimits.maxSeconds],
+              "the quest graph offers HUNT_1; a hunt that completes lets the run go on to hand the quest in; a hunt has its own 15 min")
+        let dry = FakeQuests([QuestRead(quests: [winds], player: thendal, missing: []), QuestRead(quests: [winds], player: thendal, missing: [])])
+        dry.outcomes = ["HUNT Agitators": "HUNT_NO_TARGET_FOUND"]
+        let fruitless = await runQuests(host: dry, jev: CannedGraph(["DO:HUNT_1"]), graph: graph()!)
+        check(fruitless.outcome == "NOTHING_TO_HAND_IN_OR_TAKE" && dry.handed == ["HUNT Agitators"],
+              "a hunt that found nothing fails its step, which is not offered again")
+        let killed = FakeQuests([QuestRead(quests: [winds], player: thendal, missing: []), QuestRead(quests: [winds], player: thendal, missing: [])])
+        killed.outcomes = ["HUNT Agitators": "HUNT_DEAD"]
+        let died = await runQuests(host: killed, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
+        check(died.outcome == "HUNT_DEAD" && killed.handed == ["HUNT Agitators"],
+              "a hunt that ends in death, or with any code but its limits, ends the run: the envelope stops at one death")
+        let slow = FakeQuests(Array(repeating: QuestRead(quests: [winds], player: thendal, missing: []), count: 3))
+        slow.outcomes = ["HUNT Agitators": "HUNTED_SOME"]
+        slow.huntTakes = 900
+        let long = await runQuests(host: slow, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
+        check(slow.handed == ["HUNT Agitators", "HUNT Agitators"] && long.outcome == "TIME_LIMIT"
+              && slow.budgets.first == HuntLimits.maxSeconds && slow.budgets.count == 2 && (590...600).contains(slow.budgets[1]),
+              "a hunt that counted some kills is offered again; the next gets what is left of the run's 25 min, and none starts after them")
+        let late = FakeQuests(Array(repeating: QuestRead(quests: [winds], player: thendal, missing: []), count: 2))
+        late.huntTakes = 1440; late.readTakes = [0, 60]
+        let overran = await runQuests(host: late, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
+        check(late.handed == ["HUNT Agitators"] && overran.outcome == "TIME_LIMIT",
+              "review of #47: a read and decision that end past the deadline start no step; no hunt gets a budget of 0 or less")
+        let view = Giver(names: [], pin: thendal, inView: true), moved = Giver(names: [], pin: (42.9, 23.2), inView: true)
+        let shy = FakeQuests([QuestRead(quests: [], player: thendal, missing: [], givers: [view]),
+                              QuestRead(quests: [], player: (42.9, 23.2), missing: [], givers: [moved])])
+        shy.outcomes = ["!in view": "DIALOGUE_NOT_OPEN"]
+        let viewJev = CannedGraph(["DO:ACCEPT_1", "DO:ACCEPT_1"])
+        let tried = await runQuests(host: shy, jev: viewJev, graph: graph()!)
+        check(shy.handed == ["!in view"] && tried.outcome == "NOTHING_TO_HAND_IN_OR_TAKE" && viewJev.offered.count == 1,
+              "review of #47: a mark in view that failed is not offered again after a step, though the player's position read differently")
+        let beside = questOffers(QuestRead(quests: hub, player: thendal, missing: [], givers: [view]), failed: [])
+        check(beside.map(\.skill) == ["HAND_IN_1", "HAND_IN_2"],
+              "beside a quest to hand in, a mark in view is not offered as a giver: it is most likely that quest's \"?\"")
     }
 }

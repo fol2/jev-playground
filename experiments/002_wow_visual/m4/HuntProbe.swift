@@ -335,6 +335,7 @@ func huntExecute(graph: GraphSession? = nil, experience: ExperienceStore? = nil,
     defer { host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { host.releaseAll() }, holding: { host.holding })
+    await setZoom(host.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     guard let start = host.survey(), !start.objectives.isEmpty else {
         try? await stream.stopCapture()
         throw ProbeError("the objectives tracker is unreadable or empty at the start")

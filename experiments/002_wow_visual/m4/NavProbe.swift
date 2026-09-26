@@ -24,7 +24,8 @@ let navUsage = """
                     [--graph PATH] [--experience PATH] [--fight-graph PATH]   (--fight-graph: live --hunt only)
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
            m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
-           m4-nav --quests --graph PATH --keys wqe [--fight-graph PATH]   Jev chooses each hand-in within one walk
+           m4-nav --zoom --keys wqe [--seconds S]     set the engine's zoom (F11 S s back from the widest view); save zoom.png
+           m4-nav --quests --graph PATH --keys wqe [--fight-graph PATH] [--hunt-graph PATH]   Jev chooses each quest step within one walk
     Live keys: W, Q, E; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
     """
@@ -394,8 +395,9 @@ struct M4Nav {
                 }
             case .turnIn: exit(try await questExecute(command))
             case .plan: exit(try await planExecute())
+            case .zoom: exit(try await zoomExecute(command.zoomIn))
             case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!)),
-                                                       fightGraph: command.fightGraph))
+                                                       fightGraph: command.fightGraph, huntGraph: command.huntGraph))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)

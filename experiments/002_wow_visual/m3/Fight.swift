@@ -81,10 +81,14 @@ enum FightLimits {
     static let turnRight: UInt16 = 14
     static let interact: UInt16 = 101  // F9, Interact With Target (owner-consented bind): turns, walks, auto-attacks
     static let interactTurnSeconds = 0.4  // calibration knob: the turn before a forward tap cancels the walk
-    // F10, Camera Zoom Out (owner-consented bind, 24 Sept). No run presses it since 25 Sept: the camera stays
-    // at the owner's zoom (the widest view hid the NPCs' "?" and "!"). Still released on every exit.
-    static let zoomOut: UInt16 = 109
-    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut] }
+    // F10 and F11, Camera Zoom Out and In (owner-consented binds, 24 Sept). The widest view hid the NPCs' "?"
+    // and "!" (owner, 25 Sept), and a new character starts at the client's near default (owner, 26 Sept: "our
+    // default should be farer"). So a run sets its own zoom: F10 held to the widest view, from any zoom, then
+    // F11 held `zoomInSeconds` back in (setZoom).
+    static let zoomOut: UInt16 = 109, zoomIn: UInt16 = 103
+    static let zoomOutSeconds = 2.5  // the widest view from any zoom (24 Sept)
+    static var zoomInSeconds = 0.75  // calibration knob: the owner chose 0.75 over 0.5 ("too far"), 26 Sept
+    static var releaseCodes: [UInt16] { [tab, bolt, heal, buff, shock, turnLeft, forward, turnRight, interact, zoomOut, zoomIn] }
 }
 
 
@@ -221,7 +225,7 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
         return o.casting ? [.wait] : [.heal]
     }
     var out: [FightAction] = [.wait, .stop]
-    if !o.buff { out.append(.buffWeapon) }
+    if !o.buff && kit?.has(.buff) != false { out.append(.buffWeapon) }  // the legacy policy: always, as before
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
     if alive {
@@ -1134,7 +1138,9 @@ func role(_ s: Skill) -> SkillRole? {
 }
 
 /// Interact With Target (F9) turns, attacks and walks, so a fight needs no Attack slot; a hunt adds food and drink.
-let fightRoles: [SkillRole] = [.bolt, .heal, .buff]
+// A weapon enchant is not required: a level-1 Shaman has none (live, 26 Sept). Without it on the bar the
+// chain policy is not offered BUFF_WEAPON, and no chain that needs it.
+let fightRoles: [SkillRole] = [.bolt, .heal]
 let huntRoles = fightRoles + [.drink, .food]
 
 /// The first slot of each role; problems name what a live run must not start without.

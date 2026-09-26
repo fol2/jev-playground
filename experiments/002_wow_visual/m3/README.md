@@ -80,8 +80,13 @@ The bar has a working memory (the owner, 25 Sept: remember what was read, to cut
   - The 24 Sept bar, before its two totems, changed in exactly those two slots (78 and 86).
 - **The log.** Each `skill_slot` event says whether it was `read` or taken from `memory`.
 
-The camera stays at the owner's zoom. Until 25 Sept the run held F10 (Camera Zoom Out) for the
-widest view; the owner then found that view too far, because it hid the NPCs' "?" and "!".
+Until 25 Sept the run held F10 (Camera Zoom Out) for the widest view; the owner then found that view
+too far, because it hid the NPCs' "?" and "!". Since 26 Sept `--quests` and `--hunt` set the engine's own
+zoom: F10 to the widest view, then F11 back 0.75 s, the distance the owner chose (M4 README, M4j).
+
+A weapon enchant is not required on the bar: a level-1 Shaman has none (live run 10, 26 Sept). Without one,
+the chain policy is offered neither `BUFF_WEAPON` nor a chain that needs it; a bolt and a heal are still
+required, the heal for the safety rule.
 
 FACE_TARGET is F9, Interact With Target (owner, 24 Sept: "why can't F9 work for everything?"): the
 game turns to the target wherever it is and turns on automatic swings, and a forward tap cancels the
