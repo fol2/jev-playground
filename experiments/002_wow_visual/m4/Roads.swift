@@ -13,6 +13,7 @@ enum RoadLimits {
     static let cell = 1.0  // one place: a square y unit of ground; players on one road share its places
     static let reach = 3.0  // a route starts and ends at places within this of the player and of the goal
     static let bend = 0.3  // a waypoint is kept where the road leaves the straight line by more than this
+    static let minPart = 10  // places a part of the roads needs; a smaller one is an OCR slip's island (pruned)
 }
 
 /// The learned roads. A place is the mean of the readings in its square; a way joins the places of two readings
@@ -93,6 +94,19 @@ func buildRoads(_ trails: [(source: String, points: [MapPoint])], subzones: [Str
         .sorted { ($0[0], $0[1]) < ($1[0], $1[1]) }
     return RoadGraph(sources: Array(Set(trails.map(\.source))).sorted(), subzones: Array(Set(subzones)).sorted(),
                      places: sums.map { [roundTo($0.x / $0.n, 100), roundTo($0.y / $0.n, 100)] }, ways: ways)
+}
+
+/// The roads without their small parts: places joined, either way, to fewer than `minPlaces` places are dropped with
+/// their ways. A reading that lost a digit ("6.2" for "66.2") walks a few places of its own, far from any road.
+func pruned(_ g: RoadGraph, minPlaces: Int = RoadLimits.minPart) -> RoadGraph {
+    var parent = Array(g.places.indices)
+    func root(_ i: Int) -> Int { parent[i] == i ? i : root(parent[i]) }
+    for w in g.ways { parent[root(w[1])] = root(w[0]) }
+    let size = Dictionary(grouping: g.places.indices, by: root).mapValues(\.count)
+    let kept = g.places.indices.filter { size[root($0)]! >= minPlaces }
+    let index = Dictionary(uniqueKeysWithValues: kept.enumerated().map { ($1, $0) })
+    return RoadGraph(sources: g.sources, subzones: g.subzones, places: kept.map { g.places[$0] },
+                     ways: g.ways.compactMap { w in index[w[0]].flatMap { a in index[w[1]].map { [a, $0, w[2]] } } })
 }
 
 /// The shortest walk by road from `from` to `to`: onto any place within `reach` of `from`, along ways as walked,

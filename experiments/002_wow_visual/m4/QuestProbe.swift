@@ -620,12 +620,15 @@ final class LiveQuestHost: QuestHost {
 
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
-    /// A leg of a learned road (`road`) may be longer than one walk: the road bends nowhere on it.
+    /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
     func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false) async -> String? {
-        guard let at = quester.body.look() else { return "WALK_HUD_UNREADABLE" }  // never "arrived" unseen
-        guard distance((at.x, at.y), pin) > 0.5 else { return nil }
-        guard road || distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
-        if !retreating { walkedFrom = (at.x, at.y) }  // the way back from danger: this walk came through it
+        let at = quester.body.look().map { (x: $0.x, y: $0.y) }
+        switch walkStart(at: at, to: pin, road: road) {
+        case .refused(let outcome): return outcome
+        case .there: return nil
+        case .walk: break
+        }
+        if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
         if walker?.holding == true { return "WALK_KEYS_HELD" }
@@ -648,13 +651,12 @@ final class LiveQuestHost: QuestHost {
         return outcome
     }
 
-    /// A route of the learned roads, leg by leg; the first leg that does not arrive is the step's outcome.
-    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint]) async -> String {
+    /// A route of the learned roads, leg by leg (walkLegs); the first leg that does not arrive is the step's outcome.
+    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
         emit("road", ["quest": quest.title, "legs": legs.map { [$0.x, $0.y] }])
-        for (i, leg) in legs.enumerated() {
-            if let stop = await walk(to: leg, label: "road to \(quest.title), leg \(i + 1) of \(legs.count)", road: true) { return stop }
+        return await walkLegs(legs, until: deadline, now: now) { i, leg in
+            await walk(to: leg, label: "road to \(quest.title), leg \(i + 1) of \(legs.count)", road: true)
         }
-        return "BY_ROAD"
     }
 
     /// Back to where the last walk began, which that walk had just passed: the owner, survive first.

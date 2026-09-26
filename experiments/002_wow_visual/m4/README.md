@@ -633,7 +633,9 @@ where players walk: the zone coordinates under the minimap, on every frame.
   - One map (`oneMap`). The map changes only across a jump, which breaks a trail, so the subzones one
     trail walks through share a map. Joined trail by trail, the group with most readings is Zephras Isle;
     trails through none of its subzones are left out. No list of subzones is written in.
-  - The file holds map coordinates and subzone names only: no frame, name or label.
+  - Parts of the roads with fewer than 10 places are pruned (`pruned`).
+  - The file holds the places' map coordinates, the ways, the subzone names read and the videos' run names:
+    no frame, character name or label.
 - **Routes** (`route`). From any place within 3 units of the player, along the ways, off at a place within 3
   units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.3
   units) to where the road bends, so a straight road is one leg.
@@ -642,8 +644,9 @@ where players walk: the zone coordinates under the minimap, on every frame.
     zone first, stays a rule of admissibility.
   - Each goes to a quest beyond one walk, in the owner's order, that the roads reach. Its criterion gives
     the distance, the road's length and its legs.
-  - `walkRoad` walks each leg as a quest walk (Jev's moves; a red name ahead stops it, an attack is fought
-    back). A leg may be longer than one walk, as the road does not bend on it. Arriving (`BY_ROAD`) lets
+  - `walkRoad` walks each leg as a quest walk (`walkLegs`: Jev's moves; a red name ahead stops it, an attack
+    is fought back). A leg may be longer than one walk, as the road does not bend on it (`walkStart`). No leg
+    starts after the run's 25 minutes (`ROAD_TIME_LIMIT`). Arriving (`BY_ROAD`) lets
     the run go on; a road that fails is not offered again this run.
   - `--quests` loads the roads at the start and logs a `roads` event. A file that does not decode stops the
     run before any walk; with no file the run ends at the zone's edge as before.
@@ -662,13 +665,15 @@ Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 RE
     the digits blur); the others read 80-100%.
   - 10 of 199 trails (250 readings) were left off this map: the full-zone video's last hour in Dalaran and
     Stormwind, trails in Rohashi Spires that never walked on into another subzone, and rare misreads of a name.
-- **The roads.** 1097 places and 2077 ways; 423 ways were walked in more than one video.
-- **Each video held out against the roads of the others:**
+- **The roads.** 1082 places and 2073 ways; 423 ways were walked in more than one video. 15 places in parts of
+  fewer than 10 were pruned: readings that lost a digit (x 0.2 to 6.3, far off the island's roads).
+- **Each video held out against the roads of the others:** those roads are made as the committed ones, and which
+  trails lie on this map is decided without the held-out video too.
 
 | Held out | Readings within a place of the others' roads | Walks over 12 units routed |
 |---|---|---|
-| Full starting zone (1-14) | 4357 / 6359 | 12 / 15 |
-| Shaman, episode 2 (Thendal to Valanaar) | 3954 / 4864 | 6 / 8 |
+| Full starting zone (1-14) | 4334 / 6359 | 12 / 15 |
+| Shaman, episode 2 (Thendal to Valanaar) | 3933 / 4864 | 6 / 8 |
 | Hunter | 974 / 987 | 1 / 1 |
 | Druid | 1044 / 1044 | 2 / 2 |
 | Story playthrough | 601 / 601 | 0 / 0 |

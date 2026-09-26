@@ -756,7 +756,7 @@ extension NavTests {
             return outcomes["HUNT " + quest.title] ?? "HUNTED"
         }
         var roads: [[MapPoint]] = []
-        func walkRoad(to quest: PlannedQuest, by legs: [MapPoint]) async -> String {
+        func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
             handed.append("ROAD " + quest.title); roads.append(legs); return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
         }
         func now() -> Double { clock += 0.1; return clock }
@@ -823,6 +823,14 @@ extension NavTests {
         let stopped = await runQuests(host: blocked, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad)
         check(stopped.outcome == "NEXT_ZONE_NEEDS_ROADS" && blocked.handed == ["ROAD The Adventurer"],
               "a road that did not get there is not offered again this run; with no other road, the run ends at the zone's edge")
+
+        let wary2 = FakeQuests([QuestRead(quests: south, player: thendal, missing: []), QuestRead(quests: south, player: (41.5, 28), missing: [])])
+        wary2.outcomes = ["ROAD The Adventurer": "WALK_DANGER_AHEAD", "RETREAT": "NO_WAY_BACK"]
+        let fled = CannedGraph(["DO:ROAD_1", "DO:RETREAT"])
+        let roadDanger = await runQuests(host: wary2, jev: fled, graph: graph()!, roads: southRoad)
+        check(fled.offered.count == 2 && fled.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:RETREAT"]
+              && wary2.handed == ["ROAD The Adventurer", "RETREAT"] && roadDanger.outcome == "RETREAT_NO_WAY_BACK",
+              "a red name ahead on a road stops it as on any walk: RETREAT alone is offered next (survive first), and the road is not")
 
         let blind = FakeQuests([QuestRead(quests: [log24Sept[4]], player: thendal, missing: ["Harvesting Windstones", "The Gift of Skysight"])])
         let unasked = CannedGraph([])

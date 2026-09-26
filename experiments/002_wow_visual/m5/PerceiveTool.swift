@@ -301,20 +301,24 @@ func roads() throws -> Int32 {
     }
     let byRun = Dictionary(grouping: readings.filter { $0.x != nil }, by: { run(of: $0.frame) })
     let cut = byRun.keys.sorted().flatMap { r in trailPieces(byRun[r]!.sorted { $0.frame < $1.frame }, at: { ($0.x!, $0.y!) }) }
-    let kept = oneMap(cut, subzone: \.subzone)
-    let pieces = kept.map { t in (source: source(of: run(of: t[0].frame)), points: t.map { ($0.x!, $0.y!) }) }
+    func sourced(_ trails: [[TrailRow]]) -> [(source: String, points: [MapPoint])] {
+        trails.map { t in (source: source(of: run(of: t[0].frame)), points: t.map { ($0.x!, $0.y!) }) }
+    }
+    let kept = oneMap(cut, subzone: \.subzone), pieces = sourced(kept)
     let names = Dictionary(grouping: kept.joined().compactMap(\.subzone), by: { $0 }).filter { $0.value.count >= 20 }.map(\.key)
-    let all = buildRoads(pieces, subzones: names)
+    let whole = buildRoads(pieces, subzones: names), all = pruned(whole)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
-    try encoder.encode(all).write(to: URL(fileURLWithPath: RoadGraph.file))
+    try (encoder.encode(all) + Data("\n".utf8)).write(to: URL(fileURLWithPath: RoadGraph.file))
     let left = Set(cut.joined().compactMap(\.subzone)).subtracting(kept.joined().compactMap(\.subzone)).sorted()
     print("\(readings.count) frames, coordinates in \(readings.filter { $0.x != nil }.count); \(cut.count) trails, \(cut.count - kept.count) "
-          + "(\(cut.joined().count - kept.joined().count) readings) "
-          + "off this map (\(left.joined(separator: ", "))); \(pieces.count) trails of \(all.sources.count) sources: \(all.places.count) places, "
+          + "(\(cut.joined().count - kept.joined().count) readings) off this map (\(left.joined(separator: ", "))); \(pieces.count) trails "
+          + "of \(all.sources.count) sources: \(all.places.count) places (\(whole.places.count - all.places.count) in small parts pruned), "
           + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one) to \(RoadGraph.file)")
+    // Each source held out: the others' roads are made as the committed ones, with which trails lie on this map decided
+    // without it too, so nothing of it reaches them. Its own trails are those kept on all.
     for held in all.sources {
-        let others = buildRoads(pieces.filter { $0.source != held })
+        let others = pruned(buildRoads(sourced(oneMap(cut.filter { source(of: run(of: $0[0].frame)) != held }, subzone: \.subzone))))
         let h = heldOutRoads(pieces.filter { $0.source == held }.map(\.points), roads: others)
         print("  \(held) held out: \(h.covered) of \(h.readings) readings within a place of the others' roads; "
               + "\(h.routed) of \(h.walks) walks longer than \(Int(QuestLimits.maxLeg)) units routed by them")

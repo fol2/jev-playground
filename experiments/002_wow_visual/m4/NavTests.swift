@@ -28,6 +28,7 @@ struct NavTests {
         arguments()
         await skill()
         await episodes()
+        await roadLegs()
         await hunts()
         quests()
         print("nav checks passed: \(checks)")
@@ -155,6 +156,30 @@ struct NavTests {
         check(loads("/nonexistent/roads.json") == "none" && loads(broken) == "error",
               "no roads file: no roads; a way to a place the file does not have stops the run before any walk")
         try? FileManager.default.removeItem(atPath: broken)
+        let island = pruned(buildRoads([("a", (0..<6).map { i -> MapPoint in (40, 20.5 + Double(i)) }), ("b", [(6.2, 50.5), (6.2, 51.5)])]), minPlaces: 5)
+        check(island.places.count == 6 && island.ways.count == 5 && island.ways.allSatisfy { $0[0] < 6 && $0[1] < 6 } && same(island.point(5), 40, 25.5),
+              "a small part of the roads (a reading that lost a digit: 6.2 for 66.2) is pruned, the rest renumbered")
+        check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
+              && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
+              "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
+    }
+
+    /// walkLegs with a scripted clock and walk: legs in turn, the first stop ends the road, no leg after the deadline.
+    static func roadLegs() async {
+        let legs: [MapPoint] = [(40, 25), (40, 30), (42, 44)]
+        var clock = 0.0, walked: [Int] = []
+        func run(_ stops: [Int: String], deadline: Double, legTakes: Double = 60) async -> String {
+            clock = 0; walked = []
+            return await walkLegs(legs, until: deadline, now: { clock }) { i, _ in walked.append(i); clock += legTakes; return stops[i] }
+        }
+        let arrived = await run([:], deadline: 1500)
+        check(arrived == "BY_ROAD" && walked == [0, 1, 2], "every leg arrives: the road is walked")
+        let stopped = await run([1: "WALK_DANGER_AHEAD"], deadline: 1500)
+        check(stopped == "WALK_DANGER_AHEAD" && walked == [0, 1],
+              "a red name ahead on a leg ends the road there, with the walk's own outcome")
+        let late = await run([:], deadline: 100)
+        check(late == "ROAD_TIME_LIMIT" && walked == [0, 1],
+              "no leg starts at or after the run's deadline")
     }
 
     static func geometry() {

@@ -557,7 +557,7 @@ protocol QuestHost: AnyObject {
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
-    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint]) async -> String  // each leg in turn: BY_ROAD, or the leg's WALK_ outcome
+    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -616,6 +616,26 @@ enum QuestStep {
         case .retreat: return "RETREAT"
         }
     }
+}
+
+/// Whether a quest walk from `at` to `pin` starts. No position: WALK_HUD_UNREADABLE (never "arrived" unseen). Within
+/// 0.5: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
+/// nowhere on it); the walk's own stops (danger, combat, the owner, the HUD, no progress, its limits) hold either way.
+enum WalkStart: Equatable { case walk, there, refused(String) }
+func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool) -> WalkStart {
+    guard let at else { return .refused("WALK_HUD_UNREADABLE") }
+    guard distance(at, pin) > 0.5 else { return .there }
+    return road || distance(at, pin) <= QuestLimits.maxLeg ? .walk : .refused("TOO_FAR_NEEDS_ROADS")
+}
+
+/// A road's legs in turn, each one quest walk (`walk` gives nil on arrival, else the outcome that ends the step).
+/// No leg starts at or after `deadline`: the run's clock bounds a road as it bounds a hunt.
+func walkLegs(_ legs: [MapPoint], until deadline: Double, now: () -> Double, walk: (Int, MapPoint) async -> String?) async -> String {
+    for (i, leg) in legs.enumerated() {
+        if now() >= deadline { return "ROAD_TIME_LIMIT" }
+        if let stop = await walk(i, leg) { return stop }
+    }
+    return "BY_ROAD"
 }
 
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
@@ -756,7 +776,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .handIn(let q): outcome = await host.handIn(q)
         case .accept(let g): outcome = await host.accept(g)
         case .hunt(let q): outcome = await host.hunt(q, until: deadline)
-        case .road(let q, let legs): outcome = await host.walkRoad(to: q, by: legs)
+        case .road(let q, let legs): outcome = await host.walkRoad(to: q, by: legs, until: deadline)
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
