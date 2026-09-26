@@ -390,6 +390,25 @@ final class QuestRun {
         return nil
     }
 
+    /// Turn in place in 45° steps, one turn at most, until a quest mark is in view, as a human looks round: after a
+    /// click-walk the camera can sit against a wall with the NPC beside or behind (live run 18, 26 Sept: Rorian's
+    /// tent, the camera behind the character's head, Rorian targeted and out of sight). nil: no mark in a whole turn.
+    func lookAround() async -> (CGImage, [QuestMark])? {
+        guard let pulse = turnPulse(45) else { return nil }
+        for _ in 0..<8 {
+            body.keys.press(pulse.code)
+            await sleep(Double(pulse.ms) / 1000)
+            body.keys.lift(pulse.code)
+            let turned = hostNow()
+            guard let seen = await frame(after: turned + 0.3) else { continue }
+            let pixels = rgba(seen), marks = questMarks(pixels, box: QuestHUD.world)
+            shadowMarks(seen, pixels, at: "around")
+            body.emit("look_around", ["marks": marks.count])
+            if !marks.isEmpty { return (seen, marks) }
+        }
+        return nil
+    }
+
     /// Right-click the NPCs under the quest marks in view, nearest the centre first, at most three, until
     /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
     /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
@@ -400,6 +419,7 @@ final class QuestRun {
         var marks = questMarks(pixels, box: QuestHUD.world)
         shadowMarks(image, pixels, at: "open")
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+        if marks.isEmpty, let around = await lookAround() { (image, marks) = around }
         guard !marks.isEmpty else {
             write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
             return (nil, "NO_QUEST_MARK_IN_VIEW")
@@ -441,6 +461,7 @@ final class QuestRun {
                     if !marks.isEmpty { break }
                     await sleep(0.4)
                 }
+                if marks.isEmpty, let around = await lookAround() { (image, marks) = around }
                 if marks.isEmpty { write(image, to: body.directory.appendingPathComponent("no-marks-after.png"), type: .png) }
             }
         }
@@ -574,6 +595,7 @@ final class LiveQuestHost: QuestHost {
     let huntGraph: URL?  // each hunt's own session of the hunt graph; nil: the legacy flat hunt
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
+    var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
@@ -648,7 +670,7 @@ final class LiveQuestHost: QuestHost {
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        if let pin = quest.pin, let stop = await walk(to: approached(pin), label: quest.title) { return stop }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
@@ -663,6 +685,14 @@ final class LiveQuestHost: QuestHost {
         }
     }
 
+    /// Where to walk before an NPC at `pin` is clicked: where players came from to stand beside it (approach), else
+    /// the pin. A straight Click-to-Move from that side climbs to a platform's NPC instead of ending under it.
+    func approached(_ pin: MapPoint) -> MapPoint {
+        guard let from = approach(to: pin, in: roads) else { return pin }
+        emit("approach", ["pin": [pin.x, pin.y], "from": [from.x, from.y]])
+        return from
+    }
+
     /// Back to where the last walk began, which that walk had just passed: the owner, survive first.
     func retreat() async -> String {
         guard let back = walkedFrom else { return "NO_WAY_BACK" }
@@ -671,7 +701,7 @@ final class LiveQuestHost: QuestHost {
     }
 
     func accept(_ giver: Giver) async -> String {
-        if let stop = await walk(to: giver.pin, label: "quest giver") { return stop }
+        if let stop = await walk(to: giver.inView ? giver.pin : approached(giver.pin), label: "quest giver") { return stop }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
         forgetLog(outcome)
@@ -751,6 +781,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                              newHunter: { LiveHuntHost(session: session, feed: feed, sink: sink, directory: $0, log: log, fightJev: LiveJev(key: key),
                                                        fightTactics: tactics) },
                              huntGraph: hunting, tactics: tactics)
+    host.roads = roads
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },

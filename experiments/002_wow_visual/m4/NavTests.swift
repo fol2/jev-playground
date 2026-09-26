@@ -150,6 +150,18 @@ struct NavTests {
         let learned = try? RoadGraph.load(), way = learned.flatMap { route($0, from: (42.8, 23.5), to: (42.0, 44.4)) }
         check(way.map { $0.contains { $0.x < 40 } && same($0.last, 42.0, 44.4) } == true,
               "the committed roads route Thendal Village to Shen'dar Village round the ridge")
+        // Stands: two players come from the east to stand beside an NPC, one from the west; a lone trail makes none.
+        let fromEast: [MapPoint] = [(43, 24), (42.8, 23.9), (42.6, 23.8), (42.2, 23.5), (42.1, 23.5), (42.1, 23.5), (42.1, 23.5)]
+        let fromWest: [MapPoint] = [(41.2, 23.5), (41.6, 23.5), (42.2, 23.5), (42.2, 23.5), (42.2, 23.5)]
+        let learnt = learnStands([fromEast, fromEast, fromWest])
+        check(learnt.count == 1 && learnt[0][4] == 3 && abs(learnt[0][2] - 42.6) < 1e-9 && abs(learnt[0][3] - 23.8) < 1e-9 && learnStands([fromEast]).isEmpty,
+              "a stand is where trails stood still; its approach is from the side most came from, never an average of two sides")
+        let stood = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: learnt)
+        check(same(approach(to: (42.2, 23.2), in: stood), 42.6, 23.8) && approach(to: (45, 23.2), in: stood) == nil && approach(to: (42.2, 23.2), in: nil) == nil,
+              "before an NPC is clicked, the walk goes to where players came from to stand beside it; no stand near: the pin")
+        // Live run 18: Rorian's bridge. The committed stand beside his pin is approached from the east, as players did.
+        check(learned.flatMap { approach(to: (42.2, 23.2), in: $0) }.map { $0.x > 42.4 } == true,
+              "the committed roads approach Rorian the Dayseeker from the east, up his ramp, not from under his bridge")
         let broken = FileManager.default.temporaryDirectory.appendingPathComponent("roads-\(getpid()).json").path
         try? #"{"sources":[],"subzones":[],"places":[[1,2]],"ways":[[0,5,1]]}"#.write(toFile: broken, atomically: true, encoding: .utf8)
         func loads(_ path: String) -> String { do { return try RoadGraph.load(path) == nil ? "none" : "roads" } catch { return "error" } }

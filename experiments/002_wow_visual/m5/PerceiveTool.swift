@@ -307,7 +307,9 @@ func roads() throws -> Int32 {
     }
     let kept = oneMap(cut, subzone: \.subzone), pieces = sourced(kept)
     let names = Dictionary(grouping: kept.joined().compactMap(\.subzone), by: { $0 }).filter { $0.value.count >= 20 }.map(\.key)
-    let whole = buildRoads(pieces, subzones: names), all = pruned(whole)
+    let whole = buildRoads(pieces, subzones: names)
+    var all = pruned(whole)
+    all.stands = learnStands(pieces.map(\.points))  // where players stood beside an NPC, and where they came from
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     try (encoder.encode(all) + Data("\n".utf8)).write(to: URL(fileURLWithPath: RoadGraph.file))
@@ -315,7 +317,7 @@ func roads() throws -> Int32 {
     print("\(readings.count) frames, coordinates in \(readings.filter { $0.x != nil }.count); \(cut.count) trails, \(cut.count - kept.count) "
           + "(\(cut.joined().count - kept.joined().count) readings) off this map (\(left.joined(separator: ", "))); \(pieces.count) trails "
           + "of \(all.sources.count) sources: \(all.places.count) places (\(whole.places.count - all.places.count) in small parts pruned), "
-          + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one) to \(RoadGraph.file)")
+          + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one), \(all.stands?.count ?? 0) stands to \(RoadGraph.file)")
     // Each source held out: the others' roads are made as the committed ones, with which trails lie on this map decided
     // without it too, so nothing of it reaches them. Its own trails are those kept on all.
     for held in all.sources {
