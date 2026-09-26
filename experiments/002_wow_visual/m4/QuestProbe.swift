@@ -166,8 +166,9 @@ final class QuestRun {
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
         let player = (await frame()).flatMap { readCoords($0).at }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
+        let parked = hostNow()
         await sleep(0.4)
-        let scanned = await frame()
+        let scanned = await frame(after: parked + 0.3)  // never a frame from before the pointer left an icon
         if let scanned { write(scanned, to: body.directory.appendingPathComponent("minimap-scan.png"), type: .png) }
         let nearby = player == nil ? [] : scanned.map { minimapPins(rgba($0)) } ?? []
         body.emit("minimap_scan", ["player": player != nil, "icons": nearby.count])
@@ -217,7 +218,8 @@ final class QuestRun {
                 }
             }
             await tap(QuestHUD.mapKey)
-            if !key.isEmpty, trackerShows(quests, trackerText) {  // a collapsed, filtered or overflowing tracker is no key
+            // A collapsed, filtered or overflowing tracker is no key; an empty read (run 7 read one) is not kept for the hour.
+            if !key.isEmpty, !quests.isEmpty, trackerShows(quests, trackerText) {
                 try? FileManager.default.createDirectory(at: QuestHUD.logMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
