@@ -620,11 +620,15 @@ final class LiveQuestHost: QuestHost {
 
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
-    func walk(to pin: MapPoint, label: String, retreating: Bool = false) async -> String? {
-        guard let at = quester.body.look() else { return "WALK_HUD_UNREADABLE" }  // never "arrived" unseen
-        guard distance((at.x, at.y), pin) > 0.5 else { return nil }
-        guard distance((at.x, at.y), pin) <= QuestLimits.maxLeg else { return "TOO_FAR_NEEDS_ROADS" }
-        if !retreating { walkedFrom = (at.x, at.y) }  // the way back from danger: this walk came through it
+    /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
+    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false) async -> String? {
+        let at = quester.body.look().map { (x: $0.x, y: $0.y) }
+        switch walkStart(at: at, to: pin, road: road) {
+        case .refused(let outcome): return outcome
+        case .there: return nil
+        case .walk: break
+        }
+        if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
         if walker?.holding == true { return "WALK_KEYS_HELD" }
@@ -645,6 +649,14 @@ final class LiveQuestHost: QuestHost {
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
         return outcome
+    }
+
+    /// A route of the learned roads, leg by leg (walkLegs); the first leg that does not arrive is the step's outcome.
+    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
+        emit("road", ["quest": quest.title, "legs": legs.map { [$0.x, $0.y] }])
+        return await walkLegs(legs, until: deadline, now: now) { i, leg in
+            await walk(to: leg, label: "road to \(quest.title), leg \(i + 1) of \(legs.count)", road: true)
+        }
     }
 
     /// Back to where the last walk began, which that walk had just passed: the owner, survive first.
@@ -726,6 +738,8 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     let tactics = try fightTactics(fightGraph, bar, log)
     let hunting = huntGraph.map { URL(fileURLWithPath: $0) }  // read at start, so a bad file stops the run before any walk
     if let hunting { _ = try GraphSession.load(hunting) }
+    let roads = try RoadGraph.load()  // the roads learned from players' videos; none: a run ends at its zone's edge
+    log.emit("roads", ["places": roads?.places.count ?? 0, "ways": roads?.ways.count ?? 0, "sources": roads?.sources ?? []])
     let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
     let host = LiveQuestHost(quester: try QuestRun(body: body), key: key,
                              newWalker: { LiveNavBody(session: session, feed: feed, sink: sink, directory: $0, log: log) },
@@ -739,7 +753,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                               holding: { body.holding || host.holding })
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
-    let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph)
+    let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },

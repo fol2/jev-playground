@@ -408,8 +408,8 @@ func repeatsClick(_ p: (x: Double, y: Double), _ last: (x: Double, y: Double)?, 
 }
 
 /// The plan's quests in the player's own zone: those chained within `zoneRadius` of the player. Any other
-/// zone is road travel, which is not built (live, 24 Sept: with the hub's two hand-ins unread, the nearest
-/// zone was Shen'dar, 20 units south, and the walk ran for a cliff).
+/// zone is road travel (ROAD_1, ROAD_2): a straight walk does not get there (live, 24 Sept: with the hub's two
+/// hand-ins unread, the nearest zone was Shen'dar, 20 units south, and the walk ran for a cliff).
 func thisZone(_ plan: [PlannedQuest], from player: MapPoint, zoneRadius: Double = 12) -> [PlannedQuest] {
     let me = PlannedQuest(title: "\u{0}", level: 0, ready: false, objective: "", pin: player)
     let zone = questZones([me] + plan, within: zoneRadius).first { $0.contains { $0.title == me.title } } ?? []
@@ -557,6 +557,7 @@ protocol QuestHost: AnyObject {
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
+    func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -566,6 +567,7 @@ enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let huntSlots = 2  // HUNT_1 and HUNT_2
+    static let roadSlots = 2  // ROAD_1 and ROAD_2
     static let maxSteps = 12
     // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
     // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
@@ -574,7 +576,7 @@ enum QuestLimits {
     // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
     static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
                                          "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE"]
-    static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, which waits for roads
+    static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, by the learned roads (Roads.swift)
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
     // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a
     // panel opens or the character has stood still for `standStill` s. Walking steps the coordinates every
@@ -595,12 +597,14 @@ enum QuestStep {
     case handIn(PlannedQuest)
     case accept(Giver)
     case hunt(PlannedQuest)
+    case road(PlannedQuest, legs: [MapPoint])  // bound to the route found from the position read
     case retreat
     var name: String {
         switch self {
         case .handIn(let q): return q.title
         case .accept(let g): return g.names.first.map { "\"!\" \($0)" } ?? "\"!\" at \(g.key)"
         case .hunt(let q): return "hunt: " + q.title
+        case .road(let q, _): return "road: " + q.title
         case .retreat: return "retreat"
         }
     }
@@ -608,9 +612,30 @@ enum QuestStep {
         switch self {
         case .handIn(let q), .hunt(let q): return q.title
         case .accept(let g): return "!" + g.key
+        case .road(let q, _): return "ROAD " + q.title
         case .retreat: return "RETREAT"
         }
     }
+}
+
+/// Whether a quest walk from `at` to `pin` starts. No position: WALK_HUD_UNREADABLE (never "arrived" unseen). Within
+/// 0.5: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
+/// nowhere on it); the walk's own stops (danger, combat, the owner, the HUD, no progress, its limits) hold either way.
+enum WalkStart: Equatable { case walk, there, refused(String) }
+func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool) -> WalkStart {
+    guard let at else { return .refused("WALK_HUD_UNREADABLE") }
+    guard distance(at, pin) > 0.5 else { return .there }
+    return road || distance(at, pin) <= QuestLimits.maxLeg ? .walk : .refused("TOO_FAR_NEEDS_ROADS")
+}
+
+/// A road's legs in turn, each one quest walk (`walk` gives nil on arrival, else the outcome that ends the step).
+/// No leg starts at or after `deadline`: the run's clock bounds a road as it bounds a hunt.
+func walkLegs(_ legs: [MapPoint], until deadline: Double, now: () -> Double, walk: (Int, MapPoint) async -> String?) async -> String {
+    for (i, leg) in legs.enumerated() {
+        if now() >= deadline { return "ROAD_TIME_LIMIT" }
+        if let stop = await walk(i, leg) { return stop }
+    }
+    return "BY_ROAD"
 }
 
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
@@ -629,8 +654,10 @@ func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String
 /// collect quests, in the owner's order. A hunt fights for every unfinished objective the tracker shows,
 /// so quests that share a place finish together. A quest whose area the map did not show is hunted from
 /// here, by the minimap's quest area. After a walk stopped for a red name ahead, RETREAT comes first (the
-/// owner: survive first). Use-at quests have no skill yet and are not offered.
-func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -> [(skill: String, step: QuestStep, criterion: String)] {
+/// owner: survive first). Use-at quests have no skill yet and are not offered. Only when none of these is left
+/// (the owner: this zone first) are the quests beyond one walk offered, each by the route `roads` give from here.
+func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, roads: RoadGraph? = nil)
+    -> [(skill: String, step: QuestStep, criterion: String)] {
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
         [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
@@ -662,7 +689,21 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false) -
     }
     let back = danger && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
         + "a hostile creature's red name came into view ahead of it.")] : []
-    return back + handIns + accepts + hunts
+    let here = back + handIns + accepts + hunts
+    guard here.isEmpty, let roads else { return here }
+    // ponytail: no map check; the run envelope is Zephras Isle, where the roads were learned. Compare the zone's
+    // name above the minimap with roads.subzones before runs leave it.
+    let far = questPlan(read.quests, from: read.player).filter { q in
+        [.handIn, .travel, .kill, .collect].contains(questKind(q)) && !failed.contains(q.title) && !failed.contains("ROAD " + q.title)
+            && q.pin.map { distance(read.player, $0) > QuestLimits.maxLeg } == true
+    }
+    let routed = far.lazy.compactMap { q in route(roads, from: read.player, to: q.pin!).map { (q, $0) } }.prefix(QuestLimits.roadSlots)
+    return routed.enumerated().map { i, r in
+        let (q, legs) = r, length = zip([read.player] + legs, legs).map { distance($0, $1) }.reduce(0, +)
+        return ("ROAD_\(i + 1)", QuestStep.road(q, legs: legs), "Walk by the roads other players walked to the quest \"\(q.title)\" "
+            + "(level \(q.level), \(away(q.pin!)) units away; \(String(format: "%.1f", length)) units by road in \(legs.count) legs), in another zone: "
+            + "nothing is left within one walk here. Each leg stops for a hostile creature's red name ahead. The log reads: \(q.objective)")
+    }
 }
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
@@ -694,8 +735,10 @@ struct QuestResult {
 /// combat the only choice is to fight back); a won fight lets the run go on, and the interrupted step may
 /// be offered again. A failed step is not offered again this run. A hunt that completes or counts some kills
 /// lets the run go on; one that ends at a limit with nothing counted fails its step; any other hunt code
-/// ends the run. No step starts after `runSeconds`, and a hunt ends by then. There is no rules fallback when Jev fails.
-func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> QuestResult {
+/// ends the run. A road step walks its legs in turn, each a walk as above; arriving lets the run go on. With
+/// nothing left here and no learned road to the rest, the run ends NEXT_ZONE_NEEDS_ROADS. No step starts after
+/// `runSeconds`, and a hunt ends by then. There is no rules fallback when Jev fails.
+func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = []
     var stuck = 0
@@ -710,7 +753,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD")
+        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains($0.title) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -733,6 +776,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
         case .handIn(let q): outcome = await host.handIn(q)
         case .accept(let g): outcome = await host.accept(g)
         case .hunt(let q): outcome = await host.hunt(q, until: deadline)
+        case .road(let q, let legs): outcome = await host.walkRoad(to: q, by: legs, until: deadline)
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
@@ -743,7 +787,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession) async -> Qu
             guard QuestLimits.fightWon.contains(fought) else { return finish("FIGHT_" + fought) }
             continue
         }
-        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("HUNTED") || outcome == "RETREATED" { continue }
+        if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("HUNTED") || outcome == "RETREATED" || outcome == "BY_ROAD" { continue }
         if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
         failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {

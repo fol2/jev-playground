@@ -10,11 +10,15 @@
 //   m5-perceive --train         two Create ML classifiers from the audited labels of the training runs (Train.swift)
 //   m5-perceive --baseline      the teacher, the rule reader (questMarks) and the learned reader against the audited
 //                               labels, by split; wrong frames to baseline-errors.txt
+//   m5-perceive --trails        frame paths on stdin; the zone coordinates under the minimap read from each, resumable
+//   m5-perceive --roads         the roads of every source's trails to learning/knowledge/zephras-roads.json, and each
+//                               source held out against the roads of the others
 import Foundation
 import ImageIO
 import CoreGraphics
 import CoreText
 import CryptoKit
+import Vision
 
 let runsRoot = URL(fileURLWithPath: "runs/002_wow_visual")
 let perceptionDir = runsRoot.appendingPathComponent("perception")
@@ -23,6 +27,7 @@ let framesFile = perceptionDir.appendingPathComponent("frames.jsonl")  // one ro
 let labelsFile = perceptionDir.appendingPathComponent("marks.jsonl")  // the teacher's
 let auditFile = perceptionDir.appendingPathComponent("audit.jsonl")  // the auditor's, from --audit
 let maxCandidates = 40  // per frame; a frame of flames can have 80
+let trailsFile = perceptionDir.appendingPathComponent("trails.jsonl")  // one row per frame read, for resuming
 
 struct FrameRow: Codable { var frame: String; var candidates: Int }
 struct CandidateRow: Codable { var frame: String; var box: [Int]; var crop: [Int]; var hash: String }
@@ -239,6 +244,89 @@ func prelabel() throws -> Int32 {
     return 0
 }
 
+/// One frame's reading of the minimap: the zone coordinates under it and the subzone's name above it, or nil
+/// where the OCR found none.
+struct TrailRow: Codable { var frame: String; var x: Double?; var y: Double?; var subzone: String? }
+
+/// The minimap's corner, read by Vision: the top right, 360 px wide and 30% of the height. Its place differs with a
+/// video's interface, so the whole corner is read and the coordinates found by their pattern (parseCoords). The
+/// subzone is the highest line with letters above them (the clock beside it has none); lines below them are the
+/// quest tracker's, whose "All Objectives" any map shows.
+func minimapReading(_ image: CGImage, frame: String) throws -> TrailRow {
+    guard let corner = image.cropping(to: CGRect(x: image.width - 360, y: 0, width: 360, height: image.height * 30 / 100)) else {
+        return TrailRow(frame: frame)
+    }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = false
+    try VNImageRequestHandler(cgImage: corner).perform([request])
+    let lines = (request.results ?? []).compactMap { o in o.topCandidates(1).first.map { (text: $0.string, box: o.boundingBox) } }
+        .sorted { $0.box.maxY > $1.box.maxY }  // Vision's boxes grow upwards: the highest first
+    guard let coords = lines.first(where: { parseCoords($0.text) != nil }), let at = parseCoords(coords.text) else { return TrailRow(frame: frame) }
+    let subzone = lines.first { $0.box.minY > coords.box.maxY && $0.text.filter(\.isLetter).count >= 3 }?.text
+    return TrailRow(frame: frame, x: at.x, y: at.y, subzone: subzone)
+}
+
+func trails() throws -> Int32 {
+    try FileManager.default.createDirectory(at: perceptionDir, withIntermediateDirectories: true)
+    let done = Set(rows(trailsFile, TrailRow.self).map(\.frame))
+    var read = 0, found = 0, batch: [TrailRow] = []
+    while let line = readLine() {
+        let path = line.hasPrefix("./") ? String(line.dropFirst(2)) : line
+        guard !path.isEmpty, !done.contains(path), let image = loadImage(runsRoot.appendingPathComponent(path)) else { continue }
+        let row = try minimapReading(image, frame: path)
+        batch.append(row)
+        read += 1
+        if row.x != nil { found += 1 }
+        if batch.count == 200 { try appendRows(batch, to: trailsFile); batch = [] }
+    }
+    try appendRows(batch, to: trailsFile)
+    print("\(read) frames read, coordinates in \(found)")
+    return 0
+}
+
+/// A run's source: the video it was cut from (yt_<id>_sNN is one 10-minute part of yt_<id>), or the run itself.
+func source(of run: String) -> String {
+    run.range(of: #"_s\d+$"#, options: .regularExpression).map { String(run[..<$0.lowerBound]) } ?? run
+}
+
+/// `--roads`: every source's trails, each run's frames in name order, make the roads; then each source is held out
+/// against the roads of the others. The roads hold places, ways, subzone names and the videos' run names: no frame,
+/// character name or label.
+func roads() throws -> Int32 {
+    // A subzone's name as read may carry the clock beside it ("Windfield Orchard 11:15", "Gustberry Lowlands 6.24 •") or an
+    // icon before it. Subzone names have no digits: the name ends before the first.
+    let readings = rows(trailsFile, TrailRow.self).map { r in
+        TrailRow(frame: r.frame, x: r.x, y: r.y, subzone: r.subzone?.replacingOccurrences(of: #"^[^A-Za-z]+|\d.*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.letters.union(CharacterSet(charactersIn: "'.")).inverted))
+    }
+    let byRun = Dictionary(grouping: readings.filter { $0.x != nil }, by: { run(of: $0.frame) })
+    let cut = byRun.keys.sorted().flatMap { r in trailPieces(byRun[r]!.sorted { $0.frame < $1.frame }, at: { ($0.x!, $0.y!) }) }
+    func sourced(_ trails: [[TrailRow]]) -> [(source: String, points: [MapPoint])] {
+        trails.map { t in (source: source(of: run(of: t[0].frame)), points: t.map { ($0.x!, $0.y!) }) }
+    }
+    let kept = oneMap(cut, subzone: \.subzone), pieces = sourced(kept)
+    let names = Dictionary(grouping: kept.joined().compactMap(\.subzone), by: { $0 }).filter { $0.value.count >= 20 }.map(\.key)
+    let whole = buildRoads(pieces, subzones: names), all = pruned(whole)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    try (encoder.encode(all) + Data("\n".utf8)).write(to: URL(fileURLWithPath: RoadGraph.file))
+    let left = Set(cut.joined().compactMap(\.subzone)).subtracting(kept.joined().compactMap(\.subzone)).sorted()
+    print("\(readings.count) frames, coordinates in \(readings.filter { $0.x != nil }.count); \(cut.count) trails, \(cut.count - kept.count) "
+          + "(\(cut.joined().count - kept.joined().count) readings) off this map (\(left.joined(separator: ", "))); \(pieces.count) trails "
+          + "of \(all.sources.count) sources: \(all.places.count) places (\(whole.places.count - all.places.count) in small parts pruned), "
+          + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one) to \(RoadGraph.file)")
+    // Each source held out: the others' roads are made as the committed ones, with which trails lie on this map decided
+    // without it too, so nothing of it reaches them. Its own trails are those kept on all.
+    for held in all.sources {
+        let others = pruned(buildRoads(sourced(oneMap(cut.filter { source(of: run(of: $0[0].frame)) != held }, subzone: \.subzone))))
+        let h = heldOutRoads(pieces.filter { $0.source == held }.map(\.points), roads: others)
+        print("  \(held) held out: \(h.covered) of \(h.readings) readings within a place of the others' roads; "
+              + "\(h.routed) of \(h.walks) walks longer than \(Int(QuestLimits.maxLeg)) units routed by them")
+    }
+    return 0
+}
+
 @main
 struct PerceiveTool {
     static func main() {
@@ -252,6 +340,8 @@ struct PerceiveTool {
             case ("--baseline", 1): exit(try baseline())
             case ("--train", 1): exit(try train())
             case ("--prelabel", 1): exit(try prelabel())
+            case ("--trails", 1): exit(try trails())
+            case ("--roads", 1): exit(try roads())
             case ("--audit", 2): exit(try audit(args[1]))
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
@@ -265,7 +355,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads\n", stderr)
         exit(64)
     }
 }

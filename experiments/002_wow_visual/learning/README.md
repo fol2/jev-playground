@@ -1,3 +1,4 @@
+| Roads (M4k) | [zephras-roads.json](knowledge/zephras-roads.json) | Places and directed ways that players walked in published Zephras Isle videos, read from the minimap's coordinates by Vision OCR (`m5-perceive --trails`, `--roads`). Read by `--quests` for zone-to-zone walks. Each video is held out against the others' roads in the [M4 README](../m4/README.md). Not yet walked live. |
 # Learning from human play
 
 Offline annotations, research and replay tooling for a Skyborne Shaman. A replay
