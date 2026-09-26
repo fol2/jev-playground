@@ -74,6 +74,7 @@ The bar has a working memory (the owner, 25 Sept: remember what was read, to cut
     stay old. The memory is therefore trusted for one hour from the last full read, then the whole
     bar is read again. Deleting the file forces a full read.
 - **Stale memory.** If one of those reads differently from memory, the whole bar is read again.
+  A bar the roles do not fit is never remembered: the file is removed, and the next run reads all twelve.
 - **On saved frames:**
   - The prints of four runs on 25-26 Sept differed by 0-1 per value on average, so no slot changed.
   - The 24 Sept bar, before its two totems, changed in exactly those two slots (78 and 86).

@@ -245,6 +245,9 @@ struct FightTests {
         check(memoryReadAt(full: false, now: 5000, previous: 1000) == 1000 && memoryReadAt(full: true, now: 5000, previous: 1000) == 5000
               && memoryReadAt(full: false, now: 5000, previous: nil) == 5000,
               "the hour runs from the last full read, so a memory kept run after run still expires")
+        let undated = #"{"print":{"slots":[]},"skills":[]}"#
+        check((try? JSONDecoder().decode(BarMemory.self, from: Data(undated.utf8))) == nil,
+              "a memory without its time is no memory: the whole bar is read (an old file must not refresh the hour)")
     }
 
     static func skills() {

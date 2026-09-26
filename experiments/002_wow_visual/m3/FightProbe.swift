@@ -430,13 +430,18 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
                                 "cast_s": orNull(skill?.cast), "rank": orNull(skill?.rank), "text": orNull(skill?.text),
                                 "source": readNow.keys.contains(i) ? "read" : "memory", "t": hostNow()])
     }
+    let (keys, problems) = assignRoles(bar, required: required)
+    // Only a bar the roles fit is remembered; one they do not is read in full next time (review, 26 Sept: a
+    // missed instant skill would otherwise stay missing for the hour, and every run stop here).
+    guard problems.isEmpty else {
+        try? FileManager.default.removeItem(at: memory)
+        throw ProbeError("skill bar: " + problems.joined(separator: "; "))
+    }
     if let print {
         try? FileManager.default.createDirectory(at: memory.deletingLastPathComponent(), withIntermediateDirectories: true)
         let readAt = memoryReadAt(full: readNow.count == SkillHUD.names.count, now: now, previous: remembered?.readAt)
         try? JSONEncoder().encode(BarMemory(print: print, skills: bar, readAt: readAt)).write(to: memory)
     }
-    let (keys, problems) = assignRoles(bar, required: required)
-    guard problems.isEmpty else { throw ProbeError("skill bar: " + problems.joined(separator: "; ")) }
     return SkillBar(keys: keys, slots: bar.enumerated().compactMap { i, skill in skill.map { (SkillHUD.names[i], $0) } })
 }
 
