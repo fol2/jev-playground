@@ -1,4 +1,4 @@
-# M5 — learned perception, stage one: a labelling teacher and an honest score
+# M5 — learned perception: a labelling teacher, an honest score and a learned reader
 
 ## Why
 
@@ -156,15 +156,53 @@ past the cap of 40 a frame.
 8 held-out marks are too few to show that a learned reader beats the rules. The next live runs add frames, and
 the audit continues on them.
 
+## Stage two: a learned reader (26 Sept)
+
+```text
+audited candidates (training runs) -> m5-perceive --train -> models/detect.mlmodel, models/kind.mlmodel (private)
+frame -> markCandidates -> detect (context crop): mark or none -> kind (shape crop): "!" or "?"   (Reader.swift)
+```
+
+| File | Role | Proof |
+|---|---|---|
+| `Marks.swift` | adds the three-way run split (`runSplit`) and the two crops (`glyphCrops`) | `MarksTests.swift` (24 checks) |
+| `Train.swift` | `m5-perceive --train`: crops of the training and validation runs, never the test runs; two Create ML image classifiers | built; not run by the proof (it needs the private frames) |
+| `Reader.swift` | `MarkReader`: the candidates classified by the two models, through Core ML and Vision | built; scored by `--baseline` |
+
+- **Two small classifiers, not one.** One run in five more, by the same hash, is a validation split. The design
+  was chosen on it, before the test runs were scored:
+  - One classifier for "!", "?" and none, on a crop of four glyph heights with the name under it, found the marks
+    but read the near "!" of 26 Sept as "?".
+  - On a crop of the glyph alone it read the kind right but missed far marks.
+  - So `detect` says whether a candidate is a mark from the wide crop, and `kind` says which from the tight one.
+  - A class-balanced training set added false marks. A wider floor for the context crop (40 px, not 24) lost far
+    marks. Neither was kept.
+- **Deterministic.** Create ML's scene features with no augmentation: the same labels make the same models, and
+  `--baseline` gives the same numbers. Training takes about 20 s on the Mac.
+- **Private.** The models are made from private captures and stay under `runs/002_wow_visual/perception/models`.
+
+`m5-perceive --baseline` (sim, offline, on the saved frames; 866 frames, all 2158 candidates audited):
+
+| Split (marks) | Rule reader: hits / false / missed | Learned reader: hits / false / missed | Learned: wrong kind |
+|---|---|---|---|
+| Training (57) | 55 / 9 / 2 | 57 / 0 / 0 (learned on these) | 0 |
+| Validation (11) | 10 / 2 / 1 | 9 / 2 / 2 | 0 |
+| Test, held out (8) | 5 / 0 / 3 | 5 / 0 / 3 | 0 |
+
+- **On the held-out runs the two readers tie**, 5 of 8 marks each with no false mark, but they miss different
+  marks:
+  - The learned reader finds the near "!" that the rules missed in the live run of 26 Sept (2 frames).
+  - It misses far "?" marks 4 to 6 px high, which the rules find (2 frames). Few such marks are in the training runs.
+- **It names the kind.** Every mark it found was of the right kind. The rule reader has no kind for a mark in
+  the world.
+- It does not beat the rules on held-out frames, so it is not promoted. 8 held-out marks are too few to tell two
+  readers apart.
+
 ## Next
 
-1. Train a Create ML image classifier (`MLImageClassifier`: "!", "?" or none) on the audited candidates of the
-   training runs, one small crop around each glyph.
-   - 76 marks are too few for an object detector on whole frames. The candidates already locate the glyphs,
-     so the classifier only has to say what each one is.
-   - An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
-2. Score it on the held-out runs against the rule reader, then run it in shadow beside `questMarks` on live
-   runs.
-3. Promote it only when it beats the rules on held-out frames.
+1. Run the learned reader in shadow beside `questMarks` on live runs. It logs what it reads and does not act.
+   Its frames go to the audit, and more far marks go to training.
+2. Promote it only when it beats the rules on held-out frames.
+3. An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
 4. The same detector then takes the HUD anchors (minimap, portrait, action bar, target frame), so boxes
    follow the layout instead of fixed pixels.

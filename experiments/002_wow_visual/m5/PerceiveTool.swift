@@ -4,8 +4,9 @@
 //   m5-perceive --sheet N       contact sheets of up to N labels not yet audited, 48 a sheet, for audit
 //   m5-perceive --sheet-held N  the same, of held-out runs only; repeat until none is left: the test set is audited in full
 //   m5-perceive --audit FILE    the auditor's corrections to the last sheets ("id kind" lines); the rest confirmed
-//   m5-perceive --baseline      the teacher and the rule reader (questMarks) against the audited labels; wrong frames
-//                               to baseline-errors.txt
+//   m5-perceive --train         two Create ML classifiers from the audited labels of the training runs (Train.swift)
+//   m5-perceive --baseline      the teacher, the rule reader (questMarks) and the learned reader against the audited
+//                               labels, by split; wrong frames to baseline-errors.txt
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -163,25 +164,37 @@ func baseline() -> Int32 {
     let checked = truth(teacher: taught, audit: audit)
     let marks = Dictionary(grouping: checked.filter { ["exclamation", "question"].contains($0.kind) }, by: \.frame)
     let audited = Dictionary(grouping: checked, by: \.frame).mapValues(\.count)
-    var train = MarkScore(), held = MarkScore(), framesRead = 0, errors: [String] = []
+    // The learned reader, when --train has made its models; each split scored apart, the test runs never trained on.
+    let reader = try? MarkReader()
+    var rules: [Split: MarkScore] = [:], learned: [Split: MarkScore] = [:], framesRead = 0, errors: [String] = []
     for frame in rows(framesFile, FrameRow.self).filter({ (audited[$0.frame] ?? 0) >= $0.candidates }).map(\.frame) {
         guard let image = loadImage(runsRoot.appendingPathComponent(frame)) else { continue }
-        let found = questMarks(pixels(image), box: MarkLabels.world).map { (x: $0.x, y: $0.y) }
-        let s = score(found: found, labels: (marks[frame] ?? []).map(\.box))
+        let rgba = pixels(image), labels = marks[frame] ?? [], split = runSplit(run(of: frame))
+        let found = questMarks(rgba, box: MarkLabels.world).map { (x: $0.x, y: $0.y) }
+        let s = score(found: found, labels: labels.map(\.box))
+        rules[split] = (rules[split] ?? MarkScore()) + s
         // The frames to look at again: a false mark may be a real one no candidate caught.
-        if s.falseMarks + s.missed > 0 { errors.append("\(frame) found \(found.map { "\(Int($0.x)),\(Int($0.y))" }) labels \((marks[frame] ?? []).map(\.box))") }
-        if heldOut(run: String(frame.split(separator: "/").first ?? "")) { held = held + s } else { train = train + s }
+        if s.falseMarks + s.missed > 0 { errors.append("rules \(frame) found \(found.map { "\(Int($0.x)),\(Int($0.y))" }) labels \(labels.map(\.box))") }
+        if let reader, let read = try? reader.marks(image, rgba) {
+            let l = score(found: read.map { (x: $0.x, y: $0.y) }, labels: labels.map(\.box), foundKinds: read.map(\.kind), labelKinds: labels.map(\.kind))
+            learned[split] = (learned[split] ?? MarkScore()) + l
+            if l.falseMarks + l.missed + l.wrongKind > 0 { errors.append("learned \(frame) found \(read.map { "\($0.kind) \($0.box)" }) labels \(labels.map { "\($0.kind) \($0.box)" })") }
+        }
         framesRead += 1
     }
-    func show(_ s: MarkScore) -> String {
-        "hits \(s.hits), false \(s.falseMarks), missed \(s.missed), precision \(s.precision.map { String(format: "%.2f", $0) } ?? "-"), "
+    func show(_ s: MarkScore?) -> String {
+        guard let s else { return "no frames" }
+        return "hits \(s.hits), false \(s.falseMarks), missed \(s.missed), precision \(s.precision.map { String(format: "%.2f", $0) } ?? "-"), "
             + "recall \(s.recall.map { String(format: "%.2f", $0) } ?? "-")"
     }
     let teacher = teacherScore(teacher: taught, audit: audit)
     print("teacher (\(MarkLabels.teacher)) against the audit, per candidate: " + show(teacher) + ", wrong kind \(teacher.wrongKind)")
-    print("rule reader (questMarks) on \(framesRead) fully audited frames (\(checked.count) of \(taught.count) candidates audited)")
-    print("  train:    " + show(train))
-    print("  held out: " + show(held))
+    print("on \(framesRead) fully audited frames (\(checked.count) of \(taught.count) candidates audited):")
+    for split in Split.allCases {
+        print("  rule reader (questMarks), \(split.rawValue): " + show(rules[split]))
+        if reader != nil { print("  learned reader, \(split.rawValue): " + show(learned[split]) + ", wrong kind \(learned[split]?.wrongKind ?? 0)") }
+    }
+    if reader == nil { print("  learned reader: no models (m5-perceive --train makes them)") }
     try? (errors.joined(separator: "\n") + "\n").write(to: perceptionDir.appendingPathComponent("baseline-errors.txt"), atomically: true, encoding: .utf8)
     return 0
 }
@@ -197,6 +210,7 @@ struct PerceiveTool {
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n))
             case ("--baseline", 1): exit(baseline())
+            case ("--train", 1): exit(try train())
             case ("--audit", 2): exit(try audit(args[1]))
             case ("--sheet-held", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
@@ -207,7 +221,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --sheet N | --sheet-held N (1-600) | --audit FILE | --baseline\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --sheet N | --sheet-held N (1-600) | --audit FILE | --train | --baseline\n", stderr)
         exit(64)
     }
 }
