@@ -14,7 +14,7 @@ func train() throws -> Int32 {
     let crops = perceptionDir.appendingPathComponent("crops")
     try? FileManager.default.removeItem(at: crops)
     let current = Set(rows(candidatesFile, CandidateRow.self).map { "\($0.frame)|\($0.box)" })
-    let taught = rows(labelsFile, MarkLabel.self).filter { $0.teacher == MarkLabels.teacher && current.contains("\($0.frame)|\($0.box)") }
+    let taught = rows(labelsFile, MarkLabel.self).filter { MarkLabels.teachers.contains($0.teacher) && current.contains("\($0.frame)|\($0.box)") }
     var frames: [String: CGImage] = [:], count: [String: Int] = [:]
     for l in learnable(truth(teacher: taught, audit: rows(auditFile, MarkLabel.self))) {
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }

@@ -47,7 +47,7 @@ saved frames (runs/002_wow_visual, private) -> m5-perceive --propose -> candidat
 | File | Role | Proof |
 |---|---|---|
 | `Marks.swift` | Pure: candidate glyphs (`markWarm`, `markCandidates`), the teacher's crop, the run split, the score | `MarksTests.swift` |
-| `PerceiveTool.swift` | `m5-perceive`: `--propose` (frames on stdin), `--sheet N`, `--sheet-held N`, `--audit FILE`, `--baseline` | argument refusal in `tools/MotorProof.swift` |
+| `PerceiveTool.swift` | `m5-perceive`: `--propose` (frames on stdin), `--prelabel`, `--sheet N`, `--sheet-held N`, `--sheet-frames N`, `--audit FILE`, `--train`, `--baseline` | argument refusal in `tools/MotorProof.swift` |
 | `Teacher.swift` | `m5-teach`: one crop, one fresh on-device session, a guided answer (`exclamation`, `question`, `none`); `--eval SET` | built; the proof checks it refuses bad arguments before any model call |
 
 - **Candidates cast wide.** Solid warm parts, yellow to orange, each joined with a dot under it.
@@ -226,6 +226,45 @@ the time taken. An error is logged too.
 - The frames are already kept: `minimap-scan.png`, `clickN.jpg` and `no-marks.png`. Audited, they add live frames
   to the test and training runs.
 - The proof builds the live binary with the reader. The shadow is first seen in a live run's `events.jsonl`.
+
+## Stage four: frames from published videos (26 Sept)
+
+The game could not run on 26 Sept afternoon, so the owner asked for training data from WoW Forever videos online.
+- **Source.** Three published Zephras Isle videos by one player (Skyborne Shaman, 2560 x 1080).
+  - They were fetched earlier for the video study (`learning/`).
+  - One frame in 2 s gives 6848 frames.
+  - Frames, labels and models stay under `runs/` (private). None is in the repository.
+- **Split by run.** Each 10-minute segment is a run: 13 train, 6 validation, 5 test. The game's own held-out
+  runs stay the test that matters.
+- **The learned reader labels first** (`m5-perceive --prelabel`, `reader-v1`).
+  - Where the rule reader sees a mark that the learned reader calls none, the label is `disputed`, and the
+    auditor must settle it.
+  - `--audit` refuses to record a pass that leaves a `disputed` or `refused` label as it is.
+- **The audit.**
+  - The author checked every candidate that either reader called a mark (1285) by eye, zooming in on the small
+    ones. 377 are quest marks.
+  - Most `disputed` candidates were the target frame's name bar, action bar icons or yellow interface text.
+  - `--sheet-frames N` then drew whole frames, in a fixed random order, so every candidate of a frame is audited
+    and readers can be scored frame by frame. One mark that neither reader saw was found this way: a "!" over a
+    yellow-named NPC.
+- **Other published footage** (other players and classes, 16:9) is taken as 2560 x 1440. The world box keeps its
+  share of the height (`MarkLabels.world(height:)`).
+
+`m5-perceive --baseline` (sim, offline). 1947 frames were fully audited; after retraining with the video labels:
+
+| Split (marks) | Rule reader: hits / false / missed | Learned reader: hits / false / missed |
+|---|---|---|
+| Game, test (8) | 5 / 0 / 3 | 7 / 0 / 1 |
+| Game, validation (11) | 10 / 2 / 1 | 8 / 2 / 3 |
+| Video, test (6) | 5 / 20 / 1 | 6 / 0 / 0 |
+| Video, validation (6) | 5 / 9 / 1 | 6 / 0 / 0 |
+
+- On the held-out game runs the learned reader now finds 7 of 8 marks, where the rules find 5, with no false mark
+  either. It named every kind right.
+- Before the video labels (game-trained only), it found 5 of 8 there. On video it found 4 of 6 on the test runs
+  and 6 of 14 on the training runs.
+- It lost one mark on the game's validation runs (9 to 8).
+- 8 held-out game marks are still few. The learned reader stays in shadow until live runs add held-out marks.
 
 ## Next
 

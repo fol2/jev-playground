@@ -7,7 +7,13 @@ import Foundation
 enum MarkLabels {
     static let world = (300, 100, 2100, 950)  // where marks are looked for, as QuestHUD.world
     static let teacher = "fm-marks-v2"  // the prompt's version: a cached verdict is reused only under it
+    static let reader = "reader-v1"  // the learned reader as a first labeller, on frames the live game did not give
+    static let teachers: Set<String> = [teacher, reader]  // labels a sheet shows and an audit replaces
     static let heldOutEvery = 5  // one run in five, by name, is held out as the test; one more validates training
+
+    /// The world box on a 2560-wide frame of any height: the live game's 1320, a 21:9 video's 1080 or a 16:9 video's 1440. The box
+    /// keeps its place as a share of the height.
+    static func world(height: Int) -> (Int, Int, Int, Int) { (world.0, world.1 * height / 1320, world.2, world.3 * height / 1320) }
 }
 
 /// Yellow to orange: a quest mark's glyph shades from its top to its foot (live, 26 Sept: 198,173,44 at the
@@ -178,3 +184,26 @@ func teacherScore(teacher: [MarkLabel], audit: [MarkLabel]) -> MarkScore {
 
 /// What a model may learn from: labels of the training and validation runs, never of the test runs.
 func learnable(_ labels: [MarkLabel]) -> [MarkLabel] { labels.filter { runSplit(run(of: $0.frame)) != .test } }
+
+/// The places in an audit pass whose first label is no verdict ("refused", "disputed") and which the auditor left
+/// uncorrected: confirmed as they are, they would become a truth that is neither a mark nor none.
+func unsettledLabels(_ shown: [MarkLabel], corrections: [Int: String]) -> [Int] {
+    shown.indices.filter { !["exclamation", "question", "none"].contains(shown[$0].kind) && corrections[$0] == nil }
+}
+
+/// Whole frames of `labels`, in a fixed random order (FNV-1a of the frame's name), as many as fit in `limit`. An
+/// audited sample of whole frames scores readers frame by frame; a spread of single candidates cannot. A first frame
+/// bigger than `limit` is taken whole, so every draw moves on.
+func framesDrawn(_ labels: [MarkLabel], limit: Int) -> [MarkLabel] {
+    func order(_ frame: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in frame.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return hash
+    }
+    var out: [MarkLabel] = []
+    for (_, group) in Dictionary(grouping: labels, by: \.frame).sorted(by: { order($0.key) < order($1.key) }) {
+        if !out.isEmpty && out.count + group.count > limit { break }
+        out += group
+    }
+    return out
+}
