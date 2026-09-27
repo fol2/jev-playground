@@ -664,7 +664,7 @@ where players walk: the zone coordinates under the minimap, on every frame.
   - The file holds the places' map coordinates, the ways, the subzone names read and the videos' run names:
     no frame, character name or label.
 - **Routes** (`route`). From any place within 3 units of the player, along the ways, off at a place within 3
-  units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.3
+  units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.15 since M4q, was 0.3
   units) to where the road bends, so a straight road is one leg.
 - **The consumer: the quest run** (`skyborne-quest-tools-v5`; v6 adds USE_1, M4m).
   - `ROAD_1` and `ROAD_2` are offered only when nothing is left within one walk: the owner's order, this
@@ -990,6 +990,27 @@ the way, for its experience too.
   again offers it again, within the run's 12 steps and 25 minutes.
 - **Evidence (sim).** `HuntTests` checks that there is no offer without a stop, and that a kill offers the hunt again.
   It also checks that a loss ends the run, and that a held fight leaves the hunt failed. Live: not yet run.
+
+## M4q — a straight walk that leaves the roads goes by them (27 Sept)
+
+The owner (27 Sept, watching run 59): the walker is "particular bad on handling obstacles and cliffs, which might have
+bigger issue when leaving the newbie zone". The walker has no height and no ground reading: a wall stalls the
+coordinates and is detoured, but a lip does not, and a straight walk steps off it. The learned roads (M4k) go round
+the ridge M4d's straight walk stopped at, but a quest walk inside one leg (12 units) never asked them.
+
+- **`straightLeavesRoads`** (Roads.swift). Some point every half unit on the straight line to the pin is farther than
+  3 units (`RoadLimits.reach`) from every place players walked, and the roads give a route.
+- **The walk** (`LiveQuestHost.walk`, logged `road_gap`). A walk to a pin that leaves the roads goes by the route's
+  legs, the last one to the walk's own arrival. A retreat goes straight back over the ground it crossed, and a road's
+  own leg is already on the road.
+- **Legs keep the trail's jogs.** A route is simplified at 0.15 (`RoadLimits.lip`, about 0.75 s of running), not
+  0.3, so a leg does not cut across what the players walked round.
+- **Evidence.** Sim only: `NavTests` has a road round a gap, a village walk that stays straight, no roads, and a
+  0.2 jog kept; the committed file's route from Thendal still passes west of x 40. Live: not yet run.
+- **Not in this slice** (the side-task design note of 27 Sept ranks them next):
+  - a memory of blocked cells shared by a step's legs;
+  - one jump when blocked (Space, once the owner confirms it);
+  - a learned "ground ends ahead" reader.
 
 ## Limits
 

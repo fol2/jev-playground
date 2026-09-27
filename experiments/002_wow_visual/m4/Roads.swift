@@ -13,6 +13,10 @@ enum RoadLimits {
     static let cell = 1.0  // one place: a square y unit of ground; players on one road share its places
     static let reach = 3.0  // a route starts and ends at places within this of the player and of the goal
     static let bend = 0.3  // a waypoint is kept where the road leaves the straight line by more than this
+    // A route keeps a jog of its trail wider than this (about 0.75 s of running), so a leg does not cut across a lip the
+    // players walked round (the owner, 27 Sept: bad at cliffs; review note on legs simplified at `bend`).
+    static let lip = 0.15
+    static let gapArrive = 0.3  // a gap walk's inner legs end this near their waypoint, a jog's corner (review of #69)
     static let minPart = 10  // places a part of the roads needs; a smaller one is an OCR slip's island (pruned)
     // A stand's approach is walked to within this: at 0.5, a walk to Rorian's ramp ended 0.45 north of it, and the
     // straight click from there ran under his bridge again (live run 19, 26 Sept).
@@ -138,7 +142,22 @@ func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLim
         .min(by: { cost[$0] + distance(g.point($0), to) < cost[$1] + distance(g.point($1), to) }) else { return nil }
     var path = [end]
     while let p = previous[path[0]] { path.insert(p, at: 0) }
-    return simplified(path.map(g.point) + [to])
+    return simplified(path.map(g.point) + [to], tolerance: RoadLimits.lip)
+}
+
+/// Whether the straight line from `from` to `to` leaves the learned roads, and they give a way round: some point on it,
+/// every half unit, is farther than `reach` from every place players walked. The owner, 27 Sept: the walker is bad at
+/// obstacles and cliffs, worse on the way out of the newbie zone; M4d's straight walk from Thendal towards Shen'dar ended
+/// NO_PROGRESS at a ridge that the roads go round, and a quest walk under one leg never asked the roads.
+func straightLeavesRoads(_ from: MapPoint, _ to: MapPoint, _ g: RoadGraph, reach: Double = RoadLimits.reach) -> Bool {
+    guard !g.places.isEmpty else { return false }
+    let steps = max(1, Int((distance(from, to) / 0.5).rounded(.up)))
+    let leaves = (0...steps).contains { i in
+        let t = Double(i) / Double(steps)
+        let p: MapPoint = (from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
+        return !g.places.indices.contains { distance(p, g.point($0)) <= reach }
+    }
+    return leaves && route(g, from: from, to: to, reach: reach) != nil
 }
 
 /// The points where a walked line bends by more than `tolerance` (Douglas-Peucker): a straight road is one leg.

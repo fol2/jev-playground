@@ -167,6 +167,24 @@ struct NavTests {
         check(legs?.count == 3 && same(legs?[1], 40, 24.2) && same(legs?.last, 44, 24.2),
               "a route keeps the road's corner and ends at the goal: no straight line across the corner")
         check(route(l, from: (44, 24.2), to: (40, 19.5)) == nil, "a road walked one way only gives no route back: a drop may not climb back")
+        // Road gap (the owner, 27 Sept: obstacles and cliffs): a road down x = 40, west to x = 36, south, and back east;
+        // the straight line down x = 40 crosses ground no player walked.
+        // In parts: one expression of four mapped ranges was too slow to type-check on CI (review of #69's gate).
+        let down: [MapPoint] = (0...4).map { i -> MapPoint in (40, 20 + Double(i)) }
+        let west: [MapPoint] = (1...4).map { i -> MapPoint in (40 - Double(i), 24) }
+        let down2: [MapPoint] = (1...12).map { i -> MapPoint in (36, 24 + Double(i)) }
+        let back: [MapPoint] = (1...4).map { i -> MapPoint in (36 + Double(i), 36) }
+        let round = down + west + down2 + back
+        let gap = buildRoads([("a", round)])
+        let roundLegs = route(gap, from: (40, 22), to: (40, 35.5))
+        check(straightLeavesRoads((40, 22), (40, 35.5), gap) && roundLegs?.contains { $0.x < 37 } == true && same(roundLegs?.last, 40, 35.5),
+              "a straight line that leaves the roads is walked by them: the route goes round by x = 36 to the goal")
+        let village = buildRoads([("a", (0...8).map { (42 + 0.25 * Double($0), 23) })])
+        check(!straightLeavesRoads((42, 23), (44, 23), village) && !straightLeavesRoads((40, 22), (40, 35.5), RoadGraph(sources: [], subzones: [], places: [], ways: [])),
+              "a walk inside a village's roads is one straight walk, and no roads never route")
+        let bow = buildRoads([("a", [(40, 20), (41, 20), (42, 20.2), (43, 20), (44, 20)])])
+        check(route(bow, from: (40, 20), to: (44, 20))?.contains { abs($0.y - 20.2) < 0.01 } == true,
+              "a route keeps a jog of 0.2 off its chord (lip 0.15): no leg cuts across what the players walked round")
         check(route(l, from: (30, 10), to: (44, 24.2)) == nil && route(l, from: (40, 19.5), to: (60, 60)) == nil,
               "no route when no place is within reach of the player or of the goal")
         check(simplified([(0, 0), (0, 1), (0, 2), (0, 3)]).count == 2 && simplified([(0, 0), (1, 0), (1, 3)]).count == 3,
@@ -250,6 +268,15 @@ struct NavTests {
 
     /// walkLegs with a scripted clock and walk: legs in turn, the first stop ends the road, no leg after the deadline.
     static func roadLegs() async {
+        var reaches: [Double] = [], gapClock = 0.0
+        let gapArrived = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.15, until: 100, now: { gapClock }) { _, _, reach in
+            reaches.append(reach); gapClock += 10; return nil
+        }
+        let gapFailed = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.5, until: 100, now: { 0 }) { i, _, _ in i == 1 ? "WALK_NO_PROGRESS" : nil }
+        gapClock = 0
+        let gapLate = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.5, until: 15, now: { gapClock }) { _, _, _ in gapClock += 10; return nil }
+        check(gapArrived == nil && reaches == [RoadLimits.gapArrive, RoadLimits.gapArrive, 0.15] && gapFailed == "WALK_NO_PROGRESS" && gapLate == "ROAD_TIME_LIMIT",
+              "review of #69: a gap walk's inner legs end at 0.3, its last at the caller's arrival; a failed leg ends it; no leg starts after the run's deadline")
         let legs: [MapPoint] = [(40, 25), (40, 30), (42, 44)]
         var clock = 0.0, walked: [Int] = []
         func run(_ stops: [Int: String], deadline: Double, legTakes: Double = 60) async -> String {

@@ -682,6 +682,7 @@ enum QuestLimits {
     static let huntSlots = 2  // HUNT_1 and HUNT_2
     static let useSlots = 1  // USE_1 (M4m)
     static let roadSlots = 2  // ROAD_1 and ROAD_2
+    static let roadGapSeconds = 600.0  // a walk round a gap by road: its legs, each bounded by its own walk
     static let maxSteps = 12
     // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
     // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
@@ -825,6 +826,17 @@ func walkLegs(_ legs: [MapPoint], until deadline: Double, now: () -> Double, wal
         if let stop = await walk(i, leg) { return stop }
     }
     return "BY_ROAD"
+}
+
+/// A walk round a gap by the roads (M4q): the route's legs in turn (walkLegs), the last to the caller's `arrive` and the
+/// others to RoadLimits.gapArrive; nil on arrival, else the first outcome that ends it. No leg starts at or after
+/// `deadline`, the run's (review of #69).
+func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now: () -> Double,
+                 walk: (Int, MapPoint, Double) async -> String?) async -> String? {
+    let outcome = await walkLegs(legs, until: deadline, now: now) { i, leg in
+        await walk(i, leg, i == legs.count - 1 ? arrive : RoadLimits.gapArrive)
+    }
+    return outcome == "BY_ROAD" ? nil : outcome
 }
 
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
