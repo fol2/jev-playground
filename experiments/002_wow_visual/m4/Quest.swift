@@ -1004,6 +1004,9 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
         r.steps.append((offer.step.name, outcome))
         last = offer.step
+        // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
+        // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
+        if offer.skill == "FROM_HERE" && outcome.hasPrefix("HUNTED") { failed.remove(offer.step.key) }
         if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
             host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])
             let fought = await host.fightBack()
