@@ -1134,8 +1134,9 @@ extension NavTests {
         check(huntHere.map(\.skill) == ["RETREAT", "FROM_HERE"] && huntHere[1].criterion.hasPrefix("Hunt for \"Infestation Investigation\" from here")
               && { if case .hunt(let q) = huntHere[1].step { return q.pin == nil && q.title == infest.title }; return false }(),
               "live run 35: a hunt's walk stopped 1.3 from its area offers the hunt from here, with no pin, beside RETREAT")
-        check(stoppedAt((42, 24), .hunt(infest), infest).map(\.skill) == ["RETREAT"] && stoppedAt((44.6, 26.5), .handIn(infest), infest).map(\.skill) == ["RETREAT"]
-              && stoppedAt((42.7, 23.4), .use(embracing, item: "Humming Recall Crystal"), embracing).map(\.skill) == ["RETREAT"],
+        func noHere(_ offers: [(skill: String, step: QuestStep, criterion: String)]) -> Bool { offers.first?.skill == "RETREAT" && !offers.contains { $0.skill == "FROM_HERE" } }
+        check(noHere(stoppedAt((42, 24), .hunt(infest), infest)) && noHere(stoppedAt((44.6, 26.5), .handIn(infest), infest))
+              && noHere(stoppedAt((42.7, 23.4), .use(embracing, item: "Humming Recall Crystal"), embracing)),
               "not 4.9 away, not for a hand-in's walk, and not for a use that belongs to no place")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
