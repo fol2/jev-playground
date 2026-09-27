@@ -70,6 +70,24 @@ func apiKey() throws -> String {
 }
 
 /// Live body: the latest window frame, pid keys through LiveKeys and a 0.2 s watchdog timer.
+/// M4ac: where steering walks ran into something, and the heading (private, the world's, not a character's): each walk avoids
+/// those headings there (runSteer's `known`) and adds its own.
+let bumpsMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/bumps.json")
+
+func loadBumps() -> [(at: MapPoint, heading: Double, side: Double)] {
+    let rows = (try? Data(contentsOf: bumpsMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? []
+    var bumps: [(at: MapPoint, heading: Double, side: Double)] = []
+    for r in rows where r.count >= 3 { bumps.append(((r[0], r[1]), r[2], r.count > 3 ? r[3] : 0)) }
+    return bumps
+}
+
+func saveBumps(_ new: [(at: MapPoint, heading: Double, side: Double)]) {
+    guard !new.isEmpty else { return }
+    let all = Array((loadBumps() + new).suffix(SteerLimits.knownKept))
+    try? FileManager.default.createDirectory(at: bumpsMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? JSONSerialization.data(withJSONObject: all.map { [$0.at.x, $0.at.y, $0.heading, $0.side] }).write(to: bumpsMemory)
+}
+
 final class LiveNavBody: NavBody {
     var facingState: FacingState? { facingReader != nil ? liveFacing : nil }
     let session: Session
@@ -87,6 +105,11 @@ final class LiveNavBody: NavBody {
         return (reader, Int((hostNow() - began) * 1000))
     }()
     private var redReader: RedNameReader? { Self.loadedRedReader.reader }
+    /// M5 depth (DepthReader), loaded once as the red-name reader is; nil without its private model: walks go on without it.
+    private static let loadedDepth: (reader: DepthReader?, ms: Int) = {
+        let began = hostNow(), reader = try? DepthReader()
+        return (reader, Int((hostNow() - began) * 1000))
+    }()
 
     init(session: Session, feed: FrameFeed, sink: KeySink, directory: URL, log: Log) {
         self.session = session
@@ -95,6 +118,8 @@ final class LiveNavBody: NavBody {
         self.log = log
         let red = Self.loadedRedReader
         log.emit("red_reader", ["loaded": red.reader != nil, "ms": red.ms, "t": hostNow()])
+        let depth = Self.loadedDepth
+        log.emit("depth_reader", ["loaded": depth.reader != nil, "ms": depth.ms, "t": hostNow()])
         let began = hostNow(), facing = facingReader  // compiled here, not on a walk's first frame (review of #63)
         log.emit("facing_reader", ["loaded": facing != nil, "ms": Int((hostNow() - began) * 1000), "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: NavLimits.releaseCodes, clock: hostNow) { event, fields in
@@ -121,6 +146,18 @@ final class LiveNavBody: NavBody {
     }
     func ownerTookFocus() -> Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
+    }
+
+    /// The view's depth on the latest fresh frame, once per decision (runNav), not per look.
+    func viewDepth() -> ViewDepth? {
+        guard let reader = Self.loadedDepth.reader, let frame = runtimeFrame(session, feed) else { return nil }
+        return try? reader.read(frame.image)
+    }
+
+    /// M4ac: the view's nearness by column on the latest fresh frame, once per steering tick (25 ms).
+    func viewColumns() -> [Double]? {
+        guard let reader = Self.loadedDepth.reader, let frame = runtimeFrame(session, feed) else { return nil }
+        return try? reader.columns(frame.image)
     }
 
     func look() -> NavObs? {
@@ -365,7 +402,9 @@ func navSimJev(_ command: NavCommand) async throws -> Int32 {
 
 @MainActor
 func navExecute(_ command: NavCommand) async throws -> Int32 {
-    let key = try apiKey()
+    // M4ac: the steering walk makes no model call; only JEV_WALKER=jev needs the key (review of #86).
+    let steering = ProcessInfo.processInfo.environment["JEV_WALKER"] != "jev"
+    let key = steering ? "" : try apiKey()
     guard let x = command.toX, let y = command.toY else { throw ProbeError("--to missing") }
     let destination = NavDestination(label: command.label, x: x, y: y, arrive: command.arrive)
     let session = try await wowSession(input: true, full: true)
@@ -407,8 +446,20 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
         "ghost": command.ghost,
     ]
     body.emit("start", ["run_id": run.id, "mode": "execute", "x": start.x, "y": start.y, "facing": start.facing])
-    guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
-    let result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
+    // M4ac: the steering walk along the learned roads (JEV_WALKER=jev: a move Jev chooses at a time, as before).
+    let result: NavResult
+    if steering {
+        let stuck: [MapPoint] = ((try? Data(contentsOf: QuestHUD.stuckMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
+            .compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }  // M4z's stops, as a quest walk avoids them
+        let legs = distance(start.point, destination.point) > QuestLimits.steerRoadFrom
+            ? ((try? RoadGraph.load()).flatMap { $0 }.flatMap { route($0, from: start.point, to: destination.point, avoid: stuck) }.map { Array($0.dropLast()) } ?? []) : []
+        body.emit("steer_path", ["legs": legs.map { [$0.x, $0.y] }])
+        result = await runSteer(body: body, path: legs, destination: destination, known: loadBumps())
+        saveBumps(result.bumps)
+    } else {
+        guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
+        result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
+    }
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     try recordRun(result, into: run.url, manifest: manifest)

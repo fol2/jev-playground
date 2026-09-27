@@ -794,6 +794,7 @@ enum QuestLimits {
     // M4ab: a walk this long or longer reads the log again, as the minimap's givers, read with it, change with the place.
     // ponytail: the givers and the log are one read; split them if short walks keep paying for the map.
     static let rereadMove = 3.0
+    static let steerRoadFrom = 2.0  // M4ac: a walk farther than this goes by the learned roads when they lead there
     // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
     // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
     // one fight at least (review of #72: 25 min left a fight back after the last walk running past 30).

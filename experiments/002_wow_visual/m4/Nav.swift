@@ -381,7 +381,47 @@ enum NavAction: String, JevAction {
     }
 }
 
-let navInstructions = "Which move is most likely to get the character to `destination`, given `position`, `recent_moves` and `blocked_headings_near_here`?"
+let navInstructions = "Which move is most likely to get the character to `destination`, given `position`, `recent_moves`, `blocked_headings_near_here` and, when present, `view_depth`?"
+
+/// M5 depth (the owner, 27 Sept: Apple's depth models): how open the view is ahead of the character and to either side. Per
+/// column of the frame, the ground ahead's disparity (rows 0.30-0.45) over the ground by the character (rows 0.55-0.68): well
+/// under 1 is ground reaching away, about 1 or more a surface standing close. Offline, on 268 live walk frames of 26-27 Sept
+/// labelled by what the next straight move did (moved 0.4 or more: open; 0.05 or less and blocked: blocked), the centre's
+/// ratio separated them at AUC 0.79 with Apple's Depth Anything V2 small (25 ms a frame), and at 0.64 with Depth Pro (5 s).
+struct ViewDepth: Equatable {
+    var left: Double
+    var ahead: Double
+    var right: Double
+    var json: [String: Any] { ["left": left, "ahead": ahead, "right": right] }
+}
+
+/// The view's depth from a disparity grid, row-major, `width` x `height`, larger nearer; nil for a grid of another size.
+func viewDepth(_ disparity: [Float], width: Int, height: Int) -> ViewDepth? {
+    guard width > 1, height > 1, disparity.count == width * height else { return nil }
+    func ratio(_ x0: Double, _ x1: Double) -> Double { nearness(disparity, width: width, height: height, x0, x1) }
+    return ViewDepth(left: ratio(0.10, 0.30), ahead: ratio(0.42, 0.58), right: ratio(0.70, 0.90))
+}
+
+/// M4ac: the view's nearness in `n` columns across the frame, each as viewDepth's ratio; nil for a grid of another size.
+/// Offline, a move's heading column predicted a block at AUC 0.67-0.69 over 350 live moves of 26-27 Sept (straight and
+/// detours; 25 blocked): a steering bias, with the block watch the guard.
+func depthColumns(_ disparity: [Float], width: Int, height: Int, n: Int = SteerLimits.columns) -> [Double]? {
+    guard width >= n, height > 1, disparity.count == width * height else { return nil }
+    return (0..<n).map { nearness(disparity, width: width, height: height, Double($0) / Double(n), Double($0 + 1) / Double(n)) }
+}
+
+/// The ground ahead's disparity (rows 0.30-0.45) over the ground by the character (0.55-0.68), in columns x0-x1 of the frame.
+private func nearness(_ disparity: [Float], width: Int, height: Int, _ x0: Double, _ x1: Double) -> Double {
+    func median(_ y0: Double, _ y1: Double) -> Float {
+        var v: [Float] = []
+        for y in Int(y0 * Double(height))..<max(Int(y0 * Double(height)) + 1, Int(y1 * Double(height))) {
+            for x in Int(x0 * Double(width))..<max(Int(x0 * Double(width)) + 1, Int(x1 * Double(width))) { v.append(disparity[y * width + x]) }
+        }
+        v.sort()
+        return v[v.count / 2]
+    }
+    return roundTo(Double(median(0.30, 0.45) / max(0.0001, median(0.55, 0.68))))
+}
 
 struct NavAttempt {
     let action: NavAction
@@ -439,7 +479,7 @@ func navAdmissible(_ o: NavObs, destination d: NavDestination, episode e: NavEpi
     }
 }
 
-func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEpisode, decisionsLeft: Int) -> [String: Any] {
+func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEpisode, decisionsLeft: Int, depth: ViewDepth? = nil) -> [String: Any] {
     let aim = bearing(from: o.point, to: d.point)
     let position: [String: Any] = ["x": o.x, "y": o.y, "facing_deg": Int(o.facing.rounded())]
     let destination: [String: Any] = [
@@ -450,13 +490,15 @@ func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEp
         "best_distance": e.best.isFinite ? roundTo(e.best) : roundTo(distance(o.point, d.point)),
         "decisions_since_best": e.sinceBest, "decisions_left": decisionsLeft,
     ]
-    let state: [String: Any] = [
-        "goal": "Reach the destination on the zone map with this character. Moves cannot see obstacles: a move that ends blocked ran into something on that heading (a tree, rock, fence or building), and other headings may be clear.",
+    var state: [String: Any] = [
+        "goal": "Reach the destination on the zone map with this character. A move that ends blocked ran into something on that heading (a tree, rock, fence or building), and other headings may be clear."
+            + (depth == nil ? " Moves cannot see obstacles." : " `view_depth` reads the view from the screen, ahead of the character (the way it faces) and to its left and right: the nearness of the ground there against the ground by the character, under about 0.75 open ground reaching away, about 1 or more a surface close in front (a rock, wall or slope)."),
         "position": position, "destination": destination, "progress": progress,
         "recent_moves": e.attempts.suffix(NavLimits.recentMoves).map(\.json),
         "blocked_headings_near_here": e.blockedHeadings(near: o).map { Int($0.rounded()) },
         "units": "zone-map units: x and y are map percent, distances are in y units (one x unit is 1.5 y units); running covers about 0.2 per second; headings are compass degrees, 0 north, 90 east",
     ]
+    if let depth { state["view_depth"] = depth.json }
     return state
 }
 
@@ -466,6 +508,8 @@ protocol NavBody: AnyObject {
     func now() -> Double
     func sleep(_ seconds: Double) async
     func look() -> NavObs?  // nil: coordinates or arrow unreadable
+    func viewDepth() -> ViewDepth?  // M5 depth on the latest frame; nil without the model (and in a simulation)
+    func viewColumns() -> [Double]?  // M4ac: the view's nearness by column (depthColumns); nil without depth
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
     var facingState: FacingState? { get }  // the live facing's readings, for a turn test; nil in a simulation
@@ -473,6 +517,8 @@ protocol NavBody: AnyObject {
 
 extension NavBody {
     var facingState: FacingState? { nil }
+    func viewDepth() -> ViewDepth? { nil }
+    func viewColumns() -> [Double]? { nil }
 }
 
 extension NavBody {
@@ -480,6 +526,299 @@ extension NavBody {
         guard let o = look(), let stamp = o.stamp,
               stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("navigation_unreadable") }
         return .observed(o, stamp)
+    }
+}
+
+// MARK: M4ac — the steering walk
+
+/// The owner, 27 Sept, after watching walks stop against a boulder, spin round and climb cliffs: "rethink the entire pathfinding
+/// ... depth map and pre-calculate the pathfinding realtime, then the input is to adjust for the path finding. jev can interrupt
+/// but it should be optional." The walk runs a path in one go, as a mobile robot's reactive planner does: pure pursuit of a point
+/// ahead on the path (its waypoints the learned roads, which players walked round cliffs and rocks), the aim bent each tick
+/// toward the clearest column of the view's depth near it (a vector field histogram, Borenstein and Koren 1991; follow the gap),
+/// W held and Q/E steering, no model call. A block (no movement with W down) keeps that heading off for a while here; with no
+/// clear column in view the walk turns toward the more open side, never round and round.
+enum SteerLimits {
+    static let lookahead = 1.0  // y units along the path to the aim point
+    static let waypointReach = 0.6  // a waypoint within this is passed
+    static let columns = 20  // across the frame's width
+    static let focal = 1280.0  // px of the 2560-wide frame: a 90-degree view, the client's default; the loop corrects the rest
+    // A column's nearness (ahead-over-here disparity) under clearBelow is open ground; from impassable it is not walked into.
+    // Live, the first steering walk (27 Sept) read the road at 0.45-0.7 and the slope it climbed at 0.81-0.93 in every column,
+    // and walked on up it, as only 1.0 was out of bounds; offline, blocked moves read a median 0.83 and open ones 0.47.
+    static let clearBelow = 0.6
+    static let impassable = 0.8
+    static let nearPenalty = 300.0  // degrees of aim error that a column at nearness clearBelow + 1 costs
+    static let blockCone = 35.0  // after a block, headings within this of it are off for blockMemory seconds near there
+    static let blockMemory = 12.0
+    static let blockNear = 1.0  // y units: where a block keeps its heading off
+    // After a block the walk keeps to one side (Bug2, Lumelsky and Stepanov 1987: follow the obstacle on one side until the way
+    // to the goal opens) until it is sideDistance from where it was blocked, or sideSeconds, so it does not turn back into what
+    // it just left; blind, it walks alongHeading from the blocked heading, along a flat face.
+    static let sideSeconds = 6.0
+    static let sideDistance = 0.8
+    // A block this near the last one, this soon, is the same obstacle: the side it was gone round on is kept (Bug2 goes round
+    // an obstacle one way; re-choosing at each block turned the sim's long wall back and forth).
+    static let sameObstacle = 2.0
+    static let sameObstacleSeconds = 15.0
+    static let alongHeading = 90.0
+    static let sideTurn = 60.0  // no usable column in view: turn this far toward the more open side
+    static let stallSeconds = 15.0  // no 0.3 nearer the end of the path in this long, since the last block: NO_PROGRESS
+    static let maxBlocks = 6  // a walk blocked this often is NO_PROGRESS: what stops it is not to be walked round here
+    static let halfView = 45.0  // degrees either side of the facing that the columns see
+    // Bumps remembered from earlier walks (the owner: "self-improve"): a heading that ran into something within knownNear of
+    // here is not taken again (live walk 3, 27 Sept: six bumps among the standing stones in Thendal Village, one pass).
+    static let knownNear = 0.4
+    static let knownKept = 256
+    nonisolated(unsafe) static var logEvery = 1.0  // seconds between `steer` rows (a test traces each tick)
+}
+
+/// A column's bearing from the facing, in degrees (negative left).
+func columnBearing(_ i: Int, of n: Int = SteerLimits.columns) -> Double {
+    atan(((Double(i) + 0.5) / Double(n) - 0.5) * 2560 / SteerLimits.focal) * 180 / .pi
+}
+
+/// The aim, relative to the facing (degrees, positive right), for a wanted relative bearing: when it is in view and the view's
+/// depth is read, the column nearest it that costs least, a column costing its nearness beyond clearBelow, and one within
+/// blockCone of a heading blocked here costing too much to take. Out of view, or without depth, the wanted bearing itself.
+/// When every column in view is unusable, a turn of sideTurn toward the side whose columns are more open.
+/// `side` (M4ac, after a block): +1 keeps the aim right of the facing, -1 left. A wanted bearing out of view is not turned to
+/// blind while the view is read (the trace of the sim's wall: the goal fell just out of view past the wall's end, and a blind
+/// turn went back into it): the columns are scored toward the view's edge on its side, and the view turns as the walk goes.
+/// Only a bearing behind (past stopToTurn) turns in place first. `along`: the heading kept along the obstacle after a block
+/// (the blocked heading turned sideTurn to the side), relative to the facing: a fixed way in the world, not a turn each tick.
+func steerAim(want: Double, columns: [Double]?, blocked: [Double], side: Double? = nil, along: Double? = nil) -> Double {
+    // The way along, turned on further to its side (30 degrees at a time, thrice at most) off any heading blocked here, a bump
+    // remembered from an earlier walk included (the sim's taught wall: along ran into the first walk's bump at its corner).
+    func clear(_ a: Double, _ side: Double) -> Double {
+        var a = a
+        for _ in 0..<3 where blocked.contains(where: { abs(angleError($0, a)) <= SteerLimits.blockCone }) { a += side * 30 }
+        return a
+    }
+    if let side, columns == nil, want * side < 0 || blocked.contains(where: { abs(angleError($0, want)) <= SteerLimits.blockCone }) {
+        return clear(along ?? SteerLimits.sideTurn * side, side)  // blind, committed, the wanted bearing back into the block: along it
+    }
+    if let side, abs(want) > NavLimits.stopToTurn { return clear(along ?? SteerLimits.sideTurn * side, side) }  // along it: no turn back
+    guard let columns, !columns.isEmpty, abs(want) <= NavLimits.stopToTurn else {
+        return blocked.contains { abs(angleError($0, want)) <= SteerLimits.blockCone } ? want + SteerLimits.sideTurn * (want >= 0 ? -1 : 1) : want
+    }
+    let n = columns.count, toward = max(-SteerLimits.halfView, min(SteerLimits.halfView, want))
+    // Each column as near as its nearer neighbour (VFH+, Ulrich and Borenstein 1998: obstacles enlarged by the walker's size),
+    // so the aim keeps off an obstacle's edge rather than clip its corner (the sim's wall, walked round from right against it).
+    let near = (0..<n).map { i in columns[max(0, i - 1)...min(n - 1, i + 1)].max()! }
+    func cost(_ i: Int) -> Double {
+        let angle = columnBearing(i, of: n)
+        if blocked.contains(where: { abs(angleError($0, angle)) <= SteerLimits.blockCone }) { return .infinity }
+        if let side, angle * side < -5 { return .infinity }
+        return abs(angleError(angle, toward)) + max(0, near[i] - SteerLimits.clearBelow) * SteerLimits.nearPenalty
+            + (near[i] >= SteerLimits.impassable ? .infinity : 0)
+    }
+    if let best = (0..<n).min(by: { cost($0) < cost($1) }), cost(best).isFinite { return columnBearing(best, of: n) }
+    if let side { return SteerLimits.sideTurn * side }
+    let left = columns[..<(n / 2)].reduce(0, +), right = columns[(n / 2)...].reduce(0, +)
+    return left < right ? -SteerLimits.sideTurn : SteerLimits.sideTurn
+}
+
+/// Pure pursuit on a path: the waypoints before `index` are passed; a waypoint within waypointReach is passed now; the aim is
+/// the point `lookahead` on from the nearest point of the current leg (the last waypoint itself at the end).
+func pursuit(_ path: [MapPoint], from here: MapPoint, index: inout Int) -> MapPoint {
+    guard !path.isEmpty else { return here }
+    while index < path.count - 1 && distance(here, path[index]) <= SteerLimits.waypointReach { index += 1 }
+    let target = path[index]
+    let start = index == 0 ? here : path[index - 1]
+    // Along this leg from the point nearest here, then on round the next waypoints, lookahead in all.
+    let dx = (target.x - start.x) * mapAspect, dy = target.y - start.y, span = dx * dx + dy * dy
+    let t = span == 0 ? 1 : max(0, min(1, ((here.x - start.x) * mapAspect * dx + (here.y - start.y) * dy) / span))
+    var point: MapPoint = (start.x + t * (target.x - start.x), start.y + t * dy)
+    var left = SteerLimits.lookahead, i = index
+    while left > 0 {
+        let next = path[i], gap = distance(point, next)
+        if gap >= left || i == path.count - 1 {
+            let k = gap > 0 ? min(1, left / gap) : 1
+            return (point.x + k * (next.x - point.x), point.y + k * (next.y - point.y))
+        }
+        left -= gap
+        point = next
+        i += 1
+    }
+    return point
+}
+
+/// The waypoint a walk starting at `here` heads for: the end of the path's leg nearest here (the first waypoint when nearest
+/// itself), so a waypoint already behind is not walked back to (second review of #86: the way to safety, walked again after a
+/// fight, aimed at its first waypoint, behind it, in the danger it had left).
+func pathStart(_ path: [MapPoint], from here: MapPoint) -> Int {
+    guard path.count > 1 else { return 0 }
+    func along(_ a: MapPoint, _ b: MapPoint) -> Double {
+        let dx = (b.x - a.x) * mapAspect, dy = b.y - a.y, span = dx * dx + dy * dy
+        let t = span == 0 ? 0 : max(0, min(1, ((here.x - a.x) * mapAspect * dx + (here.y - a.y) * dy) / span))
+        return distance(here, (a.x + t * (b.x - a.x), a.y + t * dy))
+    }
+    return (1..<path.count).reduce((index: 0, gap: distance(here, path[0]))) { best, i in
+        let gap = along(path[i - 1], path[i])
+        return gap < best.gap ? (i, gap) : best
+    }.index
+}
+
+/// The length still to walk: from here to the current waypoint, then waypoint to waypoint.
+func pathLeft(_ path: [MapPoint], from here: MapPoint, index: Int) -> Double {
+    guard index < path.count else { return 0 }
+    return distance(here, path[index]) + zip(path[index...], path[(index + 1)...]).map { distance($0, $1) }.reduce(0, +)
+}
+
+/// M4ac: walk `path` (the destination last) in one go. Each tick: read the place (a miss lets W lapse under its grant); stop
+/// for combat, low health, the owner, arrival, the clock, a red name on the aim, or no progress along the path in stallSeconds;
+/// keep a block (W down blockedWindow with less than blockedMoved of movement) as a heading to leave near there; aim by pursuit
+/// and the view's depth (steerAim); turn by a Q/E pulse with W held, an aim past stopToTurn stopping W first. No model call.
+/// Outcomes as runNav's; `decisions` counts ticks.
+func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
+              known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> NavResult {
+    var result = NavResult()
+    var executive = RuntimeExecutive(goal: d.label)
+    executive.begin("navigation")
+    let began = body.now(), forward = FightLimits.forward
+    let path = path.last.map { distance($0, d.point) <= 0.05 } == true ? path : path + [d.point]
+    var index = 0, misses = 0, best = Double.infinity, bestAt = began, lastLog = -Double.infinity
+    var trail: [(t: Double, point: MapPoint)] = []
+    var blocks: [(at: MapPoint, heading: Double, t: Double)] = []
+    var side: (sign: Double, until: Double, heading: Double, from: MapPoint)?  // after a block: the side kept, the way along, where (Bug2)
+    var lastSide: (sign: Double, at: MapPoint, t: Double)?  // the side of the last block, kept for the same obstacle
+    var going = 0.0  // the last aim's deviation from the wanted bearing: the side the walk is already going round on
+    var blocksSeen = 0
+
+    func finish(_ outcome: String) -> NavResult {
+        body.keys.releaseAll()
+        result.outcome = outcome
+        result.holding = body.keys.holding
+        result.codesPosted = body.keys.codesPosted
+        var fields: [String: Any] = ["outcome": outcome, "decisions": result.decisions, "controller": "RULE", "walker": "steer"]
+        if let end = result.end { fields["x"] = end.x; fields["y"] = end.y }
+        body.emit("outcome", fields)
+        let skill = SkillResult(skill: "navigation", status: skillStatus(outcome), code: outcome,
+                                evidence: result.end?.stamp, holdingInput: result.holding)
+        executive.finish(skill)
+        result.runtime = skill
+        body.emit("skill_result", skill.json)
+        return result
+    }
+
+    while true {
+        if body.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        guard let o = body.readObservation().value else {
+            misses += 1
+            if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            if misses == NavLimits.unreadableLimit / 2 {  // as runNav: an icon over the arrow is turned off it (live run 54)
+                trail.removeAll()
+                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit,
+                                  facing: body.facingState, reread: { _ = body.look() }, now: body.now)
+            }
+            await body.sleep(NavLimits.tick)
+            continue
+        }
+        misses = 0
+        if result.start == nil {
+            result.start = o
+            index = pathStart(path, from: o.point)
+        }
+        result.end = o
+        let now = body.now()
+        if o.combat { return finish("COMBAT") }
+        if !d.toSafety && o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
+        if distance(o.point, d.point) < d.arrive { return finish("ARRIVED") }
+        if now - began >= d.seconds { return finish("TIME_LIMIT") }
+        let view = body.viewColumns()  // the depth, once a tick (25 ms)
+        // A block: this facing is kept off near here, the walk keeps to one side along the obstacle (Bug2), the stall clock
+        // starts again, and too many end the walk. `bumped`: W ran into it; else the view read near across (walled).
+        func block(_ bumped: Bool) -> Bool {
+            if !bumped, blocks.contains(where: { distance($0.at, o.point) <= SteerLimits.blockNear && now - $0.t < 2 }) { return false }
+            blocks.append((o.point, o.facing, now))
+            // The side to keep: the one already kept, else the one the walk was going round on, else the view's more open half,
+            // else the one the path bends to.
+            let n = view?.count ?? 0
+            let open = view.map { c in c[(n / 2)...].reduce(0, +) - c[..<(n / 2)].reduce(0, +) } ?? 0  // positive: left nearer
+            let bend = angleError(bearing(from: o.point, to: pursuit(path, from: o.point, index: &index)), o.facing)
+            // Toward the goal first (live walk 3: kept to the side away from it, the walk went west from a goal to the east).
+            let same = lastSide.flatMap { distance($0.at, o.point) <= SteerLimits.sameObstacle && now - $0.t <= SteerLimits.sameObstacleSeconds ? $0.sign : nil }
+            let learnt = known.first { $0.side != 0 && distance($0.at, o.point) <= SteerLimits.knownNear }?.side  // the way round that worked
+            let sign: Double = side.map(\.sign) ?? same ?? learnt ?? (abs(bend) > 10 ? (bend > 0 ? 1 : -1) : abs(going) > 10 ? (going > 0 ? 1 : -1)
+                : abs(open) > 0.5 ? (open > 0 ? -1 : 1) : 1)
+            lastSide = (sign, o.point, now)
+            side = (sign, now + SteerLimits.sideSeconds, (o.facing + sign * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
+            // A way round takes the walk off its path for a while: the stall clock starts again (Bug2 counts progress only
+            // once it leaves the obstacle).
+            bestAt = now
+            best = pathLeft(path, from: o.point, index: index)
+            result.episode.sinceBest += 1
+            blocksSeen += 1
+            body.emit("steer_block", ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "side": sign > 0 ? "right" : "left", "bumped": bumped])
+            if bumped { result.bumps.append((o.point, o.facing, 0)) }
+            trail.removeAll()
+            return blocksSeen >= SteerLimits.maxBlocks
+        }
+        // The block watch: W down this long with this little movement ran into something on this facing.
+        if body.keys.isDown(forward) { trail.append((now, o.point)) } else { trail.removeAll() }
+        if let old = trail.last(where: { now - $0.t >= NavLimits.blockedWindow }) {
+            if distance(old.point, o.point) < NavLimits.blockedMoved {
+                if block(true) { return finish("NO_PROGRESS") }
+            } else {
+                trail.removeAll { now - $0.t > NavLimits.blockedWindow + 1 }
+            }
+        }
+        let left = pathLeft(path, from: o.point, index: index)
+        if left < best - NavLimits.progressStep { best = left; bestAt = now }
+        if now - bestAt >= SteerLimits.stallSeconds { return finish("NO_PROGRESS") }
+        let point = pursuit(path, from: o.point, index: &index)
+        let want = angleError(bearing(from: o.point, to: point), o.facing)
+        blocks.removeAll { now - $0.t > SteerLimits.blockMemory }
+        let blocked = blocks.filter { distance($0.at, o.point) <= SteerLimits.blockNear }.map { angleError($0.heading, o.facing) }
+            + known.filter { distance($0.at, o.point) <= SteerLimits.knownNear }.map { angleError($0.heading, o.facing) }
+        // Near a known bump with its way round learnt, about to take its heading again, that side is kept before the bump comes,
+        // as after one (Bug2); on any other heading it is left alone (else it kept the walk going along it for ever).
+        let heading0 = (o.facing + want + 360).truncatingRemainder(dividingBy: 360)
+        if side == nil, let way = known.first(where: { $0.side != 0 && distance($0.at, o.point) <= SteerLimits.knownNear
+                                                        && abs(angleError($0.heading, heading0)) <= SteerLimits.blockCone }) {
+            side = (way.side, now + SteerLimits.sideSeconds, (way.heading + way.side * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
+        }
+        let columns = view
+        // A view near in every column is a slope or a wall across the way: a block seen, not run into (it turns in place below).
+        let walled = columns.map { !$0.isEmpty && $0.allSatisfy { $0 >= SteerLimits.impassable } } ?? false
+        if walled && block(false) { return finish("NO_PROGRESS") }
+        if let kept = side, now > kept.until || distance(kept.from, o.point) >= SteerLimits.sideDistance {
+            if distance(kept.from, o.point) >= SteerLimits.sideDistance {  // clear of it that way: the bumps there learn the side
+                for i in result.bumps.indices where distance(result.bumps[i].at, kept.from) <= SteerLimits.knownNear { result.bumps[i].side = kept.sign }
+            }
+            side = nil
+        }
+        let aim = steerAim(want: want, columns: columns, blocked: blocked, side: side?.sign, along: side.map { angleError($0.heading, o.facing) })
+        if abs(aim - want) > 10 { going = aim - want }
+        let heading = (o.facing + aim + 720).truncatingRemainder(dividingBy: 360)
+        if !d.toSafety, o.warnings.contains(where: { abs(angleError($0, heading)) <= NavLimits.warnCone }) { return finish("DANGER_AHEAD") }
+        result.decisions += 1
+        if now - lastLog >= SteerLimits.logEvery {  // about once a second: what the walk saw and chose, for the live evaluation
+            var row: [String: Any] = ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "want": Int(want.rounded()), "aim": Int(aim.rounded()),
+                                      "waypoint": index, "left": roundTo(left), "blocked": blocked.map { Int($0.rounded()) }]
+            if let columns { row["columns"] = columns }
+            body.emit("steer", row)
+            lastLog = now
+        }
+        // Walled: W is let go and the walk turns in place, then looks again, rather than run on into it while turning (live, 27
+        // Sept: it ran up a slope that read 0.81-0.93 across).
+        if abs(aim) > NavLimits.stopToTurn || walled {
+            body.keys.lift(forward)
+            trail.removeAll()
+        }
+        if let pulse = turnPulse(aim) {
+            if body.keys.isDown(forward) { body.keys.grant(forward, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog) }
+            body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
+            body.keys.press(pulse.code)
+            await body.sleep(Double(pulse.ms) / 1000)
+            body.keys.lift(pulse.code)
+        }
+        if abs(aim) <= NavLimits.stopToTurn && !walled {
+            if !body.keys.isDown(forward) { body.keys.press(forward) }
+            body.keys.grant(forward, seconds: NavLimits.forwardWatchdog)
+        }
+        await body.sleep(NavLimits.tick)
     }
 }
 
@@ -565,6 +904,8 @@ struct NavResult {
     var holding = false
     var codesPosted: [UInt16] = []
     var runtime: SkillResult? = nil
+    // M4ac: where the steering walk ran into something, its heading, and the side that got it clear (+1 right, -1 left, 0 none)
+    var bumps: [(at: MapPoint, heading: Double, side: Double)] = []
 }
 
 func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async -> NavResult {
@@ -618,7 +959,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         if allowed.isEmpty { return finish("NO_ADMISSIBLE_MOVE") }
 
         let state = navStatePacket(o, destination: d, episode: result.episode,
-                                   decisionsLeft: NavLimits.maxDecisions - result.decisions)
+                                   decisionsLeft: NavLimits.maxDecisions - result.decisions, depth: body.viewDepth())
         let question = actionQuestion(allowed, instructions: navInstructions)
         let asked = body.now()
         guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
@@ -730,6 +1071,19 @@ final class SimNav: NavBody {
     private var looks = 0
     var ownerFront = false
     var emitHandler: Emit = { _, _ in }
+    /// M4ac: above 0, the view's columns are cast against the boxes to this range (y units): an open column reads 0.3, one
+    /// touching a box 1.2, as the live ratio reads open ground and a surface close ahead. Sim: rays, not a depth model.
+    var depthRange = 0.0
+
+    func viewColumns() -> [Double]? {
+        guard depthRange > 0 else { return nil }
+        return (0..<SteerLimits.columns).map { i in
+            let h = (facing + columnBearing(i)) * .pi / 180
+            var d = 0.05
+            while d < depthRange && !boxes.contains(where: { $0.contains((x + d * sin(h) / mapAspect, y - d * cos(h))) }) { d += 0.05 }
+            return roundTo(0.3 + 0.9 * max(0, 1 - d / depthRange))
+        }
+    }
 
     init(clock: FightClock, x: Double, y: Double, facing: Double, boxes: [Box] = []) {
         self.clock = clock
