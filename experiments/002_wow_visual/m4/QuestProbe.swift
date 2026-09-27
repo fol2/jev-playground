@@ -869,7 +869,31 @@ final class LiveQuestHost: QuestHost {
     /// fights. Not the walk's: runNav's exit sweep has retired it, and no child can be taken from it (the
     /// 25 Sept review; M4i had not run live). The run's set only taps, and stays active until the run ends.
     /// A fight that ends with keys held stays tracked for the exit sweep, and its handoff fails the run.
-    func fightBack() async -> String {
+    func fightBack() async -> String { await fight(inCombat: true) }
+
+    /// FIGHT_AHEAD (M4p, Jev's choice after a red name stopped the walk): the same fight from out of combat, started only
+    /// at the fight's own start health; the fight's Jev selects the creature (Tab) and pulls it.
+    /// A creature that has come to the character since the stop makes it a fight back (start health 0); one that Jev left
+    /// fighting it after a JEV_STOP is fought back at once, as SAFETY's, not handed to a quest decision (review of #66).
+    /// A fight in combat returns "BACK_" + its outcome, so the run treats it as M4i treats a fight back: only a kill goes on.
+    /// Combat is read from the latest frame's HUD alone, however the place reads: a place under a plate is not "out of
+    /// combat" (third review of #66). No fresh frame counts as combat.
+    func fightAhead() async -> String {
+        if combatNow() != false { return "BACK_" + (await fight(inCombat: true)) }
+        let outcome = await fight(inCombat: false)
+        guard outcome == "JEV_STOP", combatNow() != false else { return outcome }
+        emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back after a fight ahead Jev stopped"])
+        return "BACK_" + (await fight(inCombat: true))
+    }
+
+    /// The HUD's combat (the ring and the bars) on a frame no older than the fight's age limit; nil without one.
+    private func combatNow() -> Bool? {
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+        return observe(rgba(frame.image), plates: false).combat
+    }
+
+    private func fight(inCombat: Bool) async -> String {
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
         let parent = quester.body
         fights += 1
@@ -878,8 +902,9 @@ final class LiveQuestHost: QuestHost {
         guard let child = parent.keys.takeChild(releaseCodes: FightLimits.releaseCodes) else { return "INPUT_HANDOFF_FAILED" }
         let host = newFighter(folder, child)
         lock.withLock { fighting = host }
-        emit("fight_start", ["fight": fights, "in_combat": true, "controller": "SAFETY"])
-        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout), startHealth: 0, tactics: tactics)
+        emit("fight_start", ["fight": fights, "in_combat": inCombat, "controller": inCombat ? "SAFETY" : "JEV"])
+        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout),
+                                    startHealth: inCombat ? 0 : FightLimits.startHealth, tactics: tactics)
         emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
         guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
         lock.withLock { fighting = nil }

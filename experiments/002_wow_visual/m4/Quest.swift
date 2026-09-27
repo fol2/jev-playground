@@ -666,6 +666,7 @@ protocol QuestHost: AnyObject {
     func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
+    func fightAhead() async -> String  // one M3 fight at its start health: runFight's outcome; "BACK_" + it when fought in combat (M4p)
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
     func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
@@ -706,6 +707,10 @@ enum QuestLimits {
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
+    // A fight ahead out of combat that did not start (health under the fight's start) or that Jev stopped ends nothing: the
+    // stop stands (M4p). A fight in combat ("BACK_" outcomes: attacked since the stop, or after a JEV_STOP) follows M4i: only
+    // a kill goes on (review of #66).
+    static let fightAheadHeld: Set<String> = ["HOLD_PLAYER_HEALTH", "JEV_STOP"]
 }
 
 /// A step local code can run here: a hand-in, a quest to take, a hunt for a quest's creatures, or a way
@@ -717,6 +722,7 @@ enum QuestStep {
     case road(PlannedQuest, legs: [MapPoint])  // bound to the route found from the position read
     case use(PlannedQuest, item: String)  // the bag item the quest names (M4m)
     case retreat
+    case fightAhead  // the creature whose red name stopped the last walk (M4p)
     var name: String {
         switch self {
         case .handIn(let q): return q.title
@@ -725,6 +731,7 @@ enum QuestStep {
         case .road(let q, _): return "road: " + q.title
         case .use(_, let item): return "use: " + item
         case .retreat: return "retreat"
+        case .fightAhead: return "fight ahead"
         }
     }
     var key: String {  // what a failure is remembered by
@@ -737,6 +744,7 @@ enum QuestStep {
         case .road(let q, _): return "ROAD " + q.title
         case .use(let q, _): return "USE " + q.title
         case .retreat: return "RETREAT"
+        case .fightAhead: return "FIGHT_AHEAD"
         }
     }
 }
@@ -881,6 +889,12 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
     }
     let back = stopped != nil && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
         + "a hostile creature's red name came into view ahead of it.")] : []
+    // The owner, 26-27 Sept: level like a human, who fights what stands in the way. Runs 48-56 stopped at red names on nearly
+    // every walk round Thendal (level 2-3 Roiling Winds and Al'Aketh Converts, the character level 2).
+    let fightAhead = stopped != nil && !failed.contains("FIGHT_AHEAD") ? [("FIGHT_AHEAD", QuestStep.fightAhead, "Fight the hostile creature whose red name stopped the last "
+        + "walk: one bounded fight (select it with Tab, pull, melee and heal as the fight chooses), started only at 90% health or more. "
+        + "A kill clears the way, so the stopped step is offered again, and its experience is how the character levels; it may be a "
+        + "level above the character, and others near it may join.")] : []
     // The stopped step, from here, when it stopped within startNear of its place: its quest without the pin, so no walk.
     let here: [(String, QuestStep, String)] = {
         func near(_ q: PlannedQuest) -> PlannedQuest? {
@@ -911,7 +925,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
             + (usesNear(u.0) && u.0.pin != nil ? ", at the quest's place (\(away(u.0.pin!)) units away), " : ", here, ")
             + "as \"\(u.0.title)\" (level \(u.0.level)) asks. The log reads: \(u.0.objective)")
     }
-    let offers = back + here + handIns + accepts + uses + hunts
+    let offers = back + fightAhead + here + handIns + accepts + uses + hunts
     guard offers.isEmpty, let roads else { return offers }
     // ponytail: no map check; the run envelope is Zephras Isle, where the roads were learned. Compare the zone's
     // name above the minimap with roads.subzones before runs leave it.
@@ -963,7 +977,8 @@ struct QuestResult {
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
-    var stuck = 0, last: QuestStep?
+    var stuck = 0
+    var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
     let deadline = host.now() + QuestLimits.runSeconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -975,7 +990,8 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let offers = questOffers(read, failed: failed, stopped: r.steps.last?.outcome == "WALK_DANGER_AHEAD" ? last : nil, roads: roads, used: used)
+        let stopped = danger, stoppedKey = danger?.key
+        let offers = questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -1001,12 +1017,29 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .road(let q, let legs): outcome = await host.walkRoad(to: q, by: legs, until: deadline)
         case .use(let q, let item): outcome = await host.useItem(q, item: item)
         case .retreat: outcome = await host.retreat()
+        case .fightAhead: outcome = await host.fightAhead()
         }
         r.steps.append((offer.step.name, outcome))
-        last = offer.step
+        if outcome == "WALK_DANGER_AHEAD" {
+            danger = offer.step
+            failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
+        } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
+            failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
+        } else {
+            danger = nil
+        }
         // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
         if offer.skill == "FROM_HERE" && outcome.hasPrefix("HUNTED") { failed.remove(offer.step.key) }
+        if case .fightAhead = offer.step {  // M4p: a kill clears the way for the stopped step; a loss ends the run
+            let back = outcome.hasPrefix("BACK_"), fought = back ? String(outcome.dropFirst(5)) : outcome
+            if QuestLimits.fightWon.contains(fought) {
+                if let stoppedKey { failed.remove(stoppedKey) }
+                continue
+            }
+            if !back && QuestLimits.fightAheadHeld.contains(fought) { continue }
+            return finish("FIGHT_" + fought)
+        }
         if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
             host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])
             let fought = await host.fightBack()

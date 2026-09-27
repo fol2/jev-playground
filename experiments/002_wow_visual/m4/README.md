@@ -961,6 +961,31 @@ script rule would have cast it there, as `huntStartsNear` started a hunt near it
     3 map units, and a use from there spends the step for nothing. A use-at's `startNear` is a candidate to narrow
     once the Convergence's reach is measured.
 
+## M4p — Jev may fight what stands in the way (27 Sept)
+
+Live runs 48-56 stopped at red names on nearly every walk round Thendal: level 2-3 Roiling Winds and Al'Aketh Converts,
+with the character at level 2. The engine offered only a retreat, a start from where the character stood, or another
+quest, and the character did not level. The owner's goal is to level like a human, and a human fights what stands in
+the way, for its experience too.
+
+- **`FIGHT_AHEAD`** (quest graph `skyborne-quest-tools-v8`). It is offered beside `RETREAT` after any walk that a red
+  name stopped.
+- **What it runs.** One M3 fight from out of combat (`LiveQuestHost.fightAhead`, logged `controller: JEV`). It starts
+  only at the fight's start health, 90%. The fight's own Jev selects the creature (Tab) and pulls it; the fight's
+  limits and safety are M3's.
+- **After the fight.**
+  - A kill offers the stopped step again: its failure from the stop is forgotten.
+  - A fight that did not start (`HOLD_PLAYER_HEALTH`), or that Jev stopped (`JEV_STOP`), leaves the stop standing:
+    `RETREAT` is offered again, and this fight and the stopped step are not (review of #66).
+  - A creature that has come to the character since the stop makes it a fight back (start health 0). One that Jev
+    left fighting the character after a `JEV_STOP` is fought back at once, as SAFETY's, not handed to a quest decision.
+    A fight in combat then follows M4i: only a kill goes on, and any other outcome ends the run.
+  - Any other outcome ends the run, as a lost fight back does.
+- **Bounds.** It is offered only straight after a stop, so a kill does not offer another fight. Each walk that stops
+  again offers it again, within the run's 12 steps and 25 minutes.
+- **Evidence (sim).** `HuntTests` checks that there is no offer without a stop, and that a kill offers the hunt again.
+  It also checks that a loss ends the run, and that a held fight leaves the hunt failed. Live: not yet run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
