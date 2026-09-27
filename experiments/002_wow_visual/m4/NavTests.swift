@@ -200,10 +200,16 @@ struct NavTests {
         // M4z, live runs 78 and 79: the walk west to Foul Matriarch's pin stopped against a boulder twice. With those stops
         // remembered, the same straight walk passes one, and the road's place nearest the pin is reached round the south.
         let stops: [MapPoint] = [(40.4, 23.8), (40.7, 22.9)], thendal: MapPoint = (42.7, 23.4), matriarch: MapPoint = (39.6, 23.9)
-        let southward = learned.flatMap { route($0, from: thendal, to: matriarch, nearest: true) }
+        let southward = learned.flatMap { route($0, from: thendal, to: matriarch, avoid: stops) }
+        // Review of #83: the road's last place, and the walk from it to the pin, lie clear of every stop (the committed place
+        // nearest the pin is the boulder itself, and the nearest clear of it walks back across it); the way goes south round
+        // the ridge, where the route without the stops does not.
+        let offRoad = southward.flatMap { $0.count >= 2 ? $0[$0.count - 2] : nil }
         check(passesStuck(thendal, matriarch, stops) && !passesStuck(thendal, (44.6, 20.9), stops) && !passesStuck(thendal, matriarch, [])
-              && southward.map { $0.contains { $0.y > 25 } && same($0.last, 39.6, 23.9) } == true,
-              "M4z: a straight walk past a remembered stop goes by road, round the boulder to the place nearest the pin")
+              && southward.map { $0.contains { $0.y > 25 } && same($0.last, 39.6, 23.9) } == true
+              && offRoad.map { p in !stops.contains { distance($0, p) <= RoadLimits.stuckNear } && !passesStuck(p, shortOf(p, matriarch), stops) } == true
+              && learned.flatMap { route($0, from: thendal, to: matriarch) }.map { $0.contains { $0.y > 25 } } != true,
+              "M4z: a straight walk past a remembered stop goes by road, round the boulder to the nearest place clear of the stops")
         // Stands: two players come from the east to stand beside an NPC, one from the west; a lone trail makes none.
         let fromEast: [MapPoint] = [(43, 24), (42.8, 23.9), (42.6, 23.8), (42.2, 23.5), (42.1, 23.5), (42.1, 23.5), (42.1, 23.5)]
         let fromWest: [MapPoint] = [(41.2, 23.5), (41.6, 23.5), (42.2, 23.5), (42.2, 23.5), (42.2, 23.5)]

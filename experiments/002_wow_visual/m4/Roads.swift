@@ -129,9 +129,12 @@ func pruned(_ g: RoadGraph, minPlaces: Int = RoadLimits.minPart) -> RoadGraph {
 /// and off at a place within `reach` of `to`. The places on the way, simplified to where the road bends, then the
 /// goal. nil when no place is within reach of either end or no way joins them.
 // ponytail: Dijkstra by linear scan, O(places²); a heap if a graph grows past some thousands of places.
-/// `nearest` (M4z): end at the reachable place nearest the goal, so the walk off the road is the shortest there is; the
-/// cheapest end may lie across what stopped a walk before (live runs 78-79: the village's places east of the boulder).
-func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLimits.reach, nearest: Bool = false) -> [MapPoint]? {
+/// `avoid` (M4z): places where walks stopped. With them, the route ends at the reachable place nearest the goal whose own
+/// place, and whose walk off the road to the goal (all but its last `stuckNear`), lie clear of every stop, within half as far
+/// again as `reach`: the cheapest end may lie across what stopped a walk before (live runs 78-79: the village's places east
+/// of the boulder), and so may the nearest (review of #83: the committed place at 40.7, 23.8 is the boulder, 1.1 from the log's
+/// pin 39.6, 23.9, and the nearest place clear of it, 41.72, 23.43, walks off the road back across it).
+func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLimits.reach, avoid: [MapPoint] = []) -> [MapPoint]? {
     let n = g.places.count
     var cost = (0..<n).map { distance(from, g.point($0)) <= reach ? distance(from, g.point($0)) : Double.infinity }
     var previous = [Int?](repeating: nil, count: n), done = [Bool](repeating: false, count: n)
@@ -144,7 +147,11 @@ func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLim
             previous[v] = u
         }
     }
-    guard let end = (0..<n).filter({ cost[$0] < .infinity && distance(g.point($0), to) <= reach }).min(by: {
+    let nearest = !avoid.isEmpty, endReach = nearest ? reach * 1.5 : reach
+    guard let end = (0..<n).filter({ i in
+        cost[i] < .infinity && distance(g.point(i), to) <= endReach
+            && !avoid.contains { distance($0, g.point(i)) <= RoadLimits.stuckNear } && !passesStuck(g.point(i), shortOf(g.point(i), to), avoid)
+    }).min(by: {
         nearest ? (distance(g.point($0), to), cost[$0]) < (distance(g.point($1), to), cost[$1])
                 : cost[$0] + distance(g.point($0), to) < cost[$1] + distance(g.point($1), to)
     }) else { return nil }
@@ -157,11 +164,17 @@ func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLim
 /// passes within `near` of a place where an earlier walk stopped (NO_PROGRESS). Live runs 78 and 79 each walked west from
 /// Thendal Village into the same boulder; the roads players walked go south round it.
 func passesStuck(_ from: MapPoint, _ to: MapPoint, _ stuck: [MapPoint], near: Double = RoadLimits.stuckNear) -> Bool {
-    let dx = to.x - from.x, dy = to.y - from.y, span = dx * dx + dy * dy
+    let dx = (to.x - from.x) * mapAspect, dy = to.y - from.y, span = dx * dx + dy * dy  // in y units, as distance
     return stuck.contains { p in
-        let t = span == 0 ? 0 : max(0, min(1, ((p.x - from.x) * dx + (p.y - from.y) * dy) / span))
-        return distance(p, (from.x + t * dx, from.y + t * dy)) <= near
+        let t = span == 0 ? 0 : max(0, min(1, ((p.x - from.x) * mapAspect * dx + (p.y - from.y) * dy) / span))
+        return distance(p, (from.x + t * (to.x - from.x), from.y + t * dy)) <= near
     }
+}
+
+/// The walk from `from` to `to` stopped `near` short of `to`: a goal beside a stop is still walked up to (M4z).
+func shortOf(_ from: MapPoint, _ to: MapPoint, by near: Double = RoadLimits.stuckNear) -> MapPoint {
+    let d = distance(from, to)
+    return d <= near ? from : (to.x - (to.x - from.x) * near / d, to.y - (to.y - from.y) * near / d)
 }
 
 /// Whether the straight line from `from` to `to` leaves the learned roads, and they give a way round: some point on it,

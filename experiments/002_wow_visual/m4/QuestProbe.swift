@@ -1256,7 +1256,7 @@ final class LiveQuestHost: QuestHost {
         // goes straight back over the ground it crossed; a road's own leg is already on the road.
         let stuckAhead = !retreating && !road && at.map { passesStuck($0, pin, stuck) } == true
         if !retreating, !road, let roads, let at, stuckAhead || straightLeavesRoads(at, pin, roads),
-           let legs = route(roads, from: at, to: pin, nearest: stuckAhead) {
+           let legs = route(roads, from: at, to: pin, avoid: stuckAhead ? stuck : []) {
             let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
             emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length),
                               "stuck_ahead": stuckAhead])
