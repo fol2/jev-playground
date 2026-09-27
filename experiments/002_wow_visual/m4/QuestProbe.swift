@@ -9,6 +9,7 @@ enum QuestHUD {
     static let dialog = CGRect(x: 0, y: 140, width: 400, height: 580)  // the quest dialogue, left edge
     // A popup at top centre (27 Sept: "Release Spirit" at x 1153-1265, y 216-227; the Spirit Healer's Accept at y 242-257).
     static let popup = CGRect(x: 900, y: 120, width: 760, height: 260)
+    static let healer = CGRect(x: 512, y: 60, width: 1536, height: 640)  // the view's upper middle: a Spirit Healer's name over it
     // The unit under the pointer: the game's tooltip, bottom right, growing upwards (25 Sept: a player's four
     // lines at x 2278-2545, y 1150-1248).
     static let unitTip = unitTooltipBox
@@ -1012,26 +1013,28 @@ final class LiveQuestHost: QuestHost {
             guard let crop = image.cropping(to: box) else { return [] }
             return ocr(crop).map { ($0.0, box.minX + $0.1.midX * box.width, box.minY + (1 - $0.1.midY) * box.height) }
         }
-        func shown(_ image: CGImage?, _ last: DeathStep?) -> DeathClick? {
-            image.flatMap { deathStep(popup: texts(QuestHUD.popup, $0), dialog: texts(QuestHUD.dialog, $0), last: last) }
+        func names(_ box: CGRect, _ image: CGImage) -> [WorldName] {
+            guard let crop = image.cropping(to: box) else { return [] }
+            return ocr(crop).map { ($0.0, box.minX + $0.1.midX * box.width, box.minY + (1 - $0.1.minY) * box.height, $0.1.height * box.height) }
         }
-        guard !ownerTookFocus(), walker?.holding != true, let first = shown(await quester.frame(after: hostNow()), nil) else { return nil }
+        func shown(_ image: CGImage?, _ last: DeathStep?) -> DeathClick? {
+            image.flatMap { deathStep(popup: texts(QuestHUD.popup, $0), dialog: texts(QuestHUD.dialog, $0), world: names(QuestHUD.healer, $0), last: last) }
+        }
+        // No click while any of the run's keys is held (review of #73: a hunt that ended with keys held).
+        guard !ownerTookFocus(), !holding, let first = shown(await quester.frame(after: hostNow()), nil) else { return nil }
         emit("death", ["controller": "SAFETY", "shown": first.step.rawValue])
         let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { c in
             guard !self.ownerTookFocus() else { return false }
             self.emit("revive_click", ["controller": "SAFETY", "step": c.step.rawValue, "at": [Int(c.x), Int(c.y)]])
-            return self.quester.click(c.x, c.y)
+            return c.step == .talk ? self.quester.click(c.x, c.y, right: true) : self.quester.click(c.x, c.y)
         }) { step in
             let start = hostNow(), wait = step == .release ? QuestLimits.reviveWait : QuestLimits.reviveWait / 2
-            var latest: DeathClick?, gone = 0
-            while hostNow() - start < wait {
-                guard let image = await self.quester.frame(after: hostNow() + 0.3) else { continue }
-                latest = shown(image, step)
-                gone = latest == nil ? gone + 1 : 0
-                if let latest, latest.step == step.next { return latest }
-                if step == .accept && gone >= 2 { return nil }  // two fresh frames with nothing left to click: one OCR miss is not
+            var reads: [DeathClick?] = []
+            while true {
+                if let seen = deathSeen(after: step, reads, timedOut: hostNow() - start >= wait) { return seen }
+                guard let image = await self.quester.frame(after: hostNow() + 0.3) else { continue }  // no frame: no read
+                reads.append(shown(image, step))
             }
-            return latest
         }
         emit("revive_end", ["controller": "SAFETY", "outcome": end ?? ""])
         return end
@@ -1176,7 +1179,8 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     let revivedFirst = await host.reviveIfDead()
     var result = QuestResult()
     if let revivedFirst, revivedFirst != "REVIVED" { result.outcome = revivedFirst }
-    else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads) }
+    else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
+                                    seconds: host.runDeadline - hostNow()) }  // what setup and a revive left of the window
     await host.leaveDanger(after: result.outcome)
     let revived = await host.reviveIfDead()  // died in the run or on the way to safety
     try? await stream.stopCapture()
