@@ -138,9 +138,10 @@ final class LiveNavBody: NavBody {
             return nil
         }
         let hud = observe(pixels, plates: false)
-        let warnings = names.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
+        let danger = names.isEmpty ? [] : dangerNames(names, plates: nameplates(pixels))  // not a neutral creature's body
+        let warnings = danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
         var fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
-        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] } }
+        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] }; fields["danger"] = danger.count }
         emit("look", fields)
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
                       warnings: warnings)
