@@ -71,13 +71,15 @@ Rebuild and run from the repository root:
 ```sh
 V=experiments/002_wow_visual
 swiftc -O -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift \
-  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift \
+  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift $V/m5/RedNames.swift \
   $V/m5/PerceiveTool.swift $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
   $V/runtime/Experience.swift -o /tmp/m5-perceive
 DEVELOPER_DIR=/Applications/Xcode-27.0.0-beta.5.app/Contents/Developer xcrun swiftc -O -parse-as-library $V/m5/Teacher.swift -o /tmp/m5-teach
 (cd runs/002_wow_visual && find . -name '*.png' -o -name '*.jpg') | /tmp/m5-perceive --propose  # 2560 wide, 1320 (game), 1080 or 1440 (video) high
 /tmp/m5-teach && /tmp/m5-perceive --sheet 48  # then --audit FILE, sheet by sheet, until none is left
 /tmp/m5-perceive --train && /tmp/m5-perceive --baseline
+(cd runs/002_wow_visual && find . -name '*.png' -o -name '*.jpg') | /tmp/m5-perceive --red-propose  # game frames only (2560 x 1320)
+/tmp/m5-perceive --red-sheet 480  # then --red-audit FILE; --red-train, --red-train final, --red-baseline
 ```
 
 ## Results
@@ -304,6 +306,64 @@ checked each crop by eye):
   - The same "!" read "!" on one frame and "?" on the next, both at 1.00.
   - Confidence does not separate them: run 31's "!" read right at 0.70.
 - **So a mark under 6 px keeps its place** (`QuestLimits.kindMinHeight`), whatever its kind reads.
+
+## Red names the walk may pass (27 Sept)
+
+The walk's red-name rule (`redNames`, M4h) stopped the quest walks through the Juvenile Vuldren field (live runs
+35, 44 and 45). A red-brown body, a glint or a far fleck reads as a red name, and far names are too small for
+OCR. A learned reader now drops the rule's candidates that are no text at all. A real name, and any other red
+text, still stops the walk.
+
+```text
+saved frames -> m5-perceive --red-propose (the rule's candidates) -> --red-sheet N (48 a sheet) -> --red-audit FILE
+    -> --red-train (design) / --red-train final -> models/redname.mlmodel (private) -> --red-baseline (score)
+walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNames -> DANGER_AHEAD   (redDanger)
+```
+
+| File | Role | Proof |
+|---|---|---|
+| `Marks.swift` | `RedRow`, the crop (`redCrop`), the drop rule (`redDrops`), the audit grammar (`redAuditLabels`), the scores (`RedScore`, `RedFrames`) | `MarksTests.swift` |
+| `RedNames.swift` | `m5-perceive --red-*`: candidates, contact sheets, audit, Create ML training, the per-split score | argument refusal in `tools/MotorProof.swift` |
+| `Reader.swift` | `RedNameReader`: one candidate read through Core ML and Vision | built into `m4-nav`; scored by `--red-baseline` |
+| `../m4/NavProbe.swift` | `redDanger`: the walk's danger decision, shared by the live look and `--replay`; `red_read`, `red_dropped`, `red_ms` and `red_filter` in each look's log | built; replayed on saved walk frames |
+
+- **Labels by eye, three kinds.** 953 candidates from 6,350 saved frames, all seen by the author on contact sheets:
+  - `name` (191): a hostile creature's red name, near or far (Al'Aketh Convert, Cirrusfly Soldier and Queen, Roiling
+    Winds and others).
+  - `text` (423): other red text, mostly the UI's error line ("Out of range", "Interrupted").
+  - `none` (339): creature bodies, target rings, wings, terrain, red buttons and icons.
+- **The walk drops only `none`.** Red text other than a name stops the walk as before; the error line is rare while
+  walking. Labelling it `none` at first taught the model that some red text is none.
+- **Design, chosen on the validation runs** (model trained on the training runs only):
+  - A crop three times the candidate's width dropped 5 of the 29 validation names: the model learnt the scene.
+  - A square crop of the width plus two heights dropped 4. Scene-print revision 2 in place of 1 dropped 2, both
+    pieces of the Cirrusfly Queen's name (a validation run of 24 Sept).
+  - A rectangle hugging the text dropped 1 name but only 24 of 43 false ones (the square: 41); the square was kept.
+  - Augmentation (crop, blur, exposure, noise) gained nothing on validation and was left out.
+  - `--red-baseline` prints every split, so the test figures were in view while these were chosen. Only the
+    augmentation choice also looked at them (worse on test).
+- **The final model** is the chosen design fitted on the training and validation runs together
+  (`--red-train final`). The test runs were never learnt from.
+
+`m5-perceive --red-baseline` (sim, offline, on the saved frames), the final model:
+
+| Split | Names kept / dropped | False (`none`) kept / dropped | Frames with a name: missed | Frames without: still stopping |
+|---|---|---|---|---|
+| Training | 155 / 0 | 0 / 258 (learnt on these) | 0 of 94 | 0 of 307 |
+| Validation | 29 / 0 | 0 / 43 (learnt on these) | 0 of 17 | 0 of 216 |
+| Test, held out | 7 / 0 | 0 / 38 | 0 of 7 | 0 of 148 |
+
+- **Small held-out evidence.** The test runs hold 7 names; the rule alone would have stopped all 38 false ones.
+- **The walk's own decision, replayed** (`m4-nav --replay`, sim, offline) on the walk and hunt frames of the quest
+  runs of 26-27 Sept that have a candidate:
+  - Test runs: 2 of 9 frames still stop, both at a real Cirrusfly Soldier's name.
+  - Validation runs: 0 of 25.
+  - Training runs: 10 of 131, at 7 names and 3 lines of red text.
+- **Not bit-stable.** Scene-print revision 2 with logistic regression; a new SDK may shift the numbers.
+- **Fast enough to read in the move's loop.** A read takes about 6 ms a candidate on the Mac (64 ms the first, on
+  replay), and no saved frame of the 6,350 had more than 5 candidates: at most about 60 ms against the forward key's
+  1.5 s grant. The model loads once, with the first walk body, before any key goes down.
+- **Without the model the rule alone decides**, as before (`red_filter: rule` in the log). The model is private.
 
 ## Next
 

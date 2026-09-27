@@ -873,7 +873,8 @@ Runs 42-45 were unattended, as before.
 **Limits of M4m.**
 - The walk's red-name check still stops walks through the Vuldren field. It sees far red detections that are too
   small to read, and some are real names (M4h's 70). OCR cannot tell them apart. A learned classifier trained on
-  the saved walk frames, which keep every red name, is the next step.
+  the saved walk frames, which keep every red name, is the next step. It followed on 27 Sept: the walk now drops
+  the candidates a learned reader reads as no text (`redDanger`; ../m5/README.md, "Red names the walk may pass").
 - Objects on the ground (Harvesting Windstones) still have no skill.
 - The bags are read on every quest read that has a use-at quest, about 0.9 s a filled slot.
 

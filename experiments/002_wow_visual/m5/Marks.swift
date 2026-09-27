@@ -209,3 +209,79 @@ func framesDrawn(_ labels: [MarkLabel], limit: Int) -> [MarkLabel] {
     }
     return out
 }
+
+// MARK: - Red names (the walk rule's candidates, labelled by eye; RedNames.swift is the tool)
+
+/// One red-name candidate: its frame and box (x0, y0, x1, y1), with its label once audited: "name" (a hostile
+/// creature's red name), "text" (other red text, such as the UI's error line) or "none" (a body, a ring, terrain).
+struct RedRow: Codable, Equatable { var frame: String; var box: [Int]; var label: String? = nil }
+
+/// The crop of a candidate: a square its width plus two heights (32 px at least), centred on it, inside the frame. A
+/// wider context crop let the classifier learn the scene (a dark forest meant a name) and drop an unseen creature's
+/// name on held-out runs; the tight crop shows mostly the text (27 Sept).
+func redCrop(_ box: [Int], width: Int, height: Int) -> (x: Int, y: Int, w: Int, h: Int) {
+    let side = min(max(32, box[2] - box[0] + 1 + 2 * (box[3] - box[1] + 1)), width, height)
+    let cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2
+    return (max(0, min(width - side, cx - side / 2)), max(0, min(height - side, cy - side / 2)), side, side)
+}
+
+/// The auditor's lines for the last sheets: "name 3 7 12", "text 4 5", "none 0 1 2", and "none *" for every id not
+/// named on another line. nil: a line that is neither, or an id off the sheets. Every id must end with a label.
+func redAuditLabels(_ text: String, count: Int) -> [Int: String]? {
+    var labels: [Int: String] = [:], rest: String? = nil
+    for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+        let f = line.split(separator: " ").map(String.init)
+        guard let label = f.first, ["name", "text", "none"].contains(label), f.count > 1 else { return nil }
+        if f.count == 2 && f[1] == "*" { rest = label; continue }
+        for id in f.dropFirst() {
+            guard let n = Int(id), (0..<count).contains(n) else { return nil }
+            labels[n] = label
+        }
+    }
+    if let rest { for n in 0..<count where labels[n] == nil { labels[n] = rest } }
+    return labels.count == count ? labels : nil
+}
+
+/// How a red-name filter did against the labels: real names kept and dropped, false ones ("none") kept and dropped.
+/// Other red text is kept by design (the filter drops only what it reads as "none"), so it is not scored here.
+struct RedScore: Equatable {
+    var namesKept = 0, namesDropped = 0, falseKept = 0, falseDropped = 0
+    mutating func add(label: String, kept: Bool) {
+        guard label != "text" else { return }
+        switch (label == "name", kept) {
+        case (true, true): namesKept += 1
+        case (true, false): namesDropped += 1
+        case (false, true): falseKept += 1
+        case (false, false): falseDropped += 1
+        }
+    }
+}
+
+/// The walk's view of a filter: a frame warns while any of its candidates is kept. A frame with a real name must still
+/// keep one of its names (missed otherwise: a kept false one warns at another bearing); a frame without a name should
+/// keep no "none" (a false stop otherwise; red text other than a name still stops it, by design).
+struct RedFrames: Equatable {
+    var named = 0, missed = 0, clear = 0, falseStops = 0
+    init(named: Int = 0, missed: Int = 0, clear: Int = 0, falseStops: Int = 0) {
+        (self.named, self.missed, self.clear, self.falseStops) = (named, missed, clear, falseStops)
+    }
+    init(_ decisions: [(frame: String, label: String, kept: Bool)]) {
+        self.init()
+        for (_, d) in Dictionary(grouping: decisions, by: \.frame) {
+            if d.contains(where: { $0.label == "name" }) {
+                named += 1
+                if !d.contains(where: { $0.label == "name" && $0.kept }) { missed += 1 }
+            } else {
+                clear += 1
+                if d.contains(where: { $0.label == "none" && $0.kept }) { falseStops += 1 }
+            }
+        }
+    }
+}
+
+/// The walk drops a red-name candidate only when the learned reader reads it as "none" (a body, a ring, terrain) with
+/// this confidence or more. A name, other red text, a lower confidence or no reading at all keeps it a danger.
+let redDropConfidence = 0.8
+func redDrops(_ read: (label: String, confidence: Double)?) -> Bool {
+    read.map { $0.label == "none" && $0.confidence >= redDropConfidence } ?? false
+}

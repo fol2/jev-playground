@@ -28,7 +28,7 @@ struct MarkReader {
     }
 
     /// The top class and its confidence. The crops are square, so filling the model's square input keeps their shape.
-    func classify(_ model: VNCoreMLModel, _ image: CGImage) throws -> (label: String, confidence: Double)? {
+    static func classify(_ model: VNCoreMLModel, _ image: CGImage) throws -> (label: String, confidence: Double)? {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
         try VNImageRequestHandler(cgImage: image).perform([request])
@@ -46,7 +46,7 @@ struct MarkReader {
     func mark(_ image: CGImage, box: [Int]) throws -> LearnedMark? {
         let c = glyphCrops(box, width: image.width, height: image.height)
         guard let context = image.cropping(to: CGRect(x: c.context.x, y: c.context.y, width: c.context.w, height: c.context.h)),
-              let seen = try classify(detect, context), seen.label == "mark",
+              let seen = try Self.classify(detect, context), seen.label == "mark",
               let which = try glyphKind(image, box: box) else { return nil }
         return LearnedMark(box: box, kind: which.label, confidence: seen.confidence)
     }
@@ -56,6 +56,24 @@ struct MarkReader {
     func glyphKind(_ image: CGImage, box: [Int]) throws -> (label: String, confidence: Double)? {
         let c = glyphCrops(box, width: image.width, height: image.height).shape
         guard let shape = image.cropping(to: CGRect(x: c.x, y: c.y, width: c.w, height: c.h)) else { return nil }
-        return try classify(kind, shape)
+        return try Self.classify(kind, shape)
+    }
+}
+
+/// The red-name classifier (m5-perceive --red-train, RedNames.swift): what a red-name candidate of the walk's rule
+/// (redNames) is, from its crop (redCrop): "name" (a hostile creature's), "text" (other red text, such as the UI's
+/// error line) or "none" (a body, a ring, terrain). The walk drops only what redDrops allows.
+struct RedNameReader {
+    let model: VNCoreMLModel
+
+    init(models dir: URL = MarkReader.models) throws {
+        model = try VNCoreMLModel(for: MLModel(contentsOf: MLModel.compileModel(at: dir.appendingPathComponent("redname.mlmodel"))))
+    }
+
+    /// The top class and its confidence for one candidate box (x0, y0, x1, y1); nil off the frame.
+    func read(_ image: CGImage, box: [Int]) throws -> (label: String, confidence: Double)? {
+        let r = redCrop(box, width: image.width, height: image.height)
+        guard let crop = image.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { return nil }
+        return try MarkReader.classify(model, crop)
     }
 }
