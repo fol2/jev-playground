@@ -1246,6 +1246,32 @@ character's, and Sell All Junk had sold such grey gear before.
   at level 4. Live run 78: the reward cloak of run 77 (+2) was worn, the Ragged Cloak back in its slot; after a hunt and a
   hand-in the check read `NO_UPGRADE`.
 
+## M4y — each step's record across runs (27 Sept)
+
+The owner, 27 Sept: "Btw can the engine self-improve? Eg path finding, hunt, etc…". Live runs 77 and 78 each chose the
+Harvesting Windstones hunt first, and each ended `HUNT_NO_TARGET_FOUND` (Windstones are objects to pick up, not creatures):
+the in-run `failed` set is forgotten when a run ends.
+
+- `recordStep` (pure): a step's outcome updates its record, by the step's key. A success (`COMPLETED`, `HUNTED`, `SOLD`,
+  `TRAINED`...) forgets its failures; an outcome that says nothing about the step (the owner's takeover, the clock, combat or
+  danger on the way, nothing to sell or learn, gear unsettled) leaves them; any other adds one, with the outcome and the level.
+  A retreat or a fight ahead is not recorded: it is about the creature there; nor an accept, whose key is where its "!"
+  showed. Review of #81: the takeover is silent however the host prefixes it (`WALK_`, `HUNT_`, `OWNER_OR_TIME`), and so are
+  the engine's own faults (keys held, a handoff, a HUD unread).
+- `withHistory`: `runQuests` adds a step's record to its criterion ("Earlier runs: this step failed 2 times since it last
+  worked, the last time as HUNT_NO_TARGET_FOUND at level 4; a step that failed the same way rarely works unless something has
+  changed since"). Jev still chooses: knowledge, not a rule, and no step is removed.
+- `LiveQuestHost.remember` keeps the records in the character's memory (`runs/…/memory/character.json`, private) beside the
+  level last trained, and logs `step_memory`. A level read below any remembered one is a new character of the same name: the
+  memory is forgotten.
+- The owner's gear rule of 27 Sept joins `owner-rules.md`.
+- Evidence: sim (`HuntTests`: two failures counted, the takeover, the clock and nothing to sell leave them, a success forgets
+  them; a run's Jev reads the record in the hunt's criterion and the outcome is remembered). Live run 79: `step_memory` logged
+  "HUNT Foul Matriarch" failed once (`WALK_NO_PROGRESS`, the walk west stopped against a boulder at 40.7,22.9, as in run 78)
+  and "HUNT Harvesting Windstones" once (`HUNT_HUD_UNREADABLE`, now silent: that record was dropped), and the character's
+  memory held them. Live run 80: the Foul Matriarch hunt's criterion read run 79's record ("Earlier runs: this step failed
+  once … WALK_NO_PROGRESS at level 4"), and Jev chose another step first.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

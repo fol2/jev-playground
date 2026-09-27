@@ -11,6 +11,7 @@ a later owner instruction replaces an earlier one. Dates are when the owner gave
 - Walk on roads by preference, especially between zones. [owner] 24 Sept 2026
 - Always accept quests. [owner] 24 Sept 2026
 - A reward that is better than what is worn (for example more armour) is taken and equipped; otherwise take the one with the highest sell value, to sell. [owner] 24 Sept 2026
+- Always wear better gear first, out of combat: a right-click on a bag item equips it or swaps it for what is worn. [owner] 27 Sept 2026
 
 ## Fighting
 
