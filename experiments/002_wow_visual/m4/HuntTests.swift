@@ -196,6 +196,12 @@ extension NavTests {
               "one compass walk at most four times in a row")
         check(!huntAdmissible(wind, steps: Array(repeating: step(.toArea), count: HuntLimits.maxMoves)).contains { $0.isWalk },
               "at most 24 walks per hunt")
+        let spent = Array(repeating: step(.toArea), count: HuntLimits.maxMoves) + [step(.lookAround)]
+        let alone = HuntObs(objectives: objectives, facing: 0, here: here)  // nothing selected, nothing counting in view
+        check(huntAdmissible(alone, steps: spent).isEmpty && emptyHuntEnd(spent) == "MOVE_LIMIT"
+              && emptyHuntEnd([step(.lookAround)]) == "NO_ADMISSIBLE_SKILL"
+              && huntOutcome("MOVE_LIMIT", start: [], end: []) == "HUNT_MOVE_LIMIT" && QuestLimits.huntFails.contains("HUNT_MOVE_LIMIT"),
+              "live run 37: walks spent and a look just taken leave nothing to offer; the hunt ends MOVE_LIMIT, not HUD_UNREADABLE")
         var drained = wind
         drained.mana = 0.5
         drained.mana = 0.2

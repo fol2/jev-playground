@@ -771,6 +771,19 @@ it: two level-1 Juvenile Vuldren, one's red-brown body read as a red name. Only 
 Near a kill quest's pin red names are most likely its creatures, so a hunt's walk stopped by one within 3 units starts
 the hunt there (`huntStartsNear`): the hunt reads each plate's name, fights only what counts, and fights back.
 
+Run 36 (27 Sept, about 02:04) walked to 2.8 from the hunt's pin. There the quest area's blue band crossed the minimap
+arrow's tip, the facing read 258-344° for 131°, and the walk turned on the spot until `NO_PROGRESS`. The arrow's tail
+is now its compact navy dot (see Perception above).
+
+Run 37 (27 Sept, about 02:15) hunted Pesky Cirrusfly where run 36 had stopped, and three fights started, each against
+a Cirrusfly selected in front of the character. None landed a blow.
+- The fight's revalidation cue was the target frame's raw name, whose OCR tail changes every frame ("Pesky Cirrusfly
+  AOРAU", "Pesky Cirrusfly 4845"). FACE_TARGET was chosen 26 times and each was refused `target_cue_changed`; Jev
+  then chose STOP. A hunt's fights now take the hunt's cue (`targetCue`): every reading of a creature that counts is its
+  objective. A fight back on a walk keeps the raw name.
+- After 24 walks, LOOK_AROUND left nothing admissible on a readable frame, and the empty request ended the hunt
+  `HUD_UNREADABLE`. It now ends `MOVE_LIMIT` (or `NO_ADMISSIBLE_SKILL`), which fails the step, not the run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

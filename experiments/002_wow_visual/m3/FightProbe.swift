@@ -112,6 +112,10 @@ final class LiveHost: FightHost {
     private var frameNo = 0
     var walkedMs = 0
     var corpseNames = fightNames  // M4b adds the creature a hunt fights
+    /// The target's name as a cue for revalidation. M4b maps every reading of a creature that counts to its objective: the
+    /// frame's OCR adds a changing tail ("Pesky Cirrusfly AOРAU", "Pesky Cirrusfly 4845"), and each change rejected the
+    /// action taken on the one before (live run 37, 27 Sept: FACE_TARGET 26 times, "not done: target_cue_changed").
+    var cue: (String) -> String = { $0 }
     var turnedMs = 0
 
     init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log, input: LiveKeys? = nil) {
@@ -191,7 +195,7 @@ final class LiveHost: FightHost {
         o.stamp = frame.stamp
         if identifyTarget, let nameBox = image.cropping(to: CGRect(x: 1590, y: 950, width: 330, height: 50)) {
             let name = ocr(nameBox).map(\.0).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            o.stamp?.target = name.isEmpty ? nil : name
+            o.stamp?.target = name.isEmpty ? nil : cue(name)
         }
         return o
     }

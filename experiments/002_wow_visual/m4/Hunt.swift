@@ -445,6 +445,13 @@ func questCreature(_ o: HuntObs) -> Seen? {
 /// headings, the real Jev backed away from a ridge instead of following it. Inside, the walks are
 /// compass headings and the way to a creature that counts. NEXT_TARGET right after a walk or a look
 /// would select the same creature: both end with a Tab.
+/// What ends a hunt with a position read and nothing admissible: its walks spent, else nothing to do here. Live run 37,
+/// 27 Sept: after 24 walks and three fights LOOK_AROUND was the last step, the empty request was refused, and the hunt
+/// ended HUD_UNREADABLE on a readable frame.
+func emptyHuntEnd(_ steps: [HuntStep]) -> String {
+    steps.filter { $0.action.isWalk }.count >= HuntLimits.maxMoves ? "MOVE_LIMIT" : "NO_ADMISSIBLE_SKILL"
+}
+
 func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []) -> [HuntAction] {
     // Attacked with nothing alive selected: the attacker may be behind, where Tab never reaches (live hunt
     // 9 died to a Roiling Wind at the edge of the view), so LOOK_AROUND turns and Tabs; FIGHT can heal.
@@ -764,6 +771,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         if !o.combat && sinceFight >= HuntLimits.searchLimit { return finish("NO_TARGET_FOUND") }
 
         let allowed = huntAdmissible(o, steps: r.steps, blocked: blocked)
+        if allowed.isEmpty { return finish(emptyHuntEnd(r.steps)) }  // an empty request is no decision (live run 37)
         var state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
         let experienceFrame = huntExperienceFrame(o, blocked: blocked)
         let experienceContext = experienceFrame?.context ?? [:]

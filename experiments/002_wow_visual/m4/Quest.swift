@@ -644,7 +644,8 @@ enum QuestLimits {
     // A hunt that ends at one of its limits with no count risen fails its step; any other code that is
     // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
     static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
-                                         "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE"]
+                                         "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE", "HUNT_MOVE_LIMIT",
+                                         "HUNT_NO_ADMISSIBLE_SKILL"]
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, by the learned roads (Roads.swift)
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
     // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a

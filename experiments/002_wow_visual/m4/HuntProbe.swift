@@ -43,6 +43,7 @@ final class LiveHuntHost: HuntHost {
     private var walkNo = 0
     private var fights = 0
     private var lastTarget: String?
+    private var lastObjectives: [Objective] = []  // the last survey's, for a fight's target cue
     let fightJev: JevClient  // M3's 4 s timeout, whatever the hunt's own decisions wait
     let fightTactics: FightTactics?  // M3b's chains for each fight; nil: the legacy flat policy
 
@@ -145,6 +146,7 @@ final class LiveHuntHost: HuntHost {
             }
         }
         lastTarget = o.target
+        lastObjectives = o.objectives
         emit("look", ["frame": frameNo - 1, "tracker": lines, "target": orNull(o.target), "alive": o.targetAlive,
                       "health": Int(o.player * 100), "mana": Int(o.mana * 100), "combat": o.combat, "game_menu": o.gameMenu,
                       "facing": orNull(o.facing.map { Int($0.rounded()) }), "x": orNull(o.here?.x), "y": orNull(o.here?.y),
@@ -166,6 +168,8 @@ final class LiveHuntHost: HuntHost {
         }
         let host = LiveHost(session: session, feed: feed, sink: sink, directory: folder, log: log, input: childKeys)
         if let name = lastTarget { host.corpseNames.append(name.lowercased()) }
+        let objectives = lastObjectives
+        host.cue = { targetCue($0, objectives) ?? $0 }
         lock.withLock { fighting = host }
         defer { lock.withLock { fighting = nil } }
         emit("fight_start", ["fight": fights, "target": orNull(lastTarget), "in_combat": inCombat])
