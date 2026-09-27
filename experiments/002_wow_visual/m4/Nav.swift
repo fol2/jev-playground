@@ -155,6 +155,9 @@ func parseCoords(_ text: String) -> MapPoint? {
     // Both numbers keep their decimal: a reading that lost one lost a glyph, and a glyph lost elsewhere reads a wrong
     // place (live runs 28-29, 26 Sept: "44.9, 23.4" read as "44.9, 23", and then as "4.9, 23", 40 units off).
     // A decimal point may read as a comma, a glyph kept (live run 31, 27 Sept: "42,2,23.7" twice, and the hunt stopped).
+    // Letters OCR has put for a digit of the same shape, live (run 32, 27 Sept: "42.G,24.3" on every frame for 3 s, with
+    // "24.З", a Cyrillic Ze, and the walk stopped); the pattern still asks for every digit.
+    let text = String(text.map { ["G": "6", "З": "3"][$0] ?? $0 })
     guard let match = text.range(of: pattern, options: .regularExpression) else { return nil }
     let n = text[match].split { !$0.isNumber }.compactMap { Int($0) }
     guard n.count == 4 else { return nil }

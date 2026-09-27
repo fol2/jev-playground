@@ -356,6 +356,13 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
 /// "!" (live run 14, 26 Sept: Ailee Farheart's "Hello, shaman." above "! Coming of Age"). OCR reads that "!" as "?" too
 /// (live run 31, 27 Sept: "? The Gift of Skysight"). A "?" entry hands in a quest of the log (`ours`), so one that is not
 /// in it is offered; its page must still show Accept.
+/// The greeting's entry the minimap's tooltip named: a line after a quest icon ("!" or "?") whose text is one of `names`.
+/// The panel's title is the NPC's name, which a "!" tooltip names too (live run 32, 27 Sept: Ventaari Brightwish's title
+/// was clicked and his offer left), so a line without an icon is never it.
+func namedEntry(_ dialog: [TipLine], names: [String]) -> TipLine? {
+    dialog.first { l in (l.text.hasPrefix("!") || l.text.hasPrefix("?")) && names.contains { nameKey($0) == nameKey(l.text) } }
+}
+
 func offeredEntry(_ dialog: [TipLine], ours: [String]) -> TipLine? {
     dialog.first { l in
         let title = String(l.text.dropFirst())

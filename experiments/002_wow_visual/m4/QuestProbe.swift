@@ -532,7 +532,7 @@ final class QuestRun {
         if acceptButton(dialog) == nil {
             let opened = await openAtMark(want: "exclamation") { page in
                 var page = page
-                if acceptButton(page) == nil, let entry = listed(page) ?? offeredEntry(page, ours: self.logTitles) {
+                if acceptButton(page) == nil, let entry = namedEntry(page, names: giver.names) ?? offeredEntry(page, ours: self.logTitles) {
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
                     await self.sleep(1.5)
                     page = self.lines(QuestHUD.dialog, await self.frame())

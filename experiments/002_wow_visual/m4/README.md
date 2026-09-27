@@ -708,6 +708,40 @@ Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 RE
   view, at the click, and in view after), it read the one "!" the rules read, and it changed no action.
 - Offline: one nav check, on run 14's lines.
 
+### Live runs 15-31, unattended (26-27 Sept)
+
+The owner authorised unattended runs; each was announced, recorded (the screen, beside the engine, by ffmpeg) and
+studied frame by frame before the next. Recordings are private and kept off the repository. Every row is live.
+
+| Run | What went wrong | The fix |
+|---|---|---|
+| 15 | A "Speak with" objective was planned as `USE_AT` | "speak with" and "talk with" are travel (`questKind`) |
+| 16 | A minimap tooltip left over the arrow: no facing, `WALK_HUD_UNREADABLE` | the pointer is parked after the log read |
+| 17 | A garbled green name was never confirmed by the hover | a tooltip with a level line and no "(Player)" is an NPC (`npcTip`) |
+| 18-19 | The walk to a platform's NPC ended under it (the owner: "you walked under the bridge") | stands learned from the video trails: walk first to where players came from (`walkBeside`, `approach`) |
+| 20 | A log read with a quest unpinned was remembered | a log is remembered only with every pin; a pinless hand-in is offered at the player's place |
+| 21 | A logged quest's icon was taken for a giver; the rules missed a near "?" | givers whose tooltip names a logged quest are dropped; the learned reader adds click targets, hover-confirmed |
+| 22 | The first unattended hand-in: "Experience gained: 40", and the follow-up accepted | then "[1]" before the tracker's title (`parseTracker`) |
+| 23 | Jev wandered between ENTER and BACK to `GRAPH_callLimit` | a decision's last call offers every offered skill flat, so it commits |
+| 24-26 | Plate flicker, a misread target name, and the target cue changing ended fights | sightings merged at revalidation, `mostlyIn`, `targetCue` |
+| 27-28 | FIGHT_TARGET hidden at the root; Jev walked to the area instead of fighting | a retained subgoal's path offers its ancestors' skills; the goal allows counting creatures anywhere; `targetInRange` |
+| 28-29 | Whole-number coordinates read ("4.9, 23"): 40 units off | both decimals required again; the position read retries five frames |
+| 30 | All eight Juvenile Vuldren killed, three hunts, seven fights, no death; Elatrell's stand missed | the earliest in-range approach reading, stand chains, a stand within 0.7 |
+| 31 | The hand-in clicked a giver's "!" ahead (the "?" was 90° left); a greeting's "!" read as "?"; one unread position ended the hunt | see below |
+
+Run 31 (27 Sept, about 01:00) took Infestation Investigation from Elatrell Featherlight, then:
+- **Hand-in.** The approach walk ended facing the way it went, and Ventaari Brightwish's "!" was the only mark in
+  view. Now the character turns to face the pin on arriving (`face`), and a hand-in clicks only "?" marks, a quest
+  taken only "!" marks, as the learned reader names each rule mark's kind (`glyphKind`, `clickMarks(want:)`).
+  - On saved frames the kind was right for 20 of 20 marks of 6 px and more. Far marks of 3-5 px were not: one "!"
+    read as "?" at confidence 1.00. A mark under 6 px keeps its place (`kindMinHeight`). `m5-perceive --kinds`
+    prints the kinds.
+- **Greeting.** OCR read Ventaari's "! The Gift of Skysight" as "? ...". A "?" entry hands in a quest of the log,
+  so one whose quest is not in the last log read is an offer (`offeredEntry(_:ours:)`); its page must still show Accept.
+- **Hunt.** "42,2,23.7" did not parse, and after LOOK_AROUND nothing was admissible without a position; the empty
+  request ended the hunt `HUD_UNREADABLE`. `parseCoords` takes a decimal comma, and such a survey is read again
+  (the sim check fails without the fix).
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

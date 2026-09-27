@@ -638,6 +638,10 @@ extension NavTests {
                             ("? The Gift of Skysight", 30, 400), ("Goodbye", 40, 690)])
         check(offeredEntry(skysight, ours: ours)?.y == 400,
               "a \"?\" entry whose quest is not in the log is one to take (OCR read its \"!\" as \"?\"); the log's own is not")
+        // Live run 32: the "!" tooltip named "Rorian the Dayseeker" and "Ventaari Brightwish"; Ventaari's title was clicked.
+        check(namedEntry(skysight, names: ["Rorian the Dayseeker", "Ventaari Brightwish"]) == nil
+              && namedEntry(greeting, names: ["Coming of Age"])?.y == 400,
+              "the entry a tooltip named has a quest icon: the panel's title, the NPC's name, is not an entry")
         // Live, 25 Sept: with nothing open, a vendor's name in the world beside the box was read as her dialogue.
         check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
               && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),

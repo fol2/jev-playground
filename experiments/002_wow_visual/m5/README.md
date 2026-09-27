@@ -287,6 +287,23 @@ score was seen, and none is picked by it:
 - The learned reader stays in shadow. What it needs is held-out marks from the live game, which the next live runs
   bring (stage three logs them).
 
+## The kind the rules cannot name (live run 31, 27 Sept)
+
+The learned reader acts in two ways, and in neither does it replace the rules.
+- **It adds targets.** It supplies click targets the rules miss, and a hover must confirm each of them (live run 21).
+- **It filters by kind.** It names the kind of each rule mark (`MarkReader.glyphKind`, the `kind` model on that
+  mark's shape crop).
+  - A hand-in clicks only "?" marks, and a quest taken only "!" marks.
+  - Run 31's hand-in had clicked a giver's "!".
+
+`m5-perceive --kinds FRAME...` prints each rule mark's kind and confidence. On saved frames of 24-27 Sept (the author
+checked each crop by eye):
+- **Marks of 6 px and more:** 20 of 20 right, all at confidence 0.99-1.00.
+- **Far marks of 3-5 px:** not reliable.
+  - The same "!" read "!" on one frame and "?" on the next, both at 1.00.
+  - Confidence does not separate them: run 31's "!" read right at 0.70.
+- **So a mark under 6 px keeps its place** (`QuestLimits.kindMinHeight`), whatever its kind reads.
+
 ## Next
 
 1. Audit the shadow's live frames. Promote the learned reader only when it beats the rules on held-out frames.
