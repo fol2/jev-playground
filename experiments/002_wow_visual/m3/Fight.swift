@@ -1145,10 +1145,14 @@ let huntRoles = fightRoles + [.drink, .food]
 
 let duplicateTooltip = "one tooltip on two slots (was the pointer moved?)"
 
-/// Whether a bar read is read once more, slower, before its problems stop a run: only for one tooltip on two slots. A client
-/// just launched fetches item data as each tooltip opens, so a slot's tooltip can still be the slot's before (live run 49,
-/// 27 Sept: "-" read water without its Use line, then "=" read water where Tough Jerky was).
-func rereadsBar(_ problems: [String]) -> Bool { problems.contains(duplicateTooltip) }
+/// Whether a bar read is read once more, slower, before its problems stop a run: for one tooltip on two slots, or a bar
+/// read wholly empty. A client just launched fetches item data as each tooltip opens, so a slot's tooltip can still be the
+/// slot's before (live run 49, 27 Sept: "-" read water without its Use line, then "=" read water where Tough Jerky was).
+/// Just after Enter World no tooltip shows at all (live run 53, 27 Sept: every slot read nothing 8 s after the world was
+/// entered); a bar in play is never empty.
+func rereadsBar(_ bar: [Skill?], _ problems: [String]) -> Bool {
+    problems.contains(duplicateTooltip) || (!problems.isEmpty && bar.allSatisfy { $0 == nil })
+}
 
 /// The first slot of each role; problems name what a live run must not start without.
 func assignRoles(_ bar: [Skill?], required: [SkillRole] = huntRoles) -> (keys: [SkillRole: UInt16], problems: [String]) {

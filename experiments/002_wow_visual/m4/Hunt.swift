@@ -843,7 +843,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             misses += 1
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             // live run 55 (27 Sept): the facing unread on every survey at the Windstones' area ended the hunt so
-            if misses == HuntLimits.unreadableLimit - 1 { await unstickTurn(host.keys, misses: misses, sleep: { await host.sleep($0) }, emit: host.emit) }
+            if misses == HuntLimits.unreadableLimit - 1 && !o.combat {  // in combat a turn is the fight's (review of #63)
+                await unstickTurn(host.keys, misses: misses, sleep: { await host.sleep($0) }, emit: host.emit)
+            }
             await host.sleep(HuntLimits.settle)
             continue
         }
