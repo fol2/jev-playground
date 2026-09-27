@@ -169,8 +169,12 @@ struct NavTests {
         check(route(l, from: (44, 24.2), to: (40, 19.5)) == nil, "a road walked one way only gives no route back: a drop may not climb back")
         // Road gap (the owner, 27 Sept: obstacles and cliffs): a road down x = 40, west to x = 36, south, and back east;
         // the straight line down x = 40 crosses ground no player walked.
-        let round: [MapPoint] = (0...4).map { (40, 20 + Double($0)) } + (1...4).map { (40 - Double($0), 24) }
-            + (1...12).map { (36, 24 + Double($0)) } + (1...4).map { (36 + Double($0), 36) }
+        // In parts: one expression of four mapped ranges was too slow to type-check on CI (review of #69's gate).
+        let down: [MapPoint] = (0...4).map { i -> MapPoint in (40, 20 + Double(i)) }
+        let west: [MapPoint] = (1...4).map { i -> MapPoint in (40 - Double(i), 24) }
+        let down2: [MapPoint] = (1...12).map { i -> MapPoint in (36, 24 + Double(i)) }
+        let back: [MapPoint] = (1...4).map { i -> MapPoint in (36 + Double(i), 36) }
+        let round = down + west + down2 + back
         let gap = buildRoads([("a", round)])
         let roundLegs = route(gap, from: (40, 22), to: (40, 35.5))
         check(straightLeavesRoads((40, 22), (40, 35.5), gap) && roundLegs?.contains { $0.x < 37 } == true && same(roundLegs?.last, 40, 35.5),
