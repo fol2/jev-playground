@@ -1165,6 +1165,23 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
 - **Evidence.** Sim: `HuntTests` covers the level, the money, the rows (on the live OCR lines), the offers, and one run
   that trains and sells. Live: the next run.
 
+## M4v — quest enders from the wiki (27 Sept)
+
+The owner's goal names "ref, wiki" beside ML vision. Live runs 67, 68 and 69 each offered the ready quest "Agitators", and each
+hand-in failed (`DIALOGUE_NOT_OPEN`, `NO_QUEST_MARK_IN_VIEW`). From the village the map showed no pin for it, so the hand-in
+sought its "?" where the character stood. Its ender is Yala Windwatcher in Thendal Grove, where she gave the quest (M4a).
+
+- **Knowledge** (`learning/knowledge/zephras-quests.json`): each quest's ender and where they stand, from warcraft.wiki.gg
+  (read by a research subagent; URLs per quest). Agitators → Yala Windwatcher (47.3, 21.9); Harvesting Windstones → Dalia the
+  Collector (43.2, 24.0); The Gift of Skysight → Ventaari Brightwish (42.6, 24.4).
+- **The log** (`withEnders`): each quest is named with its ender; one with no map pin takes its ender's place. A map pin
+  stays, since it is what the game shows now. Jev's hand-in offer names the ender.
+- **The hand-in** (`turnIn(ender:)`): with the ender's name known, the NPC is opened by its name first (`openByName`, M4u:
+  the name read at twice its size, the tooltip naming it). The completion page follows as before (a quest list's entry,
+  Continue). Someone else's page is closed, and the "?" is sought after, as before.
+- **Evidence.** Sim: `HuntTests` (the pin filled, a map pin kept, an unknown quest left alone; the offer names the ender).
+  Live: the next run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

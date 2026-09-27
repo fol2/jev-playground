@@ -49,7 +49,7 @@ let motorPaths: Set<String> = Set(
        "QuestProbe.swift", "Roads.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
     + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "RedNames.swift", "Objects.swift", "Facing.swift", "Teacher.swift", "Train.swift", "README.md"]
         .map { perceiveDir + $0 }
-    + [visualDir + "README.md", learnDir + "VideoJev.swift", learnDir + "knowledge/zephras-roads.json", learnDir + "knowledge/zephras-town.json"])
+    + [visualDir + "README.md", learnDir + "VideoJev.swift", learnDir + "knowledge/zephras-roads.json", learnDir + "knowledge/zephras-town.json", learnDir + "knowledge/zephras-quests.json"])
 /// Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.
 let retired: [String: String] = Dictionary(uniqueKeysWithValues:
     ["observations.py", "test_observations.py", "m4/tabletop.py", "learning/video_jev.py"].map { (visualDir + $0, "motor-offline") }
