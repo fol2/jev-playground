@@ -357,13 +357,30 @@ final class QuestRun {
     /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
     /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
     /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
-    func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
+    func readQuests(turnIfUnread: Bool = false) async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
         // One frame's OCR can lose a glyph of the coordinates (live run 28: POSITION_UNREADABLE on "44.9.2314"), so up to
         // five fresh frames are read, as a walk bears six unreadable ones.
         var player = (await frame()).flatMap { readCoords($0).at }
         for _ in 0..<4 where player == nil {
             let asked = hostNow()
             player = (await frame(after: asked + 0.2)).flatMap { readCoords($0).at }
+        }
+        // A creature's nameplate can sit over the coordinates (live run 46, 27 Sept: a Pesky Cirrusfly's plate under the
+        // minimap ended the run POSITION_UNREADABLE), and a standing creature's plate does not move. So the character turns
+        // in place, 45° at a time, up to three times, reading after each turn, as a human turns the camera. Not in --plan,
+        // which moves nothing.
+        if turnIfUnread, player == nil, let pulse = turnPulse(45) {
+            for turn in 1...3 where player == nil {
+                body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls
+                guard body.keys.press(pulse.code) else { break }
+                await sleep(Double(pulse.ms) / 1000)
+                body.keys.lift(pulse.code)
+                for _ in 0..<3 where player == nil {
+                    let asked = hostNow()
+                    player = (await frame(after: asked + 0.3)).flatMap { readCoords($0).at }
+                }
+                body.emit("position_turn", ["turn": turn, "read": player != nil])
+            }
         }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         let parked = hostNow()
@@ -852,7 +869,7 @@ final class LiveQuestHost: QuestHost {
     }
 
     func readQuests() async -> QuestRead? {
-        let (quests, player, missing, givers) = await quester.readQuests()
+        let (quests, player, missing, givers) = await quester.readQuests(turnIfUnread: true)
         guard let player else { return nil }
         // The bags are read only when a use-at quest might name an item in them (M4m).
         let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []

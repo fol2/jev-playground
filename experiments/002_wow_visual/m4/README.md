@@ -869,6 +869,7 @@ Runs 42-45 were unattended, as before.
 | 43 | Ticked four quests, used the crystal, and handed in Embracing the Elements to Windshaper Boro: COMPLETED, "Experience gained: 85" |
 | 44 | Walks to the Elemental Convergence (Skysight, key 9) and its retreat stopped `DANGER_AHEAD` at a Vuldren's body |
 | 45 | With the body filter, the same walks still stopped `DANGER_AHEAD`: small red detections far off, too small to read, in the Vuldren field |
+| 46 | With the learned red-name reader (M5): Jev chose to hunt for Harvesting Windstones, a collect-from-the-ground quest; the hunt found no creature to count (`HUNT_NO_TARGET_FOUND`). The next quest read ended the run `POSITION_UNREADABLE`: a Pesky Cirrusfly's nameplate lay over the coordinates under the minimap |
 
 **Limits of M4m.**
 - The walk's red-name check still stops walks through the Vuldren field. It sees far red detections that are too
@@ -877,6 +878,9 @@ Runs 42-45 were unattended, as before.
   the candidates a learned reader reads as no text (`redDanger`; ../m5/README.md, "Red names the walk may pass").
 - Objects on the ground (Harvesting Windstones) still have no skill.
 - The bags are read on every quest read that has a use-at quest, about 0.9 s a filled slot.
+- **A plate over the coordinates.** After run 46, when five fresh frames give no position, a quest run's read turns
+  in place 45° at a time, up to three times, and reads three frames after each turn (`position_turn` in the log).
+  A standing creature's plate does not move by itself. `--plan` does not turn.
 
 ## Limits
 
