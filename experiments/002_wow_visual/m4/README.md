@@ -1291,6 +1291,77 @@ sent it by road; the roads players walked go south round the ridge (42.5, 24.3; 
   there from those runs' own `NO_PROGRESS` places): the walk to Foul Matriarch (pin 36.2, 24.1) logged `road_gap` with
   `stuck_ahead` (13 legs, 18.4 units by road against 10.8 straight) and set off south; its first leg stopped at 41.9, 25.4 for
   a hostile ahead (`WALK_DANGER_AHEAD`), so the far side is still to be reached live.
+## M4ab — reads only when a step made them stale (27 Sept)
+
+The owner, 27 Sept: "the cache memory also had issues... it keep updating inventory and quest, even there're no related
+events. just waste of time." Live run 80: 8 steps took 7 world-map scans (21 pin hovers), 7 bag reads (93 slot hovers) and 8
+level reads, 9-20 s before each decision, though most steps (danger stops, retreats) changed none of them. The log's own
+memory (M4d) is keyed by the zone's name and the tracker's text, which change with the subzone and OCR, and held once.
+
+- `staleAfter` (pure): the reads a step's outcome makes stale. A hand-in: the log, the bags (its reward) and the level (its
+  experience); an accept or a use: the log and the bags; a fight, or a hunt that reached its area (one that fought may still end
+  NO_TARGET_FOUND: live run 39): all three; a sale: the bags;
+  a walk that stopped, a retreat or a road: none.
+- `LiveQuestHost` keeps the last log (with the minimap's givers), the bags' names and the level, and reads each again only
+  when stale; the log also after a walk of 3 units or more, as the givers change with the place. The place is read each step.
+  A fight back or ahead and a worn upgrade make their reads stale too. The gear check of M4x follows the same events: after a
+  hunt only when it fought, after a hand-in only when it completed (live run 81: a hunt with no fight re-read the bags).
+- Evidence: sim (`HuntTests`: each step's stale reads). Live run 81 (two steps, each after a walk of more than 3 units): the
+  level was read once for two steps; the bags twice, the second by the gear check this now leaves out.
+
+## M4ac — the steering walk (27 Sept)
+
+The owner, 27 Sept, watching walks stop against a boulder, spin round and climb cliffs: "rethink the entire pathfinding ... depth
+map and pre-calculate the pathfinding realtime, then the input is to adjust for the path finding. jev can interrupt but it
+should be optional. think deeper, think harder, think smarter." The walker made a Jev call before each 3 s move, tried fixed
+45 and 90 degree detours blind, walked straight lines across unknown ground, and spun to read its place.
+
+What robots do. A tuned classical pipeline (a map and a planner on a GPS and compass) does very well in cluttered 3D places,
+and even walking straight at the goal gets 40-50% SPL there (Mishkin, Dosovitskiy and Koltun 2019, "Benchmarking Classic and
+Learned Navigation in Complex 3D Environments"); a reactive planner scores headings by how open they are and how near the goal
+(the vector field histogram, Borenstein and Koren 1991; follow the gap); per image column, what stands up from the ground is
+the free space (stixels; the horizon approach to monocular obstacles); and a planner caught by an obstacle follows it on one
+side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordinates) and compass (the arrow) are read each tick.
+
+- The path: by the learned roads whenever they lead there (the owner's "roads by preference"; players walked round the cliffs
+  and rocks), round the places walks stopped (M4z), for any walk farther than 2 units; straight otherwise and for a retreat.
+- `runSteer`: the path in one go, with no model call: each tick (0.25 s) pure pursuit of a point 1 unit on along it; the aim
+  bent by `steerAim` toward the view's clearest column near it (20 columns of Depth Anything V2 small, 25 ms), a column costing
+  its nearness past 0.6 and none past 0.8 taken; W held and Q/E pulses. A block (W down 1.5 s, under 0.1 moved) keeps that
+  heading off near there, and the walk keeps to the more open side, along the obstacle, until 0.8 from where it was blocked
+  (Bug2); nothing open in view turns 60 degrees to a side, never round; a view near in every column (a slope or wall across)
+  is a block seen: W is let go, the walk turns in place and keeps to a side as after a bump, and a wanted bearing behind is not
+  turned back to while it keeps to that side. Each column counts as near as its nearer neighbour (VFH+, Ulrich and Borenstein
+  1998), so the aim keeps off an obstacle's edge. A walk starts at its path's nearest leg, not a waypoint behind; the way to
+  safety plans each round from where it starts (a fight between rounds moves the character); an unread arrow gets runNav's
+  unstick turn (review of #86).
+- Bumps remembered (the owner: "self-improve"; live walk 3, 27 Sept: six bumps among Thendal Village's standing stones): each
+  bump's place and heading, and the side that got the walk clear of it (0.8 units on), go to the private
+  `runs/…/memory/bumps.json` (the world's, the latest 256). A walk near a known bump keeps off its heading (0.4 units), and
+  about to take it again keeps to the learnt side first; a block near the last one keeps the side it was gone round on (Bug2
+  goes round an obstacle one way), else the side toward the goal. The nav tool needs no key when it steers. It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
+  without progress along the path since the last block (NO_PROGRESS, which M4z remembers).
+- Quest walks and the way to safety steer; `JEV_WALKER=jev` walks as before, for a side-by-side comparison. The nav tool's
+  `--execute` steers too, round M4z's stops.
+- Jev: none per move. The quest-level steps remain Jev's.
+- Evidence. Offline, the heading's depth column predicted a block at AUC 0.67-0.69 over 350 live moves: a steering bias, the
+  block watch its guard. Sim (`NavTests`, SimNav's keys and boxes, depth cast as rays): open ground straight; a wall seen in
+  depth walked round with no block (net turn 20-24 degrees); blind, round it with 2 blocks and no spin (net 23 degrees); a road
+  path round a box in one go; a wall right ahead turned from in place with no bump; shut in, ended at the sixth bump; combat,
+  low health, the owner, a red name on the aim and an unread HUD each stop it with the keys released, the way to safety walking
+  on at low health and past a red name; a walk's bumps come back with the side that got it clear, and the next walk does not
+  bump one again there that way. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
+  road (41.6, 25.6; 41.0, 25.7; 40.3, 26.5) with no model call and no spin, bumped 3 times at the end, ran up the slope under
+  the pin, and stopped for combat (a level-4 Scrawny Ursera). The slope read 0.81-0.93 across the view and the road 0.45-0.7,
+  where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. Live walk 2 (back to
+  the village, 0.5 units): arrived. Live walk 3 (village to Yala Windwatcher, by the road east): six bumps among the village's
+  standing stones, whose gaps are finer than the roads' 1-unit places, and NO_PROGRESS; on two it kept to the side away from
+  the goal. The bump memory, the side rules and the dilation above follow from it. Live walk 4 (the same route, the bump
+  memory holding walk 3's six): arrived at Yala in about 50 s by the road south-east round the stones, one bump in its first
+  second (where walk 3 had stopped), net turn -39 degrees, no model call. Live walk 5 (Yala back to the village, the way a
+  straight walk used to go into the village's tower and circle in it): arrived in about 32 s by the north, no bump. Live run
+  84 (a quest run): three steering walks; one stopped for a hostile on the south road (DANGER_AHEAD), one arrived at the
+  vendor with one bump; no model call per move, no death.
 
 ## The session loop (#87, opt-in `--quests --session`; 27 Sept)
 

@@ -5,6 +5,7 @@
 import Foundation
 import CoreGraphics
 import CoreML
+import CoreVideo
 import Vision
 
 struct LearnedMark {
@@ -75,6 +76,45 @@ struct RedNameReader {
         let r = redCrop(box, width: image.width, height: image.height)
         guard let crop = image.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { return nil }
         return try MarkReader.classify(model, crop)
+    }
+}
+
+/// M5 depth: Apple's Depth Anything V2 small (Core ML, apple/coreml-depth-anything-v2-small, Apache-2.0), its F16 package in the
+/// models folder, compiled once per process (about 8 s): 518 x 392 in, relative disparity out (larger nearer), 25 ms a frame on
+/// this M4. The frame is scaled to fill, as offline. viewDepth reads it.
+struct DepthReader {
+    let model: MLModel
+    let constraint: MLImageConstraint
+
+    init(models dir: URL = MarkReader.models) throws {
+        model = try MLModel(contentsOf: MLModel.compileModel(at: dir.appendingPathComponent("DepthAnythingV2SmallF16.mlpackage")))
+        guard let c = model.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else { throw CocoaError(.featureUnsupported) }
+        constraint = c
+    }
+
+    func read(_ image: CGImage) throws -> ViewDepth? {
+        try disparity(image).flatMap { viewDepth($0.values, width: $0.width, height: $0.height) }
+    }
+
+    /// M4ac: the view's nearness by column, for the steering walk.
+    func columns(_ image: CGImage) throws -> [Double]? {
+        try disparity(image).flatMap { depthColumns($0.values, width: $0.width, height: $0.height) }
+    }
+
+    func disparity(_ image: CGImage) throws -> (values: [Float], width: Int, height: Int)? {
+        let input = try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(cgImage: image, constraint: constraint,
+            options: [.cropAndScale: VNImageCropAndScaleOption.scaleFill.rawValue])])
+        guard let buffer = try model.prediction(from: input).featureValue(for: "depth")?.imageBufferValue else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer), row = CVPixelBufferGetBytesPerRow(buffer)
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        var disparity = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            let line = base.advanced(by: y * row).assumingMemoryBound(to: Float16.self)
+            for x in 0..<w { disparity[y * w + x] = Float(line[x]) }
+        }
+        return (disparity, w, h)
     }
 }
 

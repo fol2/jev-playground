@@ -691,6 +691,27 @@ struct QuestRead {
     var history: [String: StepMemory] = [:]  // the steps' records across runs, by step key (M4y)
 }
 
+/// M4ab (the owner, 27 Sept: "the cache memory also had issues... it keep updating inventory and quest, even there're no
+/// related events. just waste of time"; live run 80: 7 map scans, 7 bag reads of 93 slot hovers and 8 level reads for 8 steps,
+/// 9-20 s before each decision): the reads a step's outcome makes stale. A hand-in changes the log, the bags (its reward) and
+/// the level (its experience); an accept or a use the log and the bags; a fight, or a hunt that reached its area, all three
+/// (kills, loot, experience: a hunt that fought may still end NO_TARGET_FOUND, as live run 39's did after the last Cirrusfly;
+/// review of #84); a sale the bags; a walk that stopped on the way, a retreat or a road nothing (the place is read each step).
+enum StaleRead: Hashable { case log, bags, level }
+
+func staleAfter(_ step: QuestStep, _ outcome: String) -> Set<StaleRead> {
+    let all: Set<StaleRead> = [.log, .bags, .level]
+    switch step {
+    case .handIn: return outcome.hasPrefix("COMPLETED") ? all : []
+    case .accept: return outcome.hasPrefix("ACCEPTED") ? [.log, .bags] : []
+    case .use: return outcome.hasPrefix("USED") ? [.log, .bags] : []
+    case .hunt: return outcome.hasPrefix("WALK_") ? [] : all
+    case .fightAhead: return all
+    case .town(let n): return n.role == "vendor" && outcome.hasPrefix("SOLD") ? [.bags] : []
+    case .road, .retreat: return []
+    }
+}
+
 /// A step's record across runs (M4y; the owner, 27 Sept: "can the engine self-improve? eg path finding, hunt"): how often it
 /// has failed since it last worked, how it last ended, and the character's level then. Kept in the character's memory
 /// (private), and read by Jev in the step's criterion: Jev still chooses.
@@ -770,6 +791,10 @@ enum QuestLimits {
     static let reviveWait = 10.0  // after Release Spirit, for the gossip (live: about 6 s); after the others, half
     static let reviveSeconds = 90.0  // kept from the way to safety for death recovery: its clicks and their waits
     static let maxSteps = 12
+    // M4ab: a walk this long or longer reads the log again, as the minimap's givers, read with it, change with the place.
+    // ponytail: the givers and the log are one read; split them if short walks keep paying for the map.
+    static let rereadMove = 3.0
+    static let steerRoadFrom = 2.0  // M4ac: a walk farther than this goes by the learned roads when they lead there
     // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
     // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
     // one fight at least (review of #72: 25 min left a fight back after the last walk running past 30).
