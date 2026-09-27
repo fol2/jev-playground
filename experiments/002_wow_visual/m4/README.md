@@ -1050,6 +1050,38 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - `NavTests` covers a walk to safety past a red name, at low health, and within its seconds.
   - Live: not yet run.
 
+## M4s — death recovery at the Spirit Healer (27 Sept)
+
+The character died twice on 27 Sept: once between runs 56 and 57, and once after run 65. The owner, the same day, made
+recovery part of the envelope: resurrect at the Spirit Healer, automatically. Below level 10 it costs nothing. Each
+death is still reported.
+
+- **`reviveIfDead`** (LiveQuestHost) is SAFETY's. It runs twice in a quest run:
+  - at the start: dead there, the run starts only once the character is resurrected;
+  - at the end, after `leaveDanger`: death in the run or on the way to safety.
+- **Clicks** (`deathStep`, `revive`), each found by its text:
+  1. "Release Spirit" in the top popup;
+  2. "Return me to life." in the Spirit Healer's gossip. It opened by itself about 6 s after the release, so the engine
+     waits up to 10 s for it;
+  3. "Accept", only on the popup that says "resurrect", beside Cancel, and only after step 2. Another popup's Accept
+     (a party invite, a summons) is never taken.
+- **Checks.** Every read is on a frame captured after the last click. Text is read in Latin letters: Vision read that
+  Accept with a Cyrillic A.
+- **Limits.**
+  - A step still shown is clicked again, at most six clicks in all.
+  - `REVIVED` needs two fresh frames with nothing left to click after Accept.
+  - Anything else stops where it stands (`DEATH_AFTER_…`), for example a ghost whose gossip did not open. A ghost is
+    not attacked.
+  - The owner's takeover stops it.
+  - Its time is kept inside the envelope: the way to safety (M4r) ends 90 s early for it. Six clicks, each waiting at
+    most 12.5 s, take at most 78 s.
+- **Not in this slice:** a corpse run, a gossip opened by right-clicking the Spirit Healer, and the hunt mode's deaths.
+- **Evidence.**
+  - Sim: `HuntTests` covers the steps on the OCR lines of the live frames, and the loop's ends.
+  - Replay: the live frames of 27 Sept, through the crop OCR, gave Release at (1209, 221), Return at (101, 307) and
+    Accept at (1212, 249), matching the manual clicks. The frames between steps gave none.
+  - Live: not yet run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

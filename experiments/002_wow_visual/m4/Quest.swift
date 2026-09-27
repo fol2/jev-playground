@@ -687,6 +687,9 @@ enum QuestLimits {
     static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
     static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
     static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
+    static let reviveClicks = 6  // death recovery's clicks, retries included (M4s)
+    static let reviveWait = 10.0  // after Release Spirit, for the gossip (live: about 6 s); after the others, half
+    static let reviveSeconds = 90.0  // kept from the way to safety for death recovery: its clicks and their waits
     static let maxSteps = 12
     // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
     // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
@@ -847,7 +850,47 @@ func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now
 /// Whether a quest run that ended so walks to a safe place before it exits: every end but the owner's takeover, keys
 /// held, a failed input handoff and death.
 func leavesDanger(_ outcome: String) -> Bool {
-    !(outcome.contains("OWNER") || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
+    !(outcome.contains("OWNER") || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD")
+      || outcome.hasPrefix("DEATH"))
+}
+
+/// SAFETY's clicks to resurrect at the Spirit Healer (M4s). The owner, 27 Sept: resurrect there, automatically, inside the
+/// envelope (below level 10 it costs nothing).
+enum DeathStep: String {
+    case release = "RELEASE_SPIRIT", returnToLife = "RETURN_ME_TO_LIFE", accept = "ACCEPT"
+    var next: DeathStep? { self == .release ? .returnToLife : self == .returnToLife ? .accept : nil }
+}
+typealias ScreenText = (text: String, x: Double, y: Double)  // an OCR line and its middle, in capture pixels
+typealias DeathClick = (step: DeathStep, x: Double, y: Double)
+
+/// The next death-recovery click the screen shows, from the top popup's lines and the left gossip panel's, or nil. Live, 27
+/// Sept (after run 65): "Release Spirit" in the popup; about 6 s after it the Spirit Healer's gossip was open by itself,
+/// with "Return me to life."; then a popup that says where to resurrect, with Accept and Cancel. Accept is taken only
+/// there and only after "Return me to life." or an Accept: another popup's Accept (a party invite, a summons) never is.
+/// Lines are read in Latin letters: Vision read that Accept with a Cyrillic A (replay of the live frames).
+func deathStep(popup: [ScreenText], dialog: [ScreenText], last: DeathStep?) -> DeathClick? {
+    func key(_ text: String) -> String { nameKey(text.applyingTransform(.toLatin, reverse: false) ?? text) }
+    func find(_ lines: [ScreenText], _ label: String) -> ScreenText? { lines.first { key($0.text).contains(key(label)) } }
+    if let b = find(popup, "Release Spirit") { return (.release, b.x, b.y) }
+    if last == .returnToLife || last == .accept, find(popup, "resurrect") != nil, find(popup, "Cancel") != nil,
+       let b = find(popup, "Accept") { return (.accept, b.x, b.y) }
+    if let b = find(dialog, "Return me to life") { return (.returnToLife, b.x, b.y) }
+    return nil
+}
+
+/// Death recovery's clicks in turn (M4s): a click, then what the screen shows after it (`seen` waits for the step that
+/// follows). REVIVED when an Accept leaves nothing to click. A step still shown is clicked again, at most `clicks` in all;
+/// anything else stops it where it stands, "DEATH_AFTER_" the step last clicked. Nil when no death shows.
+func revive(_ first: DeathClick?, clicks: Int, click: (DeathClick) async -> Bool, seen: (DeathStep) async -> DeathClick?) async -> String? {
+    guard var todo = first else { return nil }
+    for _ in 0..<clicks {
+        guard await click(todo) else { return "DEATH_CLICK_FAILED" }
+        let shown = await seen(todo.step)
+        if todo.step == .accept && shown == nil { return "REVIVED" }
+        guard let shown, shown.step == todo.step || shown.step == todo.step.next else { return "DEATH_AFTER_" + todo.step.rawValue }
+        todo = shown
+    }
+    return "DEATH_CLICK_LIMIT"
 }
 
 /// The way to safety (M4r): in combat, a fight back first (SAFETY's, as M4i's); out of it, a walk; a walk that met

@@ -1217,8 +1217,46 @@ extension NavTests {
         let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
         check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
               "review of #72: all of it ends inside the run envelope: no fight without its whole time left, and a walk gets only what is left")
-        check(QuestLimits.runSeconds + NavLimits.maxSeconds + 2 * FightLimits.maxSeconds <= QuestLimits.envelopeSeconds,
-              "review of #72: a walk started just before the run's 20 minutes, its fight back and one fight on the way to safety end inside 30")
+        check(QuestLimits.runSeconds + NavLimits.maxSeconds + 2 * FightLimits.maxSeconds + QuestLimits.reviveSeconds <= QuestLimits.envelopeSeconds
+              && 2.5 + Double(QuestLimits.reviveClicks) * (QuestLimits.reviveWait + 2.5) <= QuestLimits.reviveSeconds,
+              "a walk started just before the run's 20 minutes, its fight back, one fight on the way to safety and death recovery end inside 30")
+        // M4s on the OCR lines of the live frames of 27 Sept (after run 65), in capture pixels.
+        let dying: [ScreenText] = [("4 Minutes unti release", 1276, 197), ("Release Spirit", 1209, 221), ("Recan", 1349, 222)]
+        let gossip: [ScreenText] = [("It is not yet your time. I shall aid your", 167, 241), ("* Return me to life.", 100, 306), ("Goodbye", 333, 669)]
+        let confirm: [ScreenText] = [("You can find your corpse and resurrect at that", 1279, 197), ("location. Players that are below level 10 can", 1278, 210),
+                                     ("resurrect here with no penalty.", 1279, 223), ("\u{410}ccept", 1212, 249), ("Cancel", 1347, 247)]  // a Cyrillic A, as read
+        let invite: [ScreenText] = [("Someone invites you to a group.", 1280, 212), ("Accept", 1211, 249), ("Decline", 1347, 248)]
+        let summons: [ScreenText] = [("Someone wants to summon you.", 1280, 212), ("Accept", 1211, 249), ("Cancel", 1347, 248)]
+        check(deathStep(popup: dying, dialog: [], last: nil).map { $0.step == .release && $0.x == 1209 && $0.y == 221 } == true
+              && deathStep(popup: [], dialog: gossip, last: .release)?.step == .returnToLife
+              && deathStep(popup: confirm, dialog: gossip, last: .returnToLife).map { $0.step == .accept && $0.x == 1212 } == true
+              && deathStep(popup: [], dialog: [], last: .release) == nil,
+              "M4s: Release Spirit, then Return me to life., then Accept, each at its text's middle")
+        check(deathStep(popup: confirm, dialog: [], last: nil) == nil && deathStep(popup: invite, dialog: [], last: .returnToLife) == nil
+              && deathStep(popup: summons, dialog: [], last: .returnToLife) == nil
+              && deathStep(popup: [("Accept", 1211, 249)], dialog: [], last: .returnToLife) == nil,
+              "M4s: an Accept is taken only on the popup that says resurrect, beside Cancel, after Return me to life.: an invite's or a summons' never")
+        func deathRun(_ first: DeathClick?, _ screens: [DeathClick?], clickOK: Bool = true) async -> (String?, [DeathStep]) {
+            var screens = screens, clicked: [DeathStep] = []
+            let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { clicked.append($0.step); return clickOK },
+                                   seen: { _ in screens.isEmpty ? nil : screens.removeFirst() })
+            return (end, clicked)
+        }
+        let release: DeathClick = (.release, 1209, 221), back: DeathClick = (.returnToLife, 100, 306), yes: DeathClick = (.accept, 1211, 249)
+        let (alive, none) = await deathRun(nil, [])
+        let (revivedEnd, revivedSteps) = await deathRun(release, [back, yes, nil])
+        let (retried, retriedSteps) = await deathRun(release, [release, back, yes, nil])
+        check(alive == nil && none.isEmpty && revivedEnd == "REVIVED" && revivedSteps == [.release, .returnToLife, .accept]
+              && retried == "REVIVED" && retriedSteps == [.release, .release, .returnToLife, .accept],
+              "M4s: nothing when no death shows; revived by its three clicks; a click that did not take is clicked again")
+        let (ghost, _) = await deathRun(release, [nil])
+        let (stuckRelease, stuckSteps) = await deathRun(release, Array(repeating: release, count: 10))
+        let (failed, _) = await deathRun(release, [], clickOK: false)
+        let (reopened, _) = await deathRun(back, [yes, back])
+        check(ghost == "DEATH_AFTER_RELEASE_SPIRIT" && stuckRelease == "DEATH_CLICK_LIMIT" && stuckSteps.count == QuestLimits.reviveClicks
+              && failed == "DEATH_CLICK_FAILED" && reopened == "DEATH_AFTER_ACCEPT"
+              && !leavesDanger("DEATH_AFTER_RELEASE_SPIRIT"),
+              "M4s: a ghost with no gossip, a button that never takes, a failed click or a gossip back after Accept stops it where it stands")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
               && same(safePlace(from: (44, 40)), 43.4, 44.8),
               "the nearest village within one walk; none when already there or too far")
