@@ -124,6 +124,9 @@ struct NavTests {
                         track.accept((43.3, 24), t: 1.2), track.accept((43.4, 24.1), t: 3)]
         check(standing == [true, false, false, true, true],
               "live run 33: a reading 5 or 40 units from the last, a fraction of a second later, is no place; a step is")
+        var stalled = PositionTrack()
+        check(stalled.accept((43.3, 24), t: 0) && !stalled.accept((48.3, 24), t: 8),
+              "a 5-unit misread after an 8 s stall (a Jev call) is still no place: the allowance stops growing at 2 s")
         _ = [track.accept((50, 30), t: 4), track.accept((50, 30), t: 4.4)]
         check(track.accept((50.1, 30), t: 4.8) && track.last?.at.x == 50.1,
               "three readings that agree are the place, far as it is from the last (a teleport, or a wrong last reading)")

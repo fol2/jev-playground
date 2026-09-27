@@ -199,11 +199,14 @@ func parseCoords(_ text: String) -> MapPoint? {
 /// "moved 59.55"). Three in a row that agree with each other are the place, whatever the last one was.
 struct PositionTrack {
     static let speed = 0.5, slack = 0.5, agree = 3  // y units a second; walking is about 0.16 (live run 3)
+    /// The time the allowance grows for: a Jev call can stall reading for seconds, and 8 s would pass run 33's 5-unit misread
+    /// (review of #53). A longer real move is taken once three readings agree.
+    static let maxGap = 2.0
     private(set) var last: (at: MapPoint, t: Double)?
     private var doubted: [MapPoint] = []
 
     mutating func accept(_ at: MapPoint, t: Double) -> Bool {
-        if let last, distance(at, last.at) > PositionTrack.slack + PositionTrack.speed * max(0, t - last.t) {
+        if let last, distance(at, last.at) > PositionTrack.slack + PositionTrack.speed * min(PositionTrack.maxGap, max(0, t - last.t)) {
             doubted.append(at)
             let recent = doubted.suffix(PositionTrack.agree)
             guard recent.count == PositionTrack.agree, recent.allSatisfy({ distance($0, at) <= 0.3 }) else { return false }
