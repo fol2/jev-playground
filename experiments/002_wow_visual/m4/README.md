@@ -1334,7 +1334,12 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
   turned back to while it keeps to that side. Each column counts as near as its nearer neighbour (VFH+, Ulrich and Borenstein
   1998), so the aim keeps off an obstacle's edge. A walk starts at its path's nearest leg, not a waypoint behind; the way to
   safety plans each round from where it starts (a fight between rounds moves the character); an unread arrow gets runNav's
-  unstick turn (review of #86). It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
+  unstick turn (review of #86).
+- Bumps remembered (the owner: "self-improve"; live walk 3, 27 Sept: six bumps among Thendal Village's standing stones): each
+  bump's place and heading, and the side that got the walk clear of it (0.8 units on), go to the private
+  `runs/…/memory/bumps.json` (the world's, the latest 256). A walk near a known bump keeps off its heading (0.4 units), and
+  about to take it again keeps to the learnt side first; a block near the last one keeps the side it was gone round on (Bug2
+  goes round an obstacle one way), else the side toward the goal. The nav tool needs no key when it steers. It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
   without progress along the path since the last block (NO_PROGRESS, which M4z remembers).
 - Quest walks and the way to safety steer; `JEV_WALKER=jev` walks as before, for a side-by-side comparison. The nav tool's
   `--execute` steers too, round M4z's stops.
@@ -1344,11 +1349,14 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
   depth walked round with no block (net turn 20-24 degrees); blind, round it with 2 blocks and no spin (net 23 degrees); a road
   path round a box in one go; a wall right ahead turned from in place with no bump; shut in, ended at the sixth bump; combat,
   low health, the owner, a red name on the aim and an unread HUD each stop it with the keys released, the way to safety walking
-  on at low health and past a red name. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
+  on at low health and past a red name; a walk's bumps come back with the side that got it clear, and the next walk does not
+  bump one again there that way. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
   road (41.6, 25.6; 41.0, 25.7; 40.3, 26.5) with no model call and no spin, bumped 3 times at the end, ran up the slope under
   the pin, and stopped for combat (a level-4 Scrawny Ursera). The slope read 0.81-0.93 across the view and the road 0.45-0.7,
-  where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. That fix is not yet
-  seen live.
+  where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. Live walk 2 (back to
+  the village, 0.5 units): arrived. Live walk 3 (village to Yala Windwatcher, by the road east): six bumps among the village's
+  standing stones, whose gaps are finer than the roads' 1-unit places, and NO_PROGRESS; on two it kept to the side away from
+  the goal. The bump memory, the side rules and the dilation above follow from it, and are not yet seen live.
 
 ## Limits
 

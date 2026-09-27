@@ -1305,7 +1305,8 @@ final class LiveQuestHost: QuestHost {
             let legs = newWalker(folder)
             walker = legs
             let walked = await runSteer(body: legs, path: path, destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y,
-                                                                                          arrive: arrive, seconds: seconds))
+                                                                                          arrive: arrive, seconds: seconds), known: loadBumps())
+            saveBumps(walked.bumps)
             guard !legs.holding else { return "WALK_KEYS_HELD" }
             if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }
             return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
@@ -1371,8 +1372,9 @@ final class LiveQuestHost: QuestHost {
             // the character: second review of #86), and steered; no model call either way.
             let from = self.steering ? await self.quester.position(turn: false) ?? at : at
             let safePath = self.steering ? (self.roads.flatMap { route($0, from: from, to: safe, avoid: self.stuck) }.map { Array($0.dropLast()) } ?? []) : []
-            let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination)
+            let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination, known: loadBumps())
                                        : await runNav(body: legs, jev: ScriptedJev(preference: preference), destination: destination)
+            saveBumps(walked.bumps)
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])

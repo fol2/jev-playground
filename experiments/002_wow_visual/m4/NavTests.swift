@@ -592,7 +592,7 @@ struct NavTests {
 
         let d = NavDestination(label: "stone", x: 40, y: 25)
         // `turned`: the net rotation one way (a spin is a whole turn in one direction), from the facing's signed changes.
-        func walked(_ sim: SimNav, path: [MapPoint] = []) async -> (result: NavResult, blocks: Int, turned: Double) {
+        func walked(_ sim: SimNav, path: [MapPoint] = [], known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> (result: NavResult, blocks: Int, turned: Double) {
             var blocks = 0, turned = 0.0, last: Double? = nil
             sim.emitHandler = { event, fields in
                 if ProcessInfo.processInfo.environment["STEER_TRACE"] != nil, event.hasPrefix("steer") {
@@ -605,7 +605,7 @@ struct NavTests {
                     last = Double(f)
                 }
             }
-            let result = await runSteer(body: sim, path: path, destination: d)
+            let result = await runSteer(body: sim, path: path, destination: d, known: known)
             return (result, blocks, abs(turned))
         }
         let field = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
@@ -624,6 +624,14 @@ struct NavTests {
         let felt = await walked(blind)
         check(felt.result.outcome == "ARRIVED" && felt.turned < 360,
               "M4ac: without depth, a block turns the walk aside toward the gap, never round and round")
+        // Taught: the blind walk's first bump known from an earlier walk (M4ac's memory), it turns aside before it, and its
+        // bumps come back to report the next.
+        let taught = await walked(SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: wall), known: felt.result.bumps)
+        let again = taught.result.bumps.filter { b in
+            felt.result.bumps.contains { distance($0.at, b.at) <= SteerLimits.knownNear && abs(angleError($0.heading, b.heading)) <= SteerLimits.blockCone }
+        }
+        check(felt.result.bumps.count == felt.blocks && felt.result.bumps.contains { $0.side != 0 } && again.isEmpty,
+              "M4ac: a walk's bumps come back with the side that got it clear, and the next walk never bumps one again, there and that way")
         let boxed = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: [SimNav.Box(x0: 39, y0: 26, x1: 41, y1: 28)])
         let followed = await walked(boxed, path: [(42, 29), (42, 25.5)])
         check(followed.result.outcome == "ARRIVED" && followed.blocks == 0, "M4ac: a path round a box (the roads' way) is walked in one go")

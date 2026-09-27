@@ -557,11 +557,19 @@ enum SteerLimits {
     // it just left; blind, it walks alongHeading from the blocked heading, along a flat face.
     static let sideSeconds = 6.0
     static let sideDistance = 0.8
+    // A block this near the last one, this soon, is the same obstacle: the side it was gone round on is kept (Bug2 goes round
+    // an obstacle one way; re-choosing at each block turned the sim's long wall back and forth).
+    static let sameObstacle = 2.0
+    static let sameObstacleSeconds = 15.0
     static let alongHeading = 90.0
     static let sideTurn = 60.0  // no usable column in view: turn this far toward the more open side
     static let stallSeconds = 15.0  // no 0.3 nearer the end of the path in this long, since the last block: NO_PROGRESS
     static let maxBlocks = 6  // a walk blocked this often is NO_PROGRESS: what stops it is not to be walked round here
     static let halfView = 45.0  // degrees either side of the facing that the columns see
+    // Bumps remembered from earlier walks (the owner: "self-improve"): a heading that ran into something within knownNear of
+    // here is not taken again (live walk 3, 27 Sept: six bumps among the standing stones in Thendal Village, one pass).
+    static let knownNear = 0.4
+    static let knownKept = 256
     nonisolated(unsafe) static var logEvery = 1.0  // seconds between `steer` rows (a test traces each tick)
 }
 
@@ -580,10 +588,17 @@ func columnBearing(_ i: Int, of n: Int = SteerLimits.columns) -> Double {
 /// Only a bearing behind (past stopToTurn) turns in place first. `along`: the heading kept along the obstacle after a block
 /// (the blocked heading turned sideTurn to the side), relative to the facing: a fixed way in the world, not a turn each tick.
 func steerAim(want: Double, columns: [Double]?, blocked: [Double], side: Double? = nil, along: Double? = nil) -> Double {
-    if let side, columns == nil, want * side < 0 || blocked.contains(where: { abs(angleError($0, want)) <= SteerLimits.blockCone }) {
-        return along ?? SteerLimits.sideTurn * side  // blind, committed, and the wanted bearing is back into the block: along it
+    // The way along, turned on further to its side (30 degrees at a time, thrice at most) off any heading blocked here, a bump
+    // remembered from an earlier walk included (the sim's taught wall: along ran into the first walk's bump at its corner).
+    func clear(_ a: Double, _ side: Double) -> Double {
+        var a = a
+        for _ in 0..<3 where blocked.contains(where: { abs(angleError($0, a)) <= SteerLimits.blockCone }) { a += side * 30 }
+        return a
     }
-    if let side, abs(want) > NavLimits.stopToTurn { return along ?? SteerLimits.sideTurn * side }  // keeping along it: no turn back
+    if let side, columns == nil, want * side < 0 || blocked.contains(where: { abs(angleError($0, want)) <= SteerLimits.blockCone }) {
+        return clear(along ?? SteerLimits.sideTurn * side, side)  // blind, committed, the wanted bearing back into the block: along it
+    }
+    if let side, abs(want) > NavLimits.stopToTurn { return clear(along ?? SteerLimits.sideTurn * side, side) }  // along it: no turn back
     guard let columns, !columns.isEmpty, abs(want) <= NavLimits.stopToTurn else {
         return blocked.contains { abs(angleError($0, want)) <= SteerLimits.blockCone } ? want + SteerLimits.sideTurn * (want >= 0 ? -1 : 1) : want
     }
@@ -656,7 +671,8 @@ func pathLeft(_ path: [MapPoint], from here: MapPoint, index: Int) -> Double {
 /// keep a block (W down blockedWindow with less than blockedMoved of movement) as a heading to leave near there; aim by pursuit
 /// and the view's depth (steerAim); turn by a Q/E pulse with W held, an aim past stopToTurn stopping W first. No model call.
 /// Outcomes as runNav's; `decisions` counts ticks.
-func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) async -> NavResult {
+func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
+              known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> NavResult {
     var result = NavResult()
     var executive = RuntimeExecutive(goal: d.label)
     executive.begin("navigation")
@@ -666,6 +682,7 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
     var trail: [(t: Double, point: MapPoint)] = []
     var blocks: [(at: MapPoint, heading: Double, t: Double)] = []
     var side: (sign: Double, until: Double, heading: Double, from: MapPoint)?  // after a block: the side kept, the way along, where (Bug2)
+    var lastSide: (sign: Double, at: MapPoint, t: Double)?  // the side of the last block, kept for the same obstacle
     var going = 0.0  // the last aim's deviation from the wanted bearing: the side the walk is already going round on
     var blocksSeen = 0
 
@@ -720,8 +737,12 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
             let n = view?.count ?? 0
             let open = view.map { c in c[(n / 2)...].reduce(0, +) - c[..<(n / 2)].reduce(0, +) } ?? 0  // positive: left nearer
             let bend = angleError(bearing(from: o.point, to: pursuit(path, from: o.point, index: &index)), o.facing)
-            let sign: Double = side.map(\.sign) ?? (abs(going) > 10 ? (going > 0 ? 1 : -1)
-                : abs(open) > 0.5 ? (open > 0 ? -1 : 1) : (bend >= 0 ? 1 : -1))
+            // Toward the goal first (live walk 3: kept to the side away from it, the walk went west from a goal to the east).
+            let same = lastSide.flatMap { distance($0.at, o.point) <= SteerLimits.sameObstacle && now - $0.t <= SteerLimits.sameObstacleSeconds ? $0.sign : nil }
+            let learnt = known.first { $0.side != 0 && distance($0.at, o.point) <= SteerLimits.knownNear }?.side  // the way round that worked
+            let sign: Double = side.map(\.sign) ?? same ?? learnt ?? (abs(bend) > 10 ? (bend > 0 ? 1 : -1) : abs(going) > 10 ? (going > 0 ? 1 : -1)
+                : abs(open) > 0.5 ? (open > 0 ? -1 : 1) : 1)
+            lastSide = (sign, o.point, now)
             side = (sign, now + SteerLimits.sideSeconds, (o.facing + sign * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
             // A way round takes the walk off its path for a while: the stall clock starts again (Bug2 counts progress only
             // once it leaves the obstacle).
@@ -730,6 +751,7 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
             result.episode.sinceBest += 1
             blocksSeen += 1
             body.emit("steer_block", ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "side": sign > 0 ? "right" : "left", "bumped": bumped])
+            if bumped { result.bumps.append((o.point, o.facing, 0)) }
             trail.removeAll()
             return blocksSeen >= SteerLimits.maxBlocks
         }
@@ -749,11 +771,24 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
         let want = angleError(bearing(from: o.point, to: point), o.facing)
         blocks.removeAll { now - $0.t > SteerLimits.blockMemory }
         let blocked = blocks.filter { distance($0.at, o.point) <= SteerLimits.blockNear }.map { angleError($0.heading, o.facing) }
+            + known.filter { distance($0.at, o.point) <= SteerLimits.knownNear }.map { angleError($0.heading, o.facing) }
+        // Near a known bump with its way round learnt, about to take its heading again, that side is kept before the bump comes,
+        // as after one (Bug2); on any other heading it is left alone (else it kept the walk going along it for ever).
+        let heading0 = (o.facing + want + 360).truncatingRemainder(dividingBy: 360)
+        if side == nil, let way = known.first(where: { $0.side != 0 && distance($0.at, o.point) <= SteerLimits.knownNear
+                                                        && abs(angleError($0.heading, heading0)) <= SteerLimits.blockCone }) {
+            side = (way.side, now + SteerLimits.sideSeconds, (way.heading + way.side * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
+        }
         let columns = view
         // A view near in every column is a slope or a wall across the way: a block seen, not run into (it turns in place below).
         let walled = columns.map { !$0.isEmpty && $0.allSatisfy { $0 >= SteerLimits.impassable } } ?? false
         if walled && block(false) { return finish("NO_PROGRESS") }
-        if let kept = side, now > kept.until || distance(kept.from, o.point) >= SteerLimits.sideDistance { side = nil }
+        if let kept = side, now > kept.until || distance(kept.from, o.point) >= SteerLimits.sideDistance {
+            if distance(kept.from, o.point) >= SteerLimits.sideDistance {  // clear of it that way: the bumps there learn the side
+                for i in result.bumps.indices where distance(result.bumps[i].at, kept.from) <= SteerLimits.knownNear { result.bumps[i].side = kept.sign }
+            }
+            side = nil
+        }
         let aim = steerAim(want: want, columns: columns, blocked: blocked, side: side?.sign, along: side.map { angleError($0.heading, o.facing) })
         if abs(aim - want) > 10 { going = aim - want }
         let heading = (o.facing + aim + 720).truncatingRemainder(dividingBy: 360)
@@ -869,6 +904,8 @@ struct NavResult {
     var holding = false
     var codesPosted: [UInt16] = []
     var runtime: SkillResult? = nil
+    // M4ac: where the steering walk ran into something, its heading, and the side that got it clear (+1 right, -1 left, 0 none)
+    var bumps: [(at: MapPoint, heading: Double, side: Double)] = []
 }
 
 func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async -> NavResult {

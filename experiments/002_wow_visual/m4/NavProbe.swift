@@ -70,6 +70,22 @@ func apiKey() throws -> String {
 }
 
 /// Live body: the latest window frame, pid keys through LiveKeys and a 0.2 s watchdog timer.
+/// M4ac: where steering walks ran into something, and the heading (private, the world's, not a character's): each walk avoids
+/// those headings there (runSteer's `known`) and adds its own.
+let bumpsMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/bumps.json")
+
+func loadBumps() -> [(at: MapPoint, heading: Double, side: Double)] {
+    ((try? Data(contentsOf: bumpsMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
+        .compactMap { $0.count >= 3 ? (($0[0], $0[1]), $0[2], $0.count > 3 ? $0[3] : 0) : nil }
+}
+
+func saveBumps(_ new: [(at: MapPoint, heading: Double, side: Double)]) {
+    guard !new.isEmpty else { return }
+    let all = Array((loadBumps() + new).suffix(SteerLimits.knownKept))
+    try? FileManager.default.createDirectory(at: bumpsMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? JSONSerialization.data(withJSONObject: all.map { [$0.at.x, $0.at.y, $0.heading, $0.side] }).write(to: bumpsMemory)
+}
+
 final class LiveNavBody: NavBody {
     var facingState: FacingState? { facingReader != nil ? liveFacing : nil }
     let session: Session
@@ -384,7 +400,9 @@ func navSimJev(_ command: NavCommand) async throws -> Int32 {
 
 @MainActor
 func navExecute(_ command: NavCommand) async throws -> Int32 {
-    let key = try apiKey()
+    // M4ac: the steering walk makes no model call; only JEV_WALKER=jev needs the key (review of #86).
+    let steering = ProcessInfo.processInfo.environment["JEV_WALKER"] != "jev"
+    let key = steering ? "" : try apiKey()
     guard let x = command.toX, let y = command.toY else { throw ProbeError("--to missing") }
     let destination = NavDestination(label: command.label, x: x, y: y, arrive: command.arrive)
     let session = try await wowSession(input: true, full: true)
@@ -428,13 +446,14 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
     body.emit("start", ["run_id": run.id, "mode": "execute", "x": start.x, "y": start.y, "facing": start.facing])
     // M4ac: the steering walk along the learned roads (JEV_WALKER=jev: a move Jev chooses at a time, as before).
     let result: NavResult
-    if ProcessInfo.processInfo.environment["JEV_WALKER"] != "jev" {
+    if steering {
         let stuck: [MapPoint] = ((try? Data(contentsOf: QuestHUD.stuckMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
             .compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }  // M4z's stops, as a quest walk avoids them
         let legs = distance(start.point, destination.point) > QuestLimits.steerRoadFrom
             ? ((try? RoadGraph.load()).flatMap { $0 }.flatMap { route($0, from: start.point, to: destination.point, avoid: stuck) }.map { Array($0.dropLast()) } ?? []) : []
         body.emit("steer_path", ["legs": legs.map { [$0.x, $0.y] }])
-        result = await runSteer(body: body, path: legs, destination: destination)
+        result = await runSteer(body: body, path: legs, destination: destination, known: loadBumps())
+        saveBumps(result.bumps)
     } else {
         guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
         result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
