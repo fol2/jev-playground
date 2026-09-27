@@ -1141,9 +1141,9 @@ extension NavTests {
         let grove = FakeQuests([QuestRead(quests: [infest], player: (44, 26), missing: []), QuestRead(quests: [infest], player: (44.6, 26.5), missing: []),
                                 QuestRead(quests: [infest], player: (44.6, 26.5), missing: [])])
         grove.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Infestation Investigation HERE": "HUNTED_SOME"]
-        let hunter = CannedGraph(["DO:HUNT_1", "DO:FROM_HERE", "DO:HUNT_1"])
-        _ = await runQuests(host: grove, jev: hunter, graph: graph()!)
-        check(hunter.offered.count == 3 && hunter.offered[1].contains("DO:FROM_HERE") && hunter.offered[2].contains("DO:HUNT_1")
+        let herder = CannedGraph(["DO:HUNT_1", "DO:FROM_HERE", "DO:HUNT_1"])
+        _ = await runQuests(host: grove, jev: herder, graph: graph()!)
+        check(herder.offered.count == 3 && herder.offered[1].contains("DO:FROM_HERE") && herder.offered[2].contains("DO:HUNT_1")
               && grove.pins.count == 3 && grove.pins[1] == nil && grove.pins[2] != nil,
               "review of #58: a hunt from here that took some of its kills is offered again, as HUNT with its walk")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
