@@ -62,6 +62,7 @@ enum FightLimits {
     static let watchdogSeconds = 4.0
     static let jevTimeout = 4.0
     static let lootPolls = 6
+    static let lootWalkPolls = 14  // 7 s: a walk to a corpse at bolt range (30 yards at about 7 a second) and its loot
     static let lootPollSeconds = 0.5
     static let model = "jev-1.13.0"
     static let faceTolerance = 0.05
@@ -206,9 +207,17 @@ struct Episode: Equatable {
 
     static func alive(_ o: Obs) -> Bool { o.target > 0.005 || o.plate != nil }
 
+    var sawTargetAlive = false  // this episode's target was seen alive
+
     mutating func update(_ o: Obs) {
         if o.combat || (o.target > 0 && o.target < 0.99) { engaged = true }
-        if engaged && !Self.alive(o) { killed = true }  // the combat ring lingers after a kill
+        if Self.alive(o) { sawTargetAlive = true }
+        if engaged && !Self.alive(o) {  // the combat ring lingers after a kill
+            // Our own kill: the corpse to loot is ours, not the one seen at the start (live run 59, 27 Sept: a kill after a
+            // corpse at the start was taken for that old corpse, the loot undone, and SELECT_TARGET tried 37 times).
+            if oldCorpse && sawTargetAlive { oldCorpse = false }
+            killed = true
+        }
     }
 }
 

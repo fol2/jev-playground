@@ -188,6 +188,15 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
   no ranged or casting enemies.
 - One layout and window size; the boxes move with UI scale, Edit Mode or window size.
 - Melee, healing under pressure and a corpse far away have not been exercised under Jev.
+- **Loot, live run 59 (27 Sept).** The owner saw nothing looted. Of three kills at Lightning Bolt range, two read
+  "no corpse label visible", because the far corpse's name was under the label's 22 px. One looted a Chipped Claw
+  and Stringy Wolf Meat, but it was taken for the corpse seen at the fight's start: the loot was undone, and
+  SELECT_TARGET was tried 37 times until the decision limit.
+  - Now a dead target still selected is looted first by Interact With Target (F9). The game walks to the corpse and
+    loots it, however far or small its label. A walk that loots nothing within 7 s is stopped by a forward tap, and
+    the label click follows as before.
+  - Our own kill after a corpse seen at the start clears that old corpse (`Episode.update`), so its loot ends the
+    fight `KILLED_AND_LOOTED`.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

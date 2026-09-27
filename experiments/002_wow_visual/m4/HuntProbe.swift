@@ -11,7 +11,7 @@ import Vision
 /// Capture-pixel boxes of the 2560x1320 layout, read by OCR after a x3 upscale.
 enum HuntHUD {
     static let tracker = CGRect(x: 2200, y: 400, width: 360, height: 440)  // objectives below "All Objectives"; six tracked quests reach y 700
-    static let targetName = CGRect(x: 1590, y: 950, width: 330, height: 50)
+    static let targetName = targetNameBox
     static let gameMenu = CGRect(x: 1150, y: 440, width: 260, height: 70)  // the Game Menu's title
 }
 
