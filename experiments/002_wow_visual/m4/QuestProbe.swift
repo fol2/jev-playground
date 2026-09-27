@@ -47,6 +47,16 @@ enum QuestHUD {
     static let mapRight = 770.0  // pin tooltips are read left of this: the quest list repeats every title
     static let zone = CGRect(x: 2290, y: 24, width: 230, height: 30)  // the zone's name above the minimap, beside the clock
     static let logMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/quest-log.json")  // private, under runs/
+    // M4u: the town stop, from the live frames of 27 Sept (direct observation). Each window part is placed from its title
+    // line's left-top as OCR reads it (the merchant's and the trainer's windows open at the left, where the quest dialogue does).
+    static let characterMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/character.json")  // private: level last trained
+    static let townView = CGRect(x: 512, y: 200, width: 1536, height: 640)  // where an NPC's name is sought, read at twice its size
+    static let portrait = (x: 764.0, y: 995.0)  // the character's own portrait: its unit tooltip names its level
+    static let junkButton = (dx: 12.0, dy: 411.0)  // Sell All Junk Items, the coin bag under the merchant's grid
+    static let junkTip = (dx: 20.0, dy: 355.0, width: 240.0, height: 40.0)  // its tooltip, just above it
+    static let merchantMoney = (dx: 140.0, dy: 430.0, width: 120.0, height: 40.0)
+    static let trainerList = (dx: -96.0, dy: 66.0, width: 316.0, height: 340.0)  // name and requirement lines; a hovered spell's tooltip starts right of it
+    static let trainButton = (dx: 174.0, dy: 437.0)
 }
 
 /// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too, in
@@ -556,12 +566,12 @@ final class QuestRun {
     /// `declined`: NPCs whose dialogue this search has opened and closed as someone else's; a mark over one is skipped
     /// (`declined` true), never clicked blind (live run 40, 27 Sept: Windshaper Boro's "?", the only mark in view, opened
     /// his panel instead of the hand-in's NPC).
-    func onUnit(_ mark: QuestMark, in image: CGImage, declined: [String] = []) async -> (point: (x: Double, y: Double)?, declined: Bool) {
+    func onUnit(_ mark: QuestMark, in image: CGImage, declined: [String] = [], known: String? = nil) async -> (point: (x: Double, y: Double)?, declined: Bool) {
         let bottom = mark.body - 2.4 * mark.h
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        // An unread name leaves the NPC's own tooltip to confirm it (npcTip).
-        let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text ?? ""
+        // An unread name leaves the NPC's own tooltip to confirm it (npcTip). A town NPC's name is known (M4u).
+        let name = known ?? nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text ?? ""
         let met = { (line: String) in declined.contains { sameUnit(line, $0) } }
         if met(name) { return (nil, true) }
         var metOne = false
@@ -601,6 +611,148 @@ final class QuestRun {
             if await shows(at: point, again: true) == true { return (point, false) }
         }
         return (nil, metOne)
+    }
+
+    /// OCR lines of `box` read at twice their size, placed in capture pixels: an NPC's green name over its head is too small
+    /// for the full-size read (live, 27 Sept: "Windshaper Boro" read only so).
+    func upscaledLines(_ box: CGRect, _ image: CGImage?) -> [TipLine] {
+        guard let crop = image?.cropping(to: box),
+              let context = CGContext(data: nil, width: Int(box.width) * 2, height: Int(box.height) * 2, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+        context.interpolationQuality = .high
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: context.width, height: context.height))
+        guard let scaled = context.makeImage() else { return [] }
+        return ocr(scaled).map { text, b in
+            TipLine(text: text, x: box.minX + b.minX * box.width, y: box.minY + (1 - b.maxY) * box.height)
+        }
+    }
+
+    /// Open a town NPC's window by its name (M4u), as a human does: find the name over its head, turning in place if it is
+    /// not in view; rest the pointer on its body until the game's tooltip names it (onUnit, two reads, tooltipGone); then
+    /// right-click and wait for the window. The dialogue box's lines, or nil.
+    func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
+        func found(_ image: CGImage?) -> TipLine? { upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3 } }
+        var image = await frame()
+        var line = found(image)
+        if line == nil, let pulse = turnPulse(45) {
+            for _ in 0..<8 where line == nil {
+                guard !body.ownerTookFocus(), hostNow() < deadline else { return nil }
+                body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
+                guard body.keys.press(pulse.code) else { return nil }
+                await sleep(Double(pulse.ms) / 1000)
+                body.keys.lift(pulse.code)
+                image = await frame(after: hostNow() + 0.3)
+                line = found(image)
+            }
+        }
+        guard let line, let image else { return nil }
+        // The name's line, read at twice its size, is about 11 px high here; its body stands under it and its title.
+        let h = 2.5 * 12.0
+        let centre = line.x + 3 * Double(line.text.count)  // about 6 px a letter at this size ("Windshaper Boro", 90 px)
+        let mark: QuestMark = (x: centre, y: line.y - h, h: h, body: line.y + 12 + 2.4 * h, nameX: centre, nameTop: line.y)
+        body.emit("town_npc", ["name": name, "read": line.text, "at": [Int(line.x), Int(line.y)]])
+        guard let point = (await onUnit(mark, in: image, known: name)).point, !body.ownerTookFocus(), hostNow() < deadline else { return nil }
+        guard click(point.x, point.y, right: true) else { return nil }
+        return await arrive()
+    }
+
+    /// The merchant's window is open (its title the vendor's name): Sell All Junk Items, as a human does (M4u). Its tooltip is
+    /// read before the click; the game's confirmation ("…sell all junk items…") is answered Yes; the money after is the
+    /// evidence. The window is closed with Esc. SOLD n (copper), NO_JUNK (no confirmation came: nothing grey to sell), or why not.
+    func sellJunk(_ vendor: String, until deadline: Double = .infinity) async -> String {
+        guard let title = lines(QuestHUD.dialog, await frame()).first(where: { sameUnit($0.text, vendor) || likeName($0.text, vendor) }) else {
+            return "MERCHANT_NOT_OPEN"
+        }
+        defer { hover(1280, 60) }
+        func money() async -> Int? {
+            let m = QuestHUD.merchantMoney
+            return copper(lines(CGRect(x: title.x + m.dx, y: title.y + m.dy, width: m.width, height: m.height), await frame()).map(\.text).joined(separator: " "))
+        }
+        let b = QuestHUD.junkButton, t = QuestHUD.junkTip
+        hover(title.x + b.dx, title.y + b.dy)
+        await sleep(0.6)
+        let tip = lines(CGRect(x: title.x + t.dx, y: title.y + t.dy, width: t.width, height: t.height), await frame(after: hostNow() + 0.2))
+        guard tip.contains(where: { nameKey($0.text).contains(nameKey("Sell All Junk")) }) else { await close(vendor); return "NO_SELL_JUNK_BUTTON" }
+        let before = await money()
+        guard !body.ownerTookFocus(), hostNow() < deadline else { await close(vendor); return "OWNER_OR_TIME" }
+        guard click(title.x + b.dx, title.y + b.dy) else { await close(vendor); return "CLICK_FAILED" }
+        await sleep(1.0)
+        let popup = lines(QuestHUD.popup, await frame(after: hostNow() + 0.2))
+        guard popup.contains(where: { nameKey($0.text).contains(nameKey("sell all junk")) }),
+              let yes = popup.first(where: { nameKey($0.text) == nameKey("Yes") }) else { await close(vendor); return "NO_JUNK" }
+        body.emit("sell_junk", ["controller": "RULE", "vendor": vendor, "money_before": orNull(before)])
+        guard !body.ownerTookFocus(), hostNow() < deadline else { await close(vendor); return "OWNER_OR_TIME" }
+        guard click(yes.x + 12, yes.y + 7) else { await close(vendor); return "CLICK_FAILED" }
+        await sleep(1.5)
+        let after = await money()
+        body.emit("sold", ["money_before": orNull(before), "money_after": orNull(after)])
+        await close(vendor)
+        if let before, let after, after > before { return "SOLD \(after - before)" }
+        return "SOLD_UNCONFIRMED"
+    }
+
+    /// The trainer's gossip is open (M4u): "I'd like training!", then each spell row the level allows, top to bottom (trainerRows),
+    /// is clicked and Train pressed, at most TownLimits.trainRows times. A row the game does not allow leaves Train grey, and
+    /// the press does nothing. The chat's "You have learned a new spell" is the evidence; the list is read again after each.
+    func train(_ trainer: String, level: Int, until deadline: Double) async -> (outcome: String, learned: [String]) {
+        var dialog = lines(QuestHUD.dialog, await frame())
+        if let option = dialog.first(where: { nameKey($0.text).contains(nameKey("like training")) }) {
+            guard !body.ownerTookFocus(), hostNow() < deadline else { await close(trainer); return ("OWNER_OR_TIME", []) }
+            guard click(option.x + 40, option.y + 6) else { await close(trainer); return ("CLICK_FAILED", []) }
+            await sleep(1.5)
+            dialog = lines(QuestHUD.dialog, await frame())
+        }
+        // The trainer's own window, not its gossip, before any row or Train click (review of #77).
+        guard trainerOpen(dialog, trainer: trainer),
+              let title = dialog.first(where: { sameUnit($0.text, trainer) || likeName($0.text, trainer) }) else {
+            await close(trainer)
+            return ("TRAINER_NOT_OPEN", [])
+        }
+        let l = QuestHUD.trainerList, b = QuestHUD.trainButton
+        let list = CGRect(x: title.x + l.dx, y: title.y + l.dy, width: l.width, height: l.height)
+        var tried: Set<String> = [], learned: [String] = []
+        for _ in 0..<TownLimits.trainRows where hostNow() < deadline && !body.ownerTookFocus() {
+            let shown = await frame()
+            guard trainerOpen(lines(QuestHUD.dialog, shown), trainer: trainer),
+                  let row = trainerRows(lines(list, shown), level: level).first(where: { !tried.contains(nameKey($0.text)) }) else { break }
+            tried.insert(nameKey(row.text))
+            let before = Set((await frame()).map(chatLines) ?? [])
+            guard click(row.x + 40, row.y + 6) else { break }
+            await sleep(0.5)
+            // The row's click keeps the window; it is read once more before Train (review of #77).
+            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus() else { break }
+            guard click(title.x + b.dx, title.y + b.dy) else { break }
+            await sleep(1.2)
+            let fresh = ((await frame(after: hostNow() + 0.2)).map(chatLines) ?? []).filter { !before.contains($0) && $0.contains("learned") }
+            body.emit("train_row", ["controller": "RULE", "row": row.text, "chat": fresh])
+            learned += fresh
+        }
+        hover(1280, 60)
+        await close(trainer)
+        return (learned.isEmpty ? "NOTHING_TO_TRAIN" : "TRAINED \(learned.count)", learned)
+    }
+
+    /// Esc, only while the NPC's window still shows its title at the left: Esc with nothing open is the Game Menu, and a
+    /// world name can stand in that box.
+    func close(_ name: String) async {
+        if npcWindowOpen(lines(QuestHUD.dialog, await frame()), name: name) {
+            await tap(QuestHUD.escape)
+            await sleep(0.6)
+        }
+    }
+
+    /// The character's level (M4u): the pointer rests on its own portrait, and its unit tooltip reads "Level N". Nil when unread.
+    func readLevel() async -> Int? {
+        hover(QuestHUD.portrait.x, QuestHUD.portrait.y)
+        let moved = hostNow()
+        await sleep(0.4)
+        let tip = lines(QuestHUD.unitTip, await frame(after: moved + 0.3)).map(\.text)
+        hover(1280, 60)
+        // Only the level's line is logged: the tooltip's first line is the character's name (live, 27 Sept: "Level 3
+        // Windshaper Skyborne (Player)" under it).
+        body.emit("level_read", ["line": orNull(tip.first { $0.lowercased().hasPrefix("level ") }), "level": orNull(tooltipLevel(tip))])
+        return tooltipLevel(tip)
     }
 
     /// Turn to face `pin`, as a human turns to the NPC on arriving: a walk ends facing the way it went (live run 31, 27 Sept:
@@ -846,6 +998,10 @@ final class LiveQuestHost: QuestHost {
     var walkedFrom: MapPoint?
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
+    var town: [TownNPC] = []  // M4u: the villages' vendors and trainers (learning/knowledge/zephras-town.json)
+    /// M4u: the level at the last visit to the trainer, from the character's memory (private, under runs/).
+    var trainedAt: Int? = (try? Data(contentsOf: QuestHUD.characterMemory))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.flatMap { $0["trained_at_level"] as? Int }
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
@@ -921,7 +1077,36 @@ final class LiveQuestHost: QuestHost {
         // The bags are read only when a use-at quest might name an item in them (M4m).
         let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []
         if !items.isEmpty { emit("bags", ["items": items]) }
-        return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys))
+        // M4u: the level, for the trainer; the level last trained, from the character's memory (a lower level read is a new
+        // character with the same name: the memory is forgotten); the bags' filled slots when they were read.
+        let level = town.isEmpty ? nil : await quester.readLevel()
+        if let level, let t = trainedAt, level < t { trainedAt = nil; try? FileManager.default.removeItem(at: QuestHUD.characterMemory) }
+        return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys),
+                         level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count)
+    }
+
+    /// A town stop (M4u): walk to where the NPC is talked to, open its window by its name, then sell the junk or train.
+    /// A trainer's window seen at a level is remembered (character.json, private): TRAIN is offered again only at a higher one.
+    func visit(_ npc: TownNPC) async -> String {
+        if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
+        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard hostNow() < runDeadline else { return "TOWN_TIME_LIMIT" }  // the window's work starts only inside the run
+        guard let opened = await quester.openByName(npc.name, until: runDeadline) else { return "NPC_NOT_OPENED" }
+        emit("town_open", ["npc": npc.name, "lines": opened.prefix(4).map(\.text)])
+        if npc.role == "vendor" {
+            let outcome = await quester.sellJunk(npc.name, until: runDeadline)
+            emit("town_done", ["npc": npc.name, "outcome": outcome])
+            return outcome
+        }
+        let level = await quester.readLevel()
+        let (outcome, learned) = await quester.train(npc.name, level: level ?? 1, until: runDeadline)
+        emit("town_done", ["npc": npc.name, "outcome": outcome, "learned": learned, "level": orNull(level)])
+        if let level, outcome != "TRAINER_NOT_OPEN", outcome != "CLICK_FAILED" {
+            trainedAt = level
+            try? FileManager.default.createDirectory(at: QuestHUD.characterMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? JSONSerialization.data(withJSONObject: ["trained_at_level": level]).write(to: QuestHUD.characterMemory)
+        }
+        return outcome
     }
 
     /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then
@@ -1166,6 +1351,8 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                                                        fightTactics: tactics) },
                              huntGraph: hunting, tactics: tactics)
     host.roads = roads
+    host.town = (try? TownNPC.load()) ?? []  // M4u: the vendor and the trainer of the villages learnt so far
+    log.emit("town", ["npcs": host.town.map(\.name)])
     host.runDeadline = hostNow() + QuestLimits.runSeconds
     // The bar's other skills ("Skysight", from a quest) are abilities a use-at quest may name (M4m).
     host.abilities = Dictionary(bar.slots.compactMap { slot, skill in
@@ -1181,7 +1368,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     var result = QuestResult()
     if let revivedFirst, revivedFirst != "REVIVED" { result.outcome = revivedFirst }
     else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
-                                    seconds: host.runDeadline - hostNow()) }  // what setup and a revive left of the window
+                                    seconds: host.runDeadline - hostNow(), town: host.town) }  // what setup and a revive left of the window
     await host.leaveDanger(after: result.outcome)
     let revived = await host.reviveIfDead()  // died in the run or on the way to safety
     try? await stream.stopCapture()

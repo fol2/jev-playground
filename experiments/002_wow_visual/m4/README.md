@@ -1120,6 +1120,51 @@ names … the time you see plate means they are already in your danger zone"), b
 - **Not yet:** a detour round a plate, and the hunt's own walks (their quest creatures carry plates too).
 - **Evidence.** Sim: `NavTests` (a hostile plate from run 67 warns; a neutral one does not). Live: the next run.
 
+## M4u — the town stop: sell the junk, learn the class's spells (27 Sept)
+
+The owner's goal (26 Sept): level from 1 to 20 "just like human do, upgrade skills, buy/sell, upgrade gears". A human
+leaves the field now and then to empty the bags at a vendor and to learn new spells at the class trainer.
+
+- **Observed live first** (27 Sept, by direct control, frames kept privately):
+  - **Trainer** (Windshaper Boro, Thendal Village). Right-click opens his gossip, and "I'd like training!" opens the
+    trainer window at the left. Each row has a name "(Rank N)" and, when not yet allowed, "Requires: Level N" with the
+    number in red; the price sits beside it. Train stays grey until a row is clicked. Rockbiter Weapon was learnt
+    for 10 copper: chat "You have learned a new spell", 35 → 25 copper, and the row left the list.
+    **The client put the new spell in the first empty bar slot by itself** (slot 4). This contradicts the research's
+    inference (Classic places nothing), so no bar step is needed.
+  - **Vendor** (Uualia Suncrest). Right-click opens the merchant's window and the bags. The coin bag under the grid
+    is "Sell All Junk Items". It asks to confirm ("…will not be able to buy them back…"); Yes sold every grey item,
+    25 → 63 copper.
+  - The money is the bottleneck: at level 3 Earth Shock needs level 4 and 1 silver.
+- **Offers** (`townOffers`, Jev's choice as for any step; quest graph `skyborne-quest-tools-v9`), each within one walk
+  and once a run:
+  - `TRAIN` at the class trainer, when the level read is above the level of the last visit. The level comes from the
+    character's own portrait tooltip ("Level N"). The last visit's level is kept in `runs/002_wow_visual/memory/character.json`
+    (private). A lower level read is a new character with the same name, and forgets it.
+  - `SELL_JUNK` at a vendor, when the bags hold 8 items or more, or were not read this step (they are read only for a
+    use-at quest; review of #77). Jev weighs it.
+  - The NPCs and where to stand are knowledge: `learning/knowledge/zephras-town.json`.
+- **A visit** (`LiveQuestHost.visit`):
+  - It walks to the stand point, then finds the NPC by its name. The name is read at twice its size (the full-size
+    read misses it), turning in place if needed.
+  - The NPC is hovered until the game's tooltip names it (`onUnit`, the M4c rule), then right-clicked.
+  - Vendor: the Sell All Junk tooltip is read before the click, the confirmation is answered Yes, and the money after it
+    is the evidence (`SOLD n`, `NO_JUNK`).
+  - Trainer: "I'd like training!", then, only while the trainer's own window shows (`trainerOpen`: its title, no gossip
+    "Goodbye", a "Rank" or "Requires" line; review of #77), each row the level allows is clicked and Train pressed, at most six
+    (`trainerRows`; a misread level is tried, since the game refuses what it does not allow). The chat's "You have learned"
+    is the evidence (`TRAINED n`, `NOTHING_TO_TRAIN`).
+  - Each window is closed with Esc only while it shows: its title and a line only such a window has (`npcWindowOpen`: the
+    gossip's "Goodbye", a trainer row, the merchant's "Buyback" or "Page N of M"). An NPC's name standing in the world at
+    the left is no window (review of #77). The owner's takeover and the run's time stop every turn and click of a visit:
+    the search by name, each sell click, the gossip click, each row and each Train (Train only after the window is read
+    again).
+- **Also here:** Jev's danger criteria say "red name or plate" (review of #75); a corpse search that finds nothing logs what
+  its points showed (`corpse_hover_miss`; live run 68 looted once by tooltip and missed twice, saying nothing).
+- **Not in this slice:** buying food, drink or gear; repair; the gear upgrade rule at a vendor; other villages' NPCs.
+- **Evidence.** Sim: `HuntTests` covers the level, the money, the rows (on the live OCR lines), the offers, and one run
+  that trains and sells. Live: the next run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

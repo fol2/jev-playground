@@ -1,0 +1,7 @@
+{
+  "source": "Live, 27 Sept 2026, by direct observation: the character stood at these places, facing each NPC, when their windows were opened by hand (frames kept privately). Names as the game shows them over the NPCs.",
+  "npcs": [
+    {"name": "Windshaper Boro", "role": "trainer", "class": "Shaman", "hub": "Thendal Village", "at": [42.7, 23.2]},
+    {"name": "Uualia Suncrest", "role": "vendor", "hub": "Thendal Village", "at": [42.8, 24.3]}
+  ]
+}

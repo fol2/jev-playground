@@ -330,6 +330,7 @@ final class LiveHost: FightHost {
     /// tooltip fading from one point never confirms the next.
     private func hoverCorpse(_ points: [(x: Double, y: Double)]) async -> (x: Double, y: Double)? {
         let start = hostNow()
+        var seen: [[String: Any]] = []  // the points where a tooltip showed, and what it said
         guard await parkPointer() else { return nil }
         for p in points where (0.1...0.9).contains(p.x / Double(HUD.width)) && (0.2...0.85).contains(p.y / Double(HUD.height))
             && hostNow() - start < FightLimits.corpseHoverSeconds {
@@ -341,9 +342,12 @@ final class LiveHost: FightHost {
                 return p
             }
             if reads.contains(where: { !$0.isEmpty }) {
+                seen.append(["at": [Int(p.x), Int(p.y)], "tooltips": reads.map { Array($0.prefix(3)) }])
                 guard await parkPointer() else { return nil }
             }
         }
+        // What the pointer met instead, for the next calibration (live run 68: two searches found no corpse, and said nothing).
+        emit("corpse_hover_miss", ["points": points.count, "seconds": Int(hostNow() - start), "tooltips": Array(seen.prefix(8))])
         _ = await parkPointer()
         return nil
     }
