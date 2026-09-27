@@ -48,7 +48,7 @@ let motorPaths: Set<String> = Set(
        "Experience.swift", "ExperienceTests.swift", "JSON.swift", "skyborne-hunt.graph.json", "skyborne-quest.graph.json",
        "skyborne-fight.graph.json", "README.md"].map { runtimeDir + $0 }
     + ["Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift", "HuntProbe.swift", "Quest.swift",
-       "QuestProbe.swift", "Roads.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
+       "QuestProbe.swift", "Roads.swift", "Session.swift", "SessionTests.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
     + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "RedNames.swift", "Objects.swift", "Facing.swift", "Teacher.swift", "Train.swift", "README.md"]
         .map { perceiveDir + $0 }
     + ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift", "README.md"].map { engineDir + $0 }

@@ -44,6 +44,9 @@ frame -> readers (pixels, OCR, learned models) -> Reading -> WorldState (Belief,
 
 1. Wrap `runQuests` in a `PlayLoop`: the host maps each outcome code onto `TaskOutcome` with
    `failureKind(forCode:)`, and the loop plans again instead of returning. The old codes stay.
+   **Done as an opt-in candidate:** `m4/Session.swift` (`runSession`, `SessionHost`), tested in
+   `m4/SessionTests.swift`, live behind `--quests --session` (#87). Builds that include `QuestProbe.swift`
+   now include `Session.swift`, `World.swift` and `Controller.swift`.
 2. Move the M3/M4 reflexes behind `ReflexTable.standard`; delete their copies.
 3. Make each `Obs`/`NavObs`/`HuntObs`/`QuestRead` field a `Reading` written into one `WorldState`.
 4. Replace `questOffers` + `townOffers` with `GoalPlanner.rank`; keep the quest graph file only as the

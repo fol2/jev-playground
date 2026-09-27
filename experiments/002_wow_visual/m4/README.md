@@ -1292,6 +1292,34 @@ sent it by road; the roads players walked go south round the ridge (42.5, 24.3; 
   `stuck_ahead` (13 legs, 18.4 units by road against 10.8 straight) and set off south; its first leg stopped at 41.9, 25.4 for
   a hostile ahead (`WALK_DANGER_AHEAD`), so the far side is still to be reached live.
 
+## The session loop (#87, opt-in `--quests --session`; 27 Sept)
+
+The first slice of [the decision architecture](../../../docs/architecture.md): `runSession` in `Session.swift` runs the quest
+loop inside the engine's `PlayLoop` (`engine/Controller.swift`). Jev's part is unchanged (the same offers, graph and criteria);
+what changes is what happens around a decision and what a failure does. `runQuests` stays the qualified baseline until a live
+session has run.
+
+- **A failure is an outcome, not an end.** Every step's code is a `TaskOutcome` (`taskOutcome`): the codes that worked, the codes
+  that found nothing to do, and the rest as failures of one kind (perception, knowledge, plan, execution, environment, safety,
+  budget; `failureKind(forCode:)`), each logged as `task_failed`. The loop records it and plans again without that step.
+- **An unread frame holds.** No fresh frame, an unreadable position or an incomplete log read waits half a second and reads
+  again; five in a row record one perception failure and back off ten seconds. Nothing ends.
+- **Reflexes, every tick, before any plan** (`ReflexTable.standard`, each logged `reflex` with its controller): the owner's
+  takeover pauses the loop with no input (held for two minutes, the session ends `OWNER_TOOK_FOCUS`); stale vision holds; death
+  is revived (M4s) and counted; combat is fought back (M4i, SAFETY); low health out of combat is recovered (M4w, RULE), or rested.
+- **Modes** (`session_mode`): dead, recovering, idle-safe, in town, questing, paused. With nothing within reach the loop is
+  idle-safe: it walks to the nearest village (M4r), forgets this session's failed steps, and reads again two minutes later.
+- **Only the envelope ends it** (`EnvelopeBudget`): its time, three deaths, 400 graph calls, or eight planned steps failed in a
+  row with no success between (a fight back won or a walk to safety is not progress). The end walks to safety and checks for
+  death itself; the engine's own faults (keys held, a failed handoff) end it at once, as before.
+- **Live** (`questsExecute`): `LiveQuestHost` is the session's host through M4r, M4s and M4w; the steps' window is the run's
+  (no step after 20 minutes), the end has the envelope's rest.
+- **Evidence.** Sim only: `SessionTests.swift` (21 checks) on scripted reads, vitals and outcomes: the holds, the recorded
+  failures, the reflexes' order and controllers, death and recovery as modes, the owner's pause and its limit, a failed call, the
+  call and death limits, keys held, a danger stop's retreat and fight ahead, and `--session`. Live: not yet run; the first
+  announced session is its qualification, and its `events.jsonl` (`task_failed`, `reflex`, `session_mode`, `session_end`) the
+  evidence.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
@@ -1311,7 +1339,8 @@ C=experiments/001_wow_fishing/probes/background-click
 swiftc -O -parse-as-library -D SEEK -D FIGHT -D NAV \
   $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift $V/m1/Plate.swift $V/m1/SeekProbe.swift \
   $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightProbe.swift $V/m4/Nav.swift $V/m4/NavProbe.swift \
-  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift \
+  $V/m4/Hunt.swift $V/m4/HuntProbe.swift $V/m4/Quest.swift $V/m4/QuestProbe.swift $V/m4/Roads.swift $V/m4/Session.swift \
+  $V/m5/Marks.swift $V/m5/Reader.swift $V/engine/World.swift $V/engine/Controller.swift \
   $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift \
   $C/Adapter.swift $C/NativeWindowServerPreparation.swift $C/NativeBackgroundClickTransport.swift \
   -o /tmp/m4-nav
@@ -1331,6 +1360,8 @@ swiftc -parse-as-library experiments/002_wow_visual/m0/Motor.swift experiments/0
   experiments/002_wow_visual/m3/Fight.swift experiments/002_wow_visual/m3/Tactics.swift experiments/002_wow_visual/m4/Nav.swift \
   experiments/002_wow_visual/m4/NavTests.swift experiments/002_wow_visual/m4/Hunt.swift \
   experiments/002_wow_visual/m4/HuntTests.swift experiments/002_wow_visual/m4/Quest.swift experiments/002_wow_visual/m4/Roads.swift \
+  experiments/002_wow_visual/m4/Session.swift experiments/002_wow_visual/m4/SessionTests.swift \
+  experiments/002_wow_visual/engine/World.swift experiments/002_wow_visual/engine/Controller.swift \
   experiments/002_wow_visual/runtime/Runtime.swift experiments/002_wow_visual/runtime/Input.swift experiments/002_wow_visual/runtime/DecisionGraph.swift \
   experiments/002_wow_visual/runtime/Experience.swift -o /tmp/nav-tests && /tmp/nav-tests
 swiftc -parse-as-library experiments/002_wow_visual/m4/Tabletop.swift experiments/002_wow_visual/runtime/JSON.swift \

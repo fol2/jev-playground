@@ -205,8 +205,9 @@ struct PlayLoop: Equatable {
         history.append(TaskRecord(task: task, controller: .rule, outcome: .running, began: now, ended: now))
     }
 
-    /// Record a task's end. A failure counts against the no-progress limit; a success resets it. Death is counted
-    /// where it is seen, by the reflex, not here.
+    /// Record a task's end. A failure counts against the no-progress limit; a planned step's success (JEV's or RULE's,
+    /// not a SAFETY reflex's: a fight back won or a walk to safety is not progress on the goal) resets it. Death is
+    /// counted where it is seen, by the reflex, not here.
     mutating func end(task: String, controller: ControllerName, outcome: TaskOutcome, at now: Double) {
         if let i = history.lastIndex(where: { $0.task == task && $0.outcome == .running }) {
             history[i].controller = controller
@@ -215,7 +216,8 @@ struct PlayLoop: Equatable {
         } else {
             history.append(TaskRecord(task: task, controller: controller, outcome: outcome, began: now, ended: now))
         }
-        if case .failed = outcome { usage.consecutiveFailures += 1 } else if case .succeeded = outcome { usage.consecutiveFailures = 0 }
+        if case .failed = outcome { usage.consecutiveFailures += 1 }
+        else if case .succeeded = outcome, controller == .jev || controller == .rule { usage.consecutiveFailures = 0 }
         activeTask = nil
         if mode == .questing || mode == .inTown { mode = .idleSafe }
     }

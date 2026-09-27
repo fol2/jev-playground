@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 233  // the current count: removing a check must lower this on purpose
-let minNavChecks = 447  // the current count: removing a check must lower this on purpose
+let minNavChecks = 468  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -438,10 +438,12 @@ func motorProof(update: Bool) throws -> String {
     let navSources = fightSources + [navDir + "Nav.swift", navDir + "Hunt.swift", navDir + "Quest.swift", navDir + "Roads.swift"]
     let seekShell = [motorDir + "Motor.swift", motorDir + "Probe.swift", seekDir + "Seek.swift", seekDir + "Plate.swift", seekDir + "SeekProbe.swift"]
     let clicks = [clickDir + "Adapter.swift", clickDir + "NativeWindowServerPreparation.swift", clickDir + "NativeBackgroundClickTransport.swift"]
+    let engineCore = [engineDir + "World.swift", engineDir + "Controller.swift"]  // the session loop's world model and PlayLoop (#87)
     let navBuild = Build(output: nav, sources: seekShell + [fightDir + "Fight.swift", fightDir + "FightProbe.swift", navDir + "Nav.swift",
                                                             navDir + "NavProbe.swift", navDir + "Hunt.swift", navDir + "HuntProbe.swift",
                                                             navDir + "Quest.swift", navDir + "QuestProbe.swift", navDir + "Roads.swift",
-                                                            perceiveDir + "Marks.swift", perceiveDir + "Reader.swift"] + clicks,  // M5 in shadow
+                                                            navDir + "Session.swift",
+                                                            perceiveDir + "Marks.swift", perceiveDir + "Reader.swift"] + engineCore + clicks,  // M5 in shadow
                          flags: ["-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"])
     if update {
         try buildAll([navBuild])
@@ -460,7 +462,8 @@ func motorProof(update: Bool) throws -> String {
         Build(output: fight, sources: seekShell + [fightDir + "Fight.swift", fightDir + "FightProbe.swift"] + clicks,
               flags: ["-O", "-D", "SEEK", "-D", "FIGHT"]),
         Build(output: navTests, sources: fightSources + [navDir + "Nav.swift", navDir + "NavTests.swift", navDir + "Hunt.swift",
-                                                         navDir + "HuntTests.swift", navDir + "Quest.swift", navDir + "Roads.swift"]),
+                                                         navDir + "HuntTests.swift", navDir + "Quest.swift", navDir + "Roads.swift",
+                                                         navDir + "Session.swift", navDir + "SessionTests.swift"] + engineCore),
         navBuild,
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
         Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),

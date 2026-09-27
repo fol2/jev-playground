@@ -827,6 +827,7 @@ struct NavCommand: Equatable {
     var fightGraph: String?  // M3b's fight graph for a live hunt's or quest run's fights
     var huntGraph: String?  // M4b's hunt graph for a quest run's hunts
     var zoomIn = FightLimits.zoomInSeconds  // --zoom: F11 back from the widest view, to calibrate
+    var session = false  // --quests --session: the session loop (#87) in place of the run loop; a failure plans again
 }
 
 let navScenarios: Set<String> = ["open", "wall", "pocket"]
@@ -850,6 +851,11 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         if mode == .execute && option == "--ghost" {
             guard !command.ghost else { throw ProbeError("'--ghost' is repeated") }
             command.ghost = true
+            continue
+        }
+        if mode == .quests && option == "--session" {
+            guard !command.session else { throw ProbeError("'--session' is repeated") }
+            command.session = true
             continue
         }
         guard seen.insert(option).inserted, let value = rest.popFirst(), !value.hasPrefix("-") else {

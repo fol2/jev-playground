@@ -1424,10 +1424,43 @@ final class LiveQuestHost: QuestHost {
     func emit(_ event: String, _ fields: [String: Any]) { quester.body.emit(event, fields) }
 }
 
+// MARK: #87 — the session loop's host (`--quests --session`)
+
+extension LiveQuestHost: SessionHost {
+    /// The HUD on a frame no older than the fight's age limit. Dead is an empty bar out of combat (runHunt's DEAD); the
+    /// death screen itself is read by revive(), so a misread bar costs a look, never a click.
+    func vitals() -> SessionVitals? {
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+        let o = observe(rgba(frame.image), plates: false)
+        return SessionVitals(health: o.player, mana: o.mana, inCombat: o.combat, dead: o.player < 0.01 && !o.combat,
+                             capturedAt: frame.stamp.capturedAt)
+    }
+
+    /// M4w's heal, then the bar again: RECOVERED at the walking health, STILL_HURT below it (the loop then rests).
+    func recover() async -> String {
+        await healBeforeWalking()
+        guard let o = vitalsNow() else { return "HUD_UNREADABLE" }
+        return o.player >= RecoverLimits.until ? "RECOVERED" : "STILL_HURT"
+    }
+
+    /// M4r's way to the nearest village, at idle and at the session's end alike.
+    func toSafety() async -> String {
+        await leaveDanger(after: "IDLE")
+        return "SAFE"
+    }
+
+    func revive() async -> String? { await reviveIfDead() }
+
+    func wait(_ seconds: Double) async { await quester.sleep(seconds) }
+}
+
 /// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
-/// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
+/// offers only hand-ins within one walk and stops on the run envelope's limits (M4f). With `--session` the
+/// session loop (#87, m4/Session.swift) runs in place of the run loop: a failure is recorded and planned round,
+/// an unread frame holds, and only the envelope or the owner ends it.
 @MainActor
-func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil, session: Bool = false) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -1487,15 +1520,31 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
-    body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
+    body.emit("start", ["run_id": run.id, "mode": session ? "session" : "quests", "decision_graph": graph.graph.id])
     // Dead at the start (live, 27 Sept: it died between runs 56 and 57): resurrected first, or the run does not start.
     let revivedFirst = await host.reviveIfDead()
     var result = QuestResult()
-    if let revivedFirst, revivedFirst != "REVIVED" { result.outcome = revivedFirst }
-    else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
-                                    seconds: host.runDeadline - hostNow(), town: host.town) }  // what setup and a revive left of the window
-    await host.leaveDanger(after: result.outcome)
-    let revived = await host.reviveIfDead()  // died in the run or on the way to safety
+    var revived: String?
+    if let revivedFirst, revivedFirst != "REVIVED" {
+        result.outcome = revivedFirst
+    } else if session {
+        // #87: the steps' window is the run's (no step after runDeadline); the session's end, inside the reserve, walks to safety
+        // and checks for death itself (runSession's finish), so neither is repeated below.
+        let played = await runSession(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph,
+                                      roads: roads, town: host.town,
+                                      budget: EnvelopeBudget(seconds: host.runDeadline - hostNow() + SessionLimits.endReserve,
+                                                             deaths: SessionLimits.deaths, judgeCalls: SessionLimits.judgeCalls,
+                                                             consecutiveFailures: SessionLimits.consecutiveFailures))
+        result.outcome = played.outcome; result.steps = played.steps; result.graphRecords = played.graphRecords
+        body.emit("session_summary", ["outcome": played.outcome, "modes": played.modes, "deaths": played.usage.deaths,
+                                      "judge_calls": played.usage.judgeCalls, "failures": played.records.filter {
+                                          if case .failed = $0.outcome { return true }; return false }.count])
+    } else {
+        result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
+                                 seconds: host.runDeadline - hostNow(), town: host.town)  // what setup and a revive left of the window
+        await host.leaveDanger(after: result.outcome)
+        revived = await host.reviveIfDead()  // died in the run or on the way to safety
+    }
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },

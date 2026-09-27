@@ -50,7 +50,9 @@ low health, combat, hostile ahead of a walk, hurt out of combat, buff before a f
 Modes: dead, recovering, idle-safe, in town, questing, paused. A task failure is an outcome with a kind
 (perception, knowledge, plan, execution, environment, safety, budget); the loop records it and plans
 again. An unread frame holds and re-observes. Only the owner's takeover or an exhausted envelope
-(time, deaths, calls, consecutive failures) ends a session, and the end walks to safety first.
+(time, deaths, calls, consecutive failures) ends a session, and the end walks to safety first. The
+first implementation is `runSession` (`experiments/002_wow_visual/m4/Session.swift`), opt-in with
+`--quests --session`; the run loop stays the baseline until a live session has run.
 
 ### The planner
 
