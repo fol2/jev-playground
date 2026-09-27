@@ -637,6 +637,7 @@ final class QuestRun {
         var line = found(image)
         if line == nil, let pulse = turnPulse(45) {
             for _ in 0..<8 where line == nil {
+                guard !body.ownerTookFocus() else { return nil }
                 body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 guard body.keys.press(pulse.code) else { return nil }
                 await sleep(Double(pulse.ms) / 1000)
@@ -651,7 +652,7 @@ final class QuestRun {
         let centre = line.x + 3 * Double(line.text.count)  // about 6 px a letter at this size ("Windshaper Boro", 90 px)
         let mark: QuestMark = (x: centre, y: line.y - h, h: h, body: line.y + 12 + 2.4 * h, nameX: centre, nameTop: line.y)
         body.emit("town_npc", ["name": name, "read": line.text, "at": [Int(line.x), Int(line.y)]])
-        guard let point = (await onUnit(mark, in: image, known: name)).point else { return nil }
+        guard let point = (await onUnit(mark, in: image, known: name)).point, !body.ownerTookFocus() else { return nil }
         guard click(point.x, point.y, right: true) else { return nil }
         return await arrive()
     }
@@ -674,12 +675,14 @@ final class QuestRun {
         let tip = lines(CGRect(x: title.x + t.dx, y: title.y + t.dy, width: t.width, height: t.height), await frame(after: hostNow() + 0.2))
         guard tip.contains(where: { nameKey($0.text).contains(nameKey("Sell All Junk")) }) else { await close(vendor); return "NO_SELL_JUNK_BUTTON" }
         let before = await money()
+        guard !body.ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
         guard click(title.x + b.dx, title.y + b.dy) else { await close(vendor); return "CLICK_FAILED" }
         await sleep(1.0)
         let popup = lines(QuestHUD.popup, await frame(after: hostNow() + 0.2))
         guard popup.contains(where: { nameKey($0.text).contains(nameKey("sell all junk")) }),
               let yes = popup.first(where: { nameKey($0.text) == nameKey("Yes") }) else { await close(vendor); return "NO_JUNK" }
         body.emit("sell_junk", ["controller": "RULE", "vendor": vendor, "money_before": orNull(before)])
+        guard !body.ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
         guard click(yes.x + 12, yes.y + 7) else { await close(vendor); return "CLICK_FAILED" }
         await sleep(1.5)
         let after = await money()
@@ -692,19 +695,26 @@ final class QuestRun {
     /// The trainer's gossip is open (M4u): "I'd like training!", then each spell row the level allows, top to bottom (trainerRows),
     /// is clicked and Train pressed, at most TownLimits.trainRows times. A row the game does not allow leaves Train grey, and
     /// the press does nothing. The chat's "You have learned a new spell" is the evidence; the list is read again after each.
-    func train(_ trainer: String, level: Int) async -> (outcome: String, learned: [String]) {
+    func train(_ trainer: String, level: Int, until deadline: Double) async -> (outcome: String, learned: [String]) {
         var dialog = lines(QuestHUD.dialog, await frame())
         if let option = dialog.first(where: { nameKey($0.text).contains(nameKey("like training")) }) {
-            guard click(option.x + 40, option.y + 6) else { return ("CLICK_FAILED", []) }
+            guard click(option.x + 40, option.y + 6) else { await close(trainer); return ("CLICK_FAILED", []) }
             await sleep(1.5)
             dialog = lines(QuestHUD.dialog, await frame())
         }
-        guard let title = dialog.first(where: { sameUnit($0.text, trainer) || likeName($0.text, trainer) }) else { return ("TRAINER_NOT_OPEN", []) }
+        // The trainer's own window, not its gossip, before any row or Train click (review of #77).
+        guard trainerOpen(dialog, trainer: trainer),
+              let title = dialog.first(where: { sameUnit($0.text, trainer) || likeName($0.text, trainer) }) else {
+            await close(trainer)
+            return ("TRAINER_NOT_OPEN", [])
+        }
         let l = QuestHUD.trainerList, b = QuestHUD.trainButton
         let list = CGRect(x: title.x + l.dx, y: title.y + l.dy, width: l.width, height: l.height)
         var tried: Set<String> = [], learned: [String] = []
-        for _ in 0..<TownLimits.trainRows {
-            guard let row = trainerRows(lines(list, await frame()), level: level).first(where: { !tried.contains(nameKey($0.text)) }) else { break }
+        for _ in 0..<TownLimits.trainRows where hostNow() < deadline && !body.ownerTookFocus() {
+            let shown = await frame()
+            guard trainerOpen(lines(QuestHUD.dialog, shown), trainer: trainer),
+                  let row = trainerRows(lines(list, shown), level: level).first(where: { !tried.contains(nameKey($0.text)) }) else { break }
             tried.insert(nameKey(row.text))
             let before = Set((await frame()).map(chatLines) ?? [])
             guard click(row.x + 40, row.y + 6) else { break }
@@ -1072,12 +1082,12 @@ final class LiveQuestHost: QuestHost {
                          level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count)
     }
 
-    /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then
-    /// its key, and time for its cast. With no pin (FROM_HERE, Jev's choice after a walk stopped near it) there is no walk. A bag item is right-clicked where the character stands (QuestRun.useItem).
     /// A town stop (M4u): walk to where the NPC is talked to, open its window by its name, then sell the junk or train.
     /// A trainer's window seen at a level is remembered (character.json, private): TRAIN is offered again only at a higher one.
     func visit(_ npc: TownNPC) async -> String {
         if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
+        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard hostNow() < runDeadline else { return "TOWN_TIME_LIMIT" }  // the window's work starts only inside the run
         guard let opened = await quester.openByName(npc.name) else { return "NPC_NOT_OPENED" }
         emit("town_open", ["npc": npc.name, "lines": opened.prefix(4).map(\.text)])
         if npc.role == "vendor" {
@@ -1086,7 +1096,7 @@ final class LiveQuestHost: QuestHost {
             return outcome
         }
         let level = await quester.readLevel()
-        let (outcome, learned) = await quester.train(npc.name, level: level ?? 1)
+        let (outcome, learned) = await quester.train(npc.name, level: level ?? 1, until: runDeadline)
         emit("town_done", ["npc": npc.name, "outcome": outcome, "learned": learned, "level": orNull(level)])
         if let level, outcome != "TRAINER_NOT_OPEN", outcome != "CLICK_FAILED" {
             trainedAt = level
@@ -1096,6 +1106,8 @@ final class LiveQuestHost: QuestHost {
         return outcome
     }
 
+    /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then
+    /// its key, and time for its cast. With no pin (FROM_HERE, Jev's choice after a walk stopped near it) there is no walk. A bag item is right-clicked where the character stands (QuestRun.useItem).
     func useItem(_ quest: PlannedQuest, item: String) async -> String {
         let outcome: String
         if let key = abilities[item] {

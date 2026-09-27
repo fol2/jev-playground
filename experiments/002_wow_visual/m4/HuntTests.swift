@@ -1043,14 +1043,21 @@ extension NavTests {
         check(trainerRows(rows, level: 3).map(\.text) == ["Kockbiter Weapon fRank 1)", "Healing Wave (Rank 2)"]
               && trainerRows(rows, level: 4).map(\.text) == ["Kockbiter Weapon fRank 1)", "Earth Shock (Rank 1)", "Healing Wave (Rank 2)"],
               "M4u: rows the level allows, top to bottom; a misread level is tried, and the game's Train refuses what it does not allow")
+        let boroGossip: [TipLine] = [TipLine(text: "Windshaper Boro", x: 156, y: 156), TipLine(text: "The spirits of the wind may have left us,", x: 33, y: 231),
+                                 TipLine(text: "g Call of Earth", x: 33, y: 353), TipLine(text: "I'd like training!", x: 30, y: 394), TipLine(text: "Goodbye", x: 298, y: 662)]
+        let window: [TipLine] = [TipLine(text: "Windshaper Boro", x: 156, y: 156)] + rows
+        check(!trainerOpen(boroGossip, trainer: "Windshaper Boro") && trainerOpen(window, trainer: "Windshaper Boro")
+              && !trainerOpen(window, trainer: "Uualia Suncrest"),
+              "review of #77: rows and Train are clicked only in the trainer's own window, never in its gossip (live OCR of both)")
         func town(_ level: Int?, _ trained: Int?, _ bags: Int?, at: MapPoint? = nil, failed: Set<String> = []) -> [String] {
             var r = QuestRead(quests: [], player: at ?? (42.8, 23.5), missing: [])
             r.level = level; r.trainedAt = trained; r.bagsUsed = bags
             return townOffers(r, npcs: [boro, uualia], failed: failed).map(\.skill)
         }
-        check(town(4, 3, 10) == ["TRAIN", "SELL_JUNK"] && town(4, nil, nil) == ["TRAIN"] && town(3, 3, 7).isEmpty && town(nil, nil, 8) == ["SELL_JUNK"]
+        check(town(4, 3, 10) == ["TRAIN", "SELL_JUNK"] && town(4, nil, nil) == ["TRAIN", "SELL_JUNK"] && town(3, 3, 7).isEmpty
+              && town(nil, nil, 8) == ["SELL_JUNK"] && town(3, 3, nil) == ["SELL_JUNK"]
               && town(4, 3, 10, at: (70, 10)).isEmpty && town(4, 3, 10, failed: [QuestStep.town(boro).key]) == ["SELL_JUNK"],
-              "M4u: TRAIN above the level last trained, SELL_JUNK with the bags filling, within one walk, once a run")
+              "M4u: TRAIN above the level last trained, SELL_JUNK with the bags filling or unread (review of #77), within one walk, once a run")
         var townRead = QuestRead(quests: [], player: thendal, missing: [])
         townRead.level = 4; townRead.trainedAt = 3; townRead.bagsUsed = 9
         let shopper = FakeQuests([townRead, townRead, townRead])

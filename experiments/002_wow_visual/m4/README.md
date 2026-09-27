@@ -1141,7 +1141,8 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
   - `TRAIN` at the class trainer, when the level read is above the level of the last visit. The level comes from the
     character's own portrait tooltip ("Level N"). The last visit's level is kept in `runs/002_wow_visual/memory/character.json`
     (private). A lower level read is a new character with the same name, and forgets it.
-  - `SELL_JUNK` at a vendor, when the bags (read for a use-at quest) hold 8 items or more.
+  - `SELL_JUNK` at a vendor, when the bags hold 8 items or more, or were not read this step (they are read only for a
+    use-at quest; review of #77). Jev weighs it.
   - The NPCs and where to stand are knowledge: `learning/knowledge/zephras-town.json`.
 - **A visit** (`LiveQuestHost.visit`):
   - It walks to the stand point, then finds the NPC by its name. The name is read at twice its size (the full-size
@@ -1149,10 +1150,12 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
   - The NPC is hovered until the game's tooltip names it (`onUnit`, the M4c rule), then right-clicked.
   - Vendor: the Sell All Junk tooltip is read before the click, the confirmation is answered Yes, and the money after it
     is the evidence (`SOLD n`, `NO_JUNK`).
-  - Trainer: "I'd like training!", then each row the level allows is clicked and Train pressed, at most six
+  - Trainer: "I'd like training!", then, only while the trainer's own window shows (`trainerOpen`: its title, no gossip
+    "Goodbye", a "Rank" or "Requires" line; review of #77), each row the level allows is clicked and Train pressed, at most six
     (`trainerRows`; a misread level is tried, since the game refuses what it does not allow). The chat's "You have learned"
     is the evidence (`TRAINED n`, `NOTHING_TO_TRAIN`).
-  - Each window is closed with Esc, only while one is open.
+  - Each window is closed with Esc, only while its title shows. The owner's takeover stops every turn and click, and the
+    window's work starts only inside the run's time; the Train loop stops at its end.
 - **Also here:** Jev's danger criteria say "red name or plate" (review of #75); a corpse search that finds nothing logs what
   its points showed (`corpse_hover_miss`; live run 68 looted once by tooltip and missed twice, saying nothing).
 - **Not in this slice:** buying food, drink or gear; repair; the gear upgrade rule at a vendor; other villages' NPCs.

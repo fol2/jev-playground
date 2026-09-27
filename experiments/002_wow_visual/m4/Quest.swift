@@ -1262,6 +1262,14 @@ func copper(_ text: String) -> Int? {
     return parts.enumerated().reduce(0) { $0 + $1.element * [1, 100, 10000][$1.offset] }
 }
 
+/// Whether the trainer's own window is open, not its gossip (review of #77: both carry the trainer's name as their title):
+/// the title, no "Goodbye" (the gossip's button), and a spell row's "Rank" or "Requires" line (live, 27 Sept).
+func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
+    lines.contains { sameUnit($0.text, trainer) || likeName($0.text, trainer) }
+        && !lines.contains { nameKey($0.text) == nameKey("Goodbye") }
+        && lines.contains { $0.text.contains("Rank") || $0.text.lowercased().hasPrefix("requires") }
+}
+
 /// The trainer window's spell rows to try, top to bottom (live, 27 Sept): each name line with five letters or more, with
 /// its "Requires: Level N" line under it when there is one. A row whose level reads above `level` is left out; a misread
 /// level ("Level G") is tried: the game's Train does nothing for a row it does not allow.
@@ -1290,9 +1298,13 @@ func townOffers(_ read: QuestRead, npcs: [TownNPC], failed: Set<String>) -> [(sk
             + (read.trainedAt.map { "it last trained at level \($0)." } ?? "no visit is remembered.")
             + " New spells go to the bar by themselves."))
     }
-    if let v = near.first(where: { $0.role == "vendor" }), let used = read.bagsUsed, used >= TownLimits.sellAt {
+    // The bags are read only for a use-at quest; unread, they may be full of loot, so the vendor is offered and Jev weighs it
+    // (review of #77: a count required before offering left SELL_JUNK unoffered on every run without a use-at quest).
+    if let v = near.first(where: { $0.role == "vendor" }), (read.bagsUsed ?? TownLimits.sellAt) >= TownLimits.sellAt {
         out.append(("SELL_JUNK", .town(v), "Walk to \(v.name), a vendor in \(v.hub) (\(away(v)) units away), and sell every grey item "
-            + "in the bags with one Sell All Junk Items (the game asks to confirm). \(used) bag slots are in use; the money buys training."))
+            + "in the bags with one Sell All Junk Items (the game asks to confirm). "
+            + (read.bagsUsed.map { "\($0) bag slots are in use" } ?? "The bags were not read this step")
+            + "; the money buys training."))
     }
     return out
 }
