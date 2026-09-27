@@ -495,7 +495,7 @@ func motorProof(update: Bool) throws -> String {
     try interruptedDry([fight, "--dry-run"])
 
     let perceptionChecks = try suite(perceptionTests, "perception", minPerceptionChecks)
-    try refuses(perceive, [[], ["--bogus"], ["--propose", "x"], ["--sheet"], ["--sheet", "0"], ["--sheet", "x"], ["--sheet", "601"], ["--sheet-held"], ["--sheet-held", "0"], ["--sheet-held", "601"], ["--sheet-frames"], ["--sheet-frames", "0"], ["--sheet-frames", "601"], ["--baseline", "x"], ["--train", "x"], ["--prelabel", "x"], ["--audit"], ["--audit", "a", "b"]])
+    try refuses(perceive, [[], ["--bogus"], ["--propose", "x"], ["--sheet"], ["--sheet", "0"], ["--sheet", "x"], ["--sheet", "601"], ["--sheet-held"], ["--sheet-held", "0"], ["--sheet-held", "601"], ["--sheet-frames"], ["--sheet-frames", "0"], ["--sheet-frames", "601"], ["--baseline", "x"], ["--train", "x"], ["--prelabel", "x"], ["--audit"], ["--audit", "a", "b"], ["--red-propose", "x"], ["--red-sheet"], ["--red-sheet", "0"], ["--red-sheet", "601"], ["--red-audit"], ["--red-train", "x"], ["--red-baseline", "x"]])
     try refuses(teach, [["--bogus"], ["--eval"], ["--eval", "a", "b"]])  // before the model is asked for, with or without Swift 6.4
     let navChecks = try suite(navTests, "nav", minNavChecks)
     try refuses(nav, [["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--pixels"], ["--sim-jev"],

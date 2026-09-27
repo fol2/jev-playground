@@ -3,7 +3,7 @@
 // keys go through M3's LiveKeys on a pid-targeted sink. Modes, from no effect to live effect:
 //   (none) | --preflight            M0's read-only facts; no capture, input, network or files
 //   --dry-run                       SimNav "wall" + ScriptedJev; no capture, OS input or network
-//   --replay DIR                    arrow, coordinates, tracker, target and Game Menu readers on saved frames
+//   --replay DIR                    arrow, coordinates, tracker, target, Game Menu and red-name readers on saved frames
 //   --pixels DIR                    every pixel reader on every saved frame under DIR: the perception regression set
 //   --sim-jev --scenario NAME       SimNav + Jev via TypeSafe; no capture or OS input
 //   --execute --keys wqe --to X,Y   window capture, pid-targeted W/Q/E, Jev via TypeSafe
@@ -91,12 +91,21 @@ final class LiveNavBody: NavBody {
     private let watchdog: DispatchSourceTimer
     private var frameNo = 0
     var ghost = false  // a ghost's health bar is empty: report full health so the walk does not stop for it
+    /// The learned red-name reader (M5, RedNameReader), loaded once, with the first body, before any walk moves; nil
+    /// without its private model.
+    private static let loadedRedReader: (reader: RedNameReader?, ms: Int) = {
+        let began = hostNow(), reader = try? RedNameReader()
+        return (reader, Int((hostNow() - began) * 1000))
+    }()
+    private var redReader: RedNameReader? { Self.loadedRedReader.reader }
 
     init(session: Session, feed: FrameFeed, sink: KeySink, directory: URL, log: Log) {
         self.session = session
         self.feed = feed
         self.directory = directory
         self.log = log
+        let red = Self.loadedRedReader
+        log.emit("red_reader", ["loaded": red.reader != nil, "ms": red.ms, "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: NavLimits.releaseCodes, clock: hostNow) { event, fields in
             var row = fields
             row["t"] = hostNow()
@@ -138,11 +147,10 @@ final class LiveNavBody: NavBody {
             return nil
         }
         let hud = observe(pixels, plates: false)
-        let danger = names.isEmpty ? [] : dangerNames(names, plates: nameplates(pixels))  // not a neutral creature's body
-        let warnings = danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
-        var fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
-        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] }; fields["danger"] = danger.count }
-        emit("look", fields)
+        let red = redDanger(image, pixels, names: names, reader: redReader)
+        let warnings = red.danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
+        let fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
+        emit("look", fields.merging(red.fields) { a, _ in a })
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
                       warnings: warnings)
     }
@@ -215,12 +223,26 @@ func navDryRun() async throws -> Int32 {
     return result.outcome == "ARRIVED" && !result.holding ? 0 : 2
 }
 
+/// The walk's red-name danger in a frame: the rule's candidates (redNames), less those the learned reader reads as a
+/// body, a ring or terrain ("none", M5), less a neutral creature's body under its plate (dangerNames). A name or other
+/// red text stays a danger. Without the reader's model the rule alone decides, as before M5; `fields` logs which.
+func redDanger(_ image: CGImage, _ pixels: RGBA, names: [RedName], reader: RedNameReader?) -> (danger: [RedName], fields: [String: Any]) {
+    guard !names.isEmpty else { return ([], [:]) }
+    let reads = names.map { n in reader.flatMap { try? $0.read(image, box: [n.x0, n.y0, n.x1, n.y1]) } }
+    let kept = zip(names, reads).filter { !RedNameReader.drops($0.1) }.map(\.0)
+    let danger = kept.isEmpty ? [] : dangerNames(kept, plates: nameplates(pixels))
+    return (danger, ["red_names": names.map { [$0.x0, $0.y0, $0.x1, $0.y1] },
+                     "red_read": reads.map { r in r.map { [$0.label, ($0.confidence * 100).rounded() / 100] as [Any] } ?? [] },
+                     "red_filter": reader == nil ? "rule" : "learned", "danger": danger.count])
+}
+
 /// Perception replay on saved frames: prints what the live loop would read, with no input or network.
 func navReplay(_ directory: String) throws -> Int32 {
     let url = URL(fileURLWithPath: directory)
     let names = try FileManager.default.contentsOfDirectory(atPath: directory)
         .filter { $0.hasSuffix(".jpg") || $0.hasSuffix(".png") }.sorted()
     let log = try Log(file: nil)
+    let reader = try? RedNameReader()
     for name in names {
         guard let source = CGImageSourceCreateWithURL(url.appendingPathComponent(name) as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
@@ -231,7 +253,8 @@ func navReplay(_ directory: String) throws -> Int32 {
         let (text, at) = readCoords(image, tracked: false)
         let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
         let hud = observe(rgba(image), plates: true)
-        log.emit("frame", ["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
+        let red = redDanger(image, rgba(image), names: redNames(rgba(image)), reader: reader).fields
+        log.emit("frame", red.merging(["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
                            "coords_text": text, "x": orNull(at?.x), "y": orNull(at?.y),
                            "objectives": parseTracker(upscaledText(image, HuntHUD.tracker)).map { "\($0.quest): \($0.done)/\($0.need) \($0.text)" },
                            "target": target, "target_health": Int(hud.target * 100),
@@ -239,7 +262,7 @@ func navReplay(_ directory: String) throws -> Int32 {
                            "target_plate": orNull(hud.plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] }),
                            "plates": nameplates(rgba(image)).map { ["hostile": $0.hostile, "x": Int($0.centre), "y": $0.y0, "name": plateName(image, $0)] },
                            "area": orNull(questArea(rgba(image)).map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
-                           "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")])
+                           "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")]) { a, _ in a })
     }
     log.emit("summary", ["frames": names.count, "effects": "none: saved frames only"])
     return 0

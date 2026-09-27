@@ -1,8 +1,9 @@
 // M5, red names: the walk's red-name rule (redNames, M4h) stops walks through the Juvenile Vuldren field (live runs 35,
 // 44, 45, 27 Sept): a red-brown body, a glint or a far fleck reads as a red name, and far names are too small for OCR.
-// So the rule's candidates are labelled by eye ("name" or "none") on contact sheets, and a Create ML classifier learns
-// to tell them apart from a context crop. It is promoted only if it drops the false ones on held-out runs without
-// dropping a real name. Frames, crops, labels and the model stay under runs/002_wow_visual/perception (private).
+// So the rule's candidates are labelled by eye on contact sheets ("name", "text" or "none", RedRow), and a Create ML
+// classifier learns them from a tight crop (redCrop). The walk drops only what it reads as "none" (RedNameReader,
+// Reader.swift), and only a model that drops the false ones on held-out runs without dropping a real name is used.
+// Frames, crops, labels and the model stay under runs/002_wow_visual/perception (private).
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -44,11 +45,11 @@ func redSheet(limit: Int) throws -> Int32 {
     var chosen = Array(rows(redCandidatesFile, RedRow.self).filter { !labelled.contains("\($0.frame)|\($0.box)") }.prefix(limit))
     let cellW = 200, cellH = 220, cols = 8, perSheet = 48
     var frames: [String: CGImage] = [:]
-    if let model = try? redModel() {
+    if let reader = try? RedNameReader() {
         let order = ["name": 0, "text": 1, "none": 2]
         let read = chosen.map { c -> Int in
             if frames[c.frame] == nil { frames[c.frame] = loadImage(runsRoot.appendingPathComponent(c.frame)) }
-            return frames[c.frame].flatMap { try? redRead(model, $0, c.box) }.flatMap { order[$0.label] } ?? 0
+            return frames[c.frame].flatMap { try? reader.read($0, box: c.box) }.flatMap { order[$0.label] } ?? 0
         }
         chosen = chosen.indices.sorted { (read[$0], $0) < (read[$1], $1) }.map { chosen[$0] }
     }
@@ -94,7 +95,7 @@ func redSheet(limit: Int) throws -> Int32 {
 func redAudit(_ path: String) throws -> Int32 {
     let shown = try JSONDecoder().decode([RedRow].self, from: Data(contentsOf: redSheetIndex))
     guard let labels = redAuditLabels(try String(contentsOfFile: path, encoding: .utf8), count: shown.count) else {
-        fputs("HOLD: every id of the last sheets needs one label, name or none\n", stderr)
+        fputs("HOLD: every id of the last sheets needs one label, name, text or none\n", stderr)
         return 2
     }
     try appendRows(shown.indices.map { i in var r = shown[i]; r.label = labels[i]; return r }, to: redLabelsFile)
@@ -131,20 +132,19 @@ func redTrain(final: Bool = false) throws -> Int32 {
 }
 
 /// `--red-baseline`: on the labelled candidates, split by run, the rule alone (every candidate a danger) against the
-/// classifier (a candidate it calls "none" at `drop` confidence or more is dropped). A real name dropped is the cost that
-/// matters: the owner, survive first.
-func redBaseline(drop: Double = 0.8) throws -> Int32 {
-    let model = try redModel()
+/// classifier (a candidate it reads as "none" at RedNameReader.drop or more is dropped, as the walk does). A real name
+/// dropped is the cost that matters: the owner, survive first.
+func redBaseline() throws -> Int32 {
+    let reader = try RedNameReader()
     var frames: [String: CGImage] = [:], scores: [Split: RedScore] = [:], decided: [Split: [(frame: String, label: String, kept: Bool)]] = [:]
     for l in rows(redLabelsFile, RedRow.self) {
         guard let label = l.label else { continue }
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }
         guard let image = frames[l.frame] else { continue }
-        guard let top = try redRead(model, image, l.box) else { continue }
-        let dropped = top.label == "none" && top.confidence >= drop
+        let top = try reader.read(image, box: l.box), dropped = RedNameReader.drops(top)
         scores[runSplit(run(of: l.frame)), default: RedScore()].add(label: label, kept: !dropped)
         decided[runSplit(run(of: l.frame)), default: []].append((l.frame, label, !dropped))
-        if label == "name" && dropped { print("name dropped: \(l.frame) \(l.box) none \(String(format: "%.2f", top.confidence))") }
+        if label == "name" && dropped { print("name dropped: \(l.frame) \(l.box) none \(String(format: "%.2f", top?.confidence ?? 0))") }
     }
     for split in Split.allCases {
         let s = scores[split] ?? RedScore()
@@ -153,19 +153,4 @@ func redBaseline(drop: Double = 0.8) throws -> Int32 {
         print("  frames with a name \(f.named), missed \(f.missed); frames without one \(f.clear), still stopping \(f.falseStops)")
     }
     return 0
-}
-
-/// The trained red-name classifier (models/redname.mlmodel, `--red-train`).
-func redModel() throws -> VNCoreMLModel {
-    try VNCoreMLModel(for: MLModel(contentsOf: MLModel.compileModel(at: MarkReader.models.appendingPathComponent("redname.mlmodel"))))
-}
-
-/// What the classifier reads in a candidate's crop (redCrop): its top label and confidence; nil off the frame.
-func redRead(_ model: VNCoreMLModel, _ image: CGImage, _ box: [Int]) throws -> (label: String, confidence: Double)? {
-    let r = redCrop(box, width: image.width, height: image.height)
-    guard let crop = image.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { return nil }
-    let request = VNCoreMLRequest(model: model)
-    request.imageCropAndScaleOption = .scaleFill
-    try VNImageRequestHandler(cgImage: crop).perform([request])
-    return (request.results as? [VNClassificationObservation])?.first.map { ($0.identifier, Double($0.confidence)) }
 }
