@@ -876,12 +876,21 @@ final class LiveQuestHost: QuestHost {
     /// A creature that has come to the character since the stop makes it a fight back (start health 0); one that Jev left
     /// fighting it after a JEV_STOP is fought back at once, as SAFETY's, not handed to a quest decision (review of #66).
     /// A fight in combat returns "BACK_" + its outcome, so the run treats it as M4i treats a fight back: only a kill goes on.
+    /// Combat is read from the latest frame's HUD alone, however the place reads: a place under a plate is not "out of
+    /// combat" (third review of #66). No fresh frame counts as combat.
     func fightAhead() async -> String {
-        if quester.body.look()?.combat == true { return "BACK_" + (await fight(inCombat: true)) }
+        if combatNow() != false { return "BACK_" + (await fight(inCombat: true)) }
         let outcome = await fight(inCombat: false)
-        guard outcome == "JEV_STOP", quester.body.look()?.combat == true else { return outcome }
+        guard outcome == "JEV_STOP", combatNow() != false else { return outcome }
         emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back after a fight ahead Jev stopped"])
         return "BACK_" + (await fight(inCombat: true))
+    }
+
+    /// The HUD's combat (the ring and the bars) on a frame no older than the fight's age limit; nil without one.
+    private func combatNow() -> Bool? {
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+        return observe(rgba(frame.image), plates: false).combat
     }
 
     private func fight(inCombat: Bool) async -> String {
