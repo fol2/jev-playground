@@ -61,7 +61,8 @@ That table is the 23 Sept bar. By 24 Sept (level 5) slot 3 held Earth Shock, 4 H
 bar first: the pointer rests on each slot in the background, Vision reads the tooltip, and each
 skill's role comes from its text (`Attack`; a cast with "damage" and a range; a cast that "Heals";
 "Imbue"; an item that restores mana or health). A missing role, or one tooltip on two slots (the
-pointer was contested), stops the run before any key. The range digit box follows the bolt's slot.
+pointer was contested), stops the run before any key. One tooltip on two slots first reads the whole bar once more,
+1.5 s a slot: a client just launched fetches item data as each tooltip opens (live run 49, 27 Sept). The range digit box follows the bolt's slot.
 
 The bar has a working memory (the owner, 25 Sept: remember what was read, to cut rescans), in
 `runs/002_wow_visual/memory/skill-bar.json`, which is private and not in the repository.
