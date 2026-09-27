@@ -585,7 +585,9 @@ final class QuestRun {
             await sleep(0.4)
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
-            body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
+            // A player's tooltip (the character's own included) is not logged by name (review of #77).
+            let logged = read.contains { $0.contains("(Player)") } ? ["(a player)"] : Array(read.prefix(3))
+            body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": logged, "name": name, "again": again])
             switch unitCheck(read, name: name, declined: clearing ? [] : declined) {  // a fading tooltip is not this unit's
             case .declined: metOne = true; return false
             case .confirmed: return true
@@ -632,7 +634,9 @@ final class QuestRun {
     /// not in view; rest the pointer on its body until the game's tooltip names it (onUnit, two reads, tooltipGone); then
     /// right-click and wait for the window. The dialogue box's lines, or nil.
     func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
-        func found(_ image: CGImage?) -> TipLine? { upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3 } }
+        func found(_ image: CGImage?) -> TipLine? {
+            upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || (likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3) }
+        }
         var image = await frame()
         var line = found(image)
         if line == nil, let pulse = turnPulse(45) {
@@ -721,7 +725,7 @@ final class QuestRun {
             guard click(row.x + 40, row.y + 6) else { break }
             await sleep(0.5)
             // The row's click keeps the window; it is read once more before Train (review of #77).
-            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus() else { break }
+            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus(), hostNow() < deadline else { break }
             guard click(title.x + b.dx, title.y + b.dy) else { break }
             await sleep(1.2)
             let fresh = ((await frame(after: hostNow() + 0.2)).map(chatLines) ?? []).filter { !before.contains($0) && $0.contains("learned") }
@@ -1115,7 +1119,8 @@ final class LiveQuestHost: QuestHost {
         let level = await quester.readLevel()
         let (outcome, learned) = await quester.train(npc.name, level: level ?? 1, until: runDeadline)
         emit("town_done", ["npc": npc.name, "outcome": outcome, "learned": learned, "level": orNull(level)])
-        if let level, outcome != "TRAINER_NOT_OPEN", outcome != "CLICK_FAILED" {
+        // Remembered only when a spell was learnt: a visit short of money is offered again at the same level (review of #77).
+        if let level, !learned.isEmpty {
             trainedAt = level
             try? FileManager.default.createDirectory(at: QuestHUD.characterMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? JSONSerialization.data(withJSONObject: ["trained_at_level": level]).write(to: QuestHUD.characterMemory)

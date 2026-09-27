@@ -1268,7 +1268,7 @@ func copper(_ text: String) -> Int? {
 func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
     lines.contains { sameUnit($0.text, trainer) || likeName($0.text, trainer) }
         && !lines.contains { nameKey($0.text) == nameKey("Goodbye") }
-        && lines.contains { $0.text.contains("Rank") || $0.text.lowercased().hasPrefix("requires") }
+        && lines.contains { $0.text.contains("(Rank") || $0.text.lowercased().hasPrefix("requires") }
 }
 
 /// Whether an NPC's window is open at the left, not just its name in the world there (review of #77): its title, and a
@@ -1277,7 +1277,7 @@ func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
 func npcWindowOpen(_ lines: [TipLine], name: String) -> Bool {
     lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && lines.contains { l in
         let k = nameKey(l.text)
-        return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("Rank") || l.text.lowercased().hasPrefix("requires")
+        return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("(Rank") || l.text.lowercased().hasPrefix("requires")
             || (k.hasPrefix("page") && l.text.contains(" of "))
     }
 }

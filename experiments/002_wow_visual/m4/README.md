@@ -1140,7 +1140,7 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
   and once a run:
   - `TRAIN` at the class trainer, when the level read is above the level of the last visit. The level comes from the
     character's own portrait tooltip ("Level N"). The last visit's level is kept in `runs/002_wow_visual/memory/character.json`
-    (private). A lower level read is a new character with the same name, and forgets it.
+    (private), written only when a spell was learnt. A lower level read is a new character with the same name, and forgets it.
   - `SELL_JUNK` at a vendor, when the bags hold 8 items or more, or were not read this step (they are read only for a
     use-at quest; review of #77). Jev weighs it.
   - The NPCs and where to stand are knowledge: `learning/knowledge/zephras-town.json`.
@@ -1179,6 +1179,9 @@ sought its "?" where the character stood. Its ender is Yala Windwatcher in Thend
 - **The hand-in** (`turnIn(ender:)`): with the ender's name known, the NPC is opened by its name first (`openByName`, M4u:
   the name read at twice its size, the tooltip naming it). The completion page follows as before (a quest list's entry,
   Continue). Someone else's page is closed, and the "?" is sought after, as before.
+- **Also here (review of #77):** the trainer's level is remembered only when a spell was learnt, so a visit short of money
+  is offered again at the same level; the run's deadline is read again just before Train; a player's tooltip met while
+  hovering for an NPC is logged as "(a player)", never by name.
 - **Evidence.** Sim: `HuntTests` (the pin filled, a map pin kept, an unknown quest left alone; the offer names the ender).
   Live: the next run.
 
