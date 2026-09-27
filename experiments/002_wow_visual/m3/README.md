@@ -197,6 +197,19 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
     the label click follows as before.
   - Our own kill after a corpse seen at the start clears that old corpse (`Episode.update`), so its loot ends the
     fight `KILLED_AND_LOOTED`.
+- **Loot, live run 64 (27 Sept).** The owner again saw no loot. After each kill the game cleared the target and no
+  label stood over the corpse, so the fight read "no corpse label visible" six times. Interact With Target had nothing
+  selected.
+  - The fight keeps the plate of the creature it fights while it lives. With no target after the kill, the pointer
+    rests on up to 12 points below that plate (`corpseHoverPoints`).
+  - The hover follows M4's rule (review of #71):
+    - First the pointer rests off every unit until two fresh frames show no tooltip.
+    - At each point, two reads on frames captured after the move must both say "Corpse" and name the fought creature
+      (`corpseTooltip`, `confirmedCorpse`). One read may be a tooltip fading from the last point.
+    - After a point with any tooltip, the pointer rests off again, and it rests off after the loot.
+  - Only then is the point right-clicked, and chat is polled for the loot line, as before.
+  - A right-click with no loot line lets Jev loot again once. The second ends the fight `KILLED_NO_CORPSE`.
+- **Evidence.** Sim only: `FightTests` covers the points and the reads. Live: the next run.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

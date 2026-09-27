@@ -31,18 +31,6 @@ let navUsage = """
     Recovery: m0-probe --release --keys wqe
     """
 
-/// OCR lines of one HUD box, top to bottom, after a x3 upscale: Vision misreads ~10 px text at 1x.
-func upscaledText(_ image: CGImage, _ box: CGRect) -> [String] {
-    guard let crop = image.cropping(to: box),
-          let context = CGContext(data: nil, width: Int(box.width) * 3, height: Int(box.height) * 3, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
-    context.interpolationQuality = .high
-    context.draw(crop, in: CGRect(x: 0, y: 0, width: context.width, height: context.height))
-    guard let scaled = context.makeImage() else { return [] }
-    return ocr(scaled).sorted { $0.1.maxY > $1.1.maxY }.map(\.0)  // Vision's boxes grow upwards
-}
-
 /// The coordinates under the minimap: the raw OCR, and only when it does not parse the masked ones
 /// (NavHUD.coordsMasks, agreedCoords). `text` is everything read, for the log.
 /// `tracked`: a live frame, checked against the run's track (PositionTrack); saved frames of many runs are not.

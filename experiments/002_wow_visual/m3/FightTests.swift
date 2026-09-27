@@ -326,6 +326,18 @@ struct FightTests {
         check(old.oldCorpse, "a corpse seen at the start stays the old one while the target lives")
         old.update(Obs(target: 0, combat: true))
         check(old.killed && !old.oldCorpse, "live run 59: our own kill after it is ours to loot, not the old corpse")
+        let points = corpseHoverPoints(Plate(x0: 1214, x1: 1346, top: 400, bottom: 413))
+        check(points.count == 12 && points.allSatisfy { $0.y > 413 } && abs(points[0].x - 1280) < 1 && points[1].y == points[0].y && points[3].y > points[0].y,
+              "live run 64: a corpse is sought below the last plate, middle column first, row by row downwards")
+        let names = ["al'aketh convert"]
+        check(corpseTooltip(["Al'Aketh Convert", "Level 2", "Corpse"], names: names) && !corpseTooltip(["Al'Aketh Convert", "Level 2"], names: names)
+              && !corpseTooltip(["Pesky Cirrusfly", "Level 1", "Corpse"], names: names),
+              "a tooltip that says Corpse and names the fought creature is a corpse; a living one's or another creature's is not")
+        let corpse = ["Al'Aketh Convert", "Level 2", "Corpse"], living = ["Al'Aketh Convert", "Level 2"]
+        check(confirmedCorpse([living, corpse, corpse], names: names) && !confirmedCorpse([corpse, living], names: names)
+              && !confirmedCorpse([living, corpse], names: names) && !confirmedCorpse([corpse], names: names)
+              && !confirmedCorpse([corpse, []], names: names),
+              "review of #71: a point is right-clicked only when both reads after the move are the corpse's, not a fading one's")
         var attacked = Episode(killed: true, oldCorpse: true)
         attacked.update(Obs(target: 0, combat: true))
         check(attacked.oldCorpse, "in combat with no target ever seen alive, the corpse at the start stays the old one")
