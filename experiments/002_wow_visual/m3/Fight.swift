@@ -64,6 +64,7 @@ enum FightLimits {
     static let lootPolls = 6
     static let lootWalkPolls = 14  // 7 s: a walk to a corpse at bolt range (30 yards at about 7 a second) and its loot
     static let lootPollSeconds = 0.5
+    static let corpseHoverSeconds = 30.0  // one corpse search: some 30 points of two reads, and a park after any tooltip, could run minutes
     static let model = "jev-1.13.0"
     static let faceTolerance = 0.05
     static let healthDrop = 0.02
@@ -212,7 +213,10 @@ struct Episode: Equatable {
     mutating func update(_ o: Obs) {
         if o.combat || (o.target > 0 && o.target < 0.99) { engaged = true }
         if Self.alive(o) { sawTargetAlive = true }
-        if engaged && !Self.alive(o) {  // the combat ring lingers after a kill
+        // A kill is a target seen alive that has gone; the combat ring lingers after it. Combat alone is none (live run 66,
+        // 27 Sept: attacked with nothing selected, each fight back took itself for a kill, was offered LOOT and STOP but not
+        // SELECT_TARGET, and the character died standing).
+        if engaged && sawTargetAlive && !Self.alive(o) {
             // Our own kill: the corpse to loot is ours, not the one seen at the start (live run 59, 27 Sept: a kill after a
             // corpse at the start was taken for that old corpse, the loot undone, and SELECT_TARGET tried 37 times).
             if oldCorpse && sawTargetAlive { oldCorpse = false }
@@ -1114,9 +1118,6 @@ func turnAndRetry(_ result: String, _ errorText: String?) -> Bool {
 /// The beta client's tooltip footer ("Press F6 to submit an issue for this Item"); OCR once read "Press Forto".
 func isTooltipFooter(_ text: String) -> Bool { text.contains("submit an issue") }
 
-/// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
-/// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
-/// nameplate read as slot 8's name, 24 Sept) is dropped.
 /// Where to rest the pointer for the corpse of a creature whose plate was last seen at `p`: the plate floats over the
 /// head, so the body lies below it, farther for a nearer (wider) plate. Four rows, the middle column first. Live run 64
 /// (27 Sept): after each kill the game cleared the target, no label stood over the corpse, and six loots read "no corpse
@@ -1124,6 +1125,18 @@ func isTooltipFooter(_ text: String) -> Bool { text.contains("submit an issue") 
 func corpseHoverPoints(_ p: Plate) -> [(x: Double, y: Double)] {
     let w = Double(p.x1 - p.x0 + 1)
     return [0.45, 0.85, 1.25, 1.7].flatMap { row in [0.0, -0.3, 0.3].map { col in (p.centre + col * w, Double(p.bottom) + row * w) } }
+}
+
+/// Where else the corpse may lie, each point confirmed by its tooltip before any click: below a grey label that names it
+/// (it floats over the body; the old blind click went 200 px below one 40 px tall), then round the character, where a
+/// creature killed in melee falls (live run 66, 27 Sept: no plate was read in any quest fight, and the kills lay beside the
+/// character). The character's own middle is left out: its tooltip is the character's.
+func corpseSearchPoints(label: (x: Double, bottom: Double, height: Double)?) -> [(x: Double, y: Double)] {
+    let below = label.map { l in
+        [3.0, 5.0, 7.0].flatMap { row in [0.0, -1.0, 1.0].map { (x: l.x + $0 * l.height, y: l.bottom + row * l.height) } }
+    } ?? []
+    let around = [900.0, 800.0, 1000.0].flatMap { y in [-220.0, 220.0, -440.0, 440.0].map { (x: Double(HUD.width) / 2 + $0, y: y) } }
+    return below + around
 }
 
 /// Whether a unit tooltip is a corpse of one of `names`: a "Corpse" line, and a line the fight's names match.
@@ -1143,7 +1156,9 @@ func tooltipGone(_ reads: [Bool?]) -> Bool {
     reads.count >= 2 && reads.suffix(2).allSatisfy { $0 == false }
 }
 
-
+/// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
+/// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
+/// nameplate read as slot 8's name, 24 Sept) is dropped.
 func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
     guard let foot = boxes.first(where: { isTooltipFooter($0.text) }) else { return [] }
     return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }

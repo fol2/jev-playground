@@ -5,7 +5,7 @@
 //   --dry-run              SimFight + ScriptedJev; no capture, OS input or network
 //   --dry-run --graph PATH SimFight + canned fight-graph replies: Jev's chains (M3b), no network
 //   --execute --keys wqe   full-resolution WoW-window capture, pid-targeted keys, one
-//                          background right-click to loot, Jev via TypeSafe
+//                          background hover and right-click to loot, Jev via TypeSafe
 // Recovery after a crash or kill: m0-probe --release --keys wqe, and tap 1-4 / Tab in WoW.
 import AppKit
 import Vision
@@ -196,10 +196,13 @@ final class LiveHost: FightHost {
         frameNo += 1
         var o = main.observe(rgba(image), plates: plates)
         o.stamp = frame.stamp
-        if let p = o.plate, Episode.alive(o) { lastTargetPlate = p }
+        if let p = o.plate, Episode.alive(o) { lastTargetPlate = p; hoverLoots = 0 }  // a living target is a new corpse to come
         if identifyTarget, let nameBox = image.cropping(to: CGRect(x: 1590, y: 950, width: 330, height: 50)) {
             let name = ocr(nameBox).map(\.0).joined(separator: " ").trimmingCharacters(in: .whitespaces)
             o.stamp?.target = name.isEmpty ? nil : cue(name)
+            // The creature fought is the corpse to look for (live run 66: a quest's fight back sought only M3's two creatures).
+            if let t = o.stamp?.target?.lowercased(), Episode.alive(o), t.filter(\.isLetter).count >= 4, !corpseNames.contains(t),
+               corpseNames.count < 8 { corpseNames.append(t) }
         }
         return o
     }
@@ -320,9 +323,11 @@ final class LiveHost: FightHost {
     /// of #71): the pointer first rests off every unit until two fresh frames show no tooltip; at each point two reads, on
     /// frames captured after the move, must both be the corpse's; after a point with any tooltip it rests off again, so a
     /// tooltip fading from one point never confirms the next.
-    private func hoverCorpse(_ plate: Plate) async -> (x: Double, y: Double)? {
+    private func hoverCorpse(_ points: [(x: Double, y: Double)]) async -> (x: Double, y: Double)? {
+        let start = hostNow()
         guard await parkPointer() else { return nil }
-        for p in corpseHoverPoints(plate) where (0.1...0.9).contains(p.x / Double(HUD.width)) && (0.2...0.85).contains(p.y / Double(HUD.height)) {
+        for p in points where (0.1...0.9).contains(p.x / Double(HUD.width)) && (0.2...0.85).contains(p.y / Double(HUD.height))
+            && hostNow() - start < FightLimits.corpseHoverSeconds {
             guard move(p) else { return nil }
             var reads: [[String]] = []
             for wait in [0.4, 0.3] { reads.append(await tip(after: hostNow() + wait) ?? []) }
@@ -398,52 +403,32 @@ final class LiveHost: FightHost {
             // creature (review of #68).
             return "no corpse label visible, and Interact With Target found no loot"
         }
-        // The target cleared at the kill: rest the pointer below its last plate until a tooltip names its corpse, and
-        // right-click there (live run 64).
-        if !named, hoverLoots < 2, let plate = lastTargetPlate, let found = await hoverCorpse(plate) {
-            hoverLoots += 1
-            let before = chatLines(image)
-            guard click(found, button: .right) else { return "loot click failed or input ownership revoked" }
-            var fresh: [String] = []
-            for _ in 0..<FightLimits.lootWalkPolls where fresh.isEmpty {
-                await sleep(FightLimits.lootPollSeconds)
-                guard let after = latestImage() else { continue }
-                write(after, to: directory.appendingPathComponent("loot-after.jpg"), type: .jpeg)
-                fresh = chatLines(after).filter { ($0.contains("receive loot") || $0.contains("You loot")) && !before.contains($0) }
-            }
-            episode.looted = !fresh.isEmpty
-            _ = await parkPointer()  // no tooltip left over the next look
-            // The first miss is not "no corpse …", which ends the fight KILLED_NO_CORPSE: one missed chat line would give up
-            // a confirmed corpse, so Jev may loot again, as after a label click (review of #71). The second ends it.
-            if episode.looted { return "looted by its corpse's tooltip: \(fresh.joined(separator: "; "))" }
-            return hoverLoots < 2 ? "right-clicked its corpse's tooltip; no new loot line in chat"
-                : "no corpse loot: its corpse's tooltip was right-clicked twice, and no loot line came"
+        // The target cleared at the kill: rest the pointer where its corpse may lie (below its last plate, below a label that
+        // names it, round the character) until a tooltip names its corpse, and right-click there (live runs 64 and 66). A label
+        // is never clicked blind: a living creature's plate of the same name reads as one (live run 66).
+        guard !named else { return "not looted: a living creature is selected" }  // the fight goes on; not "no corpse"
+        guard hoverLoots < 2 else { return "no corpse loot: its corpse's tooltip was right-clicked twice, and no loot line came" }
+        let label = corpseLabel(image, corpseNames).map { (x: Double($0.midX), bottom: Double($0.maxY), height: Double($0.height)) }
+        guard let found = await hoverCorpse((lastTargetPlate.map(corpseHoverPoints) ?? []) + corpseSearchPoints(label: label)) else {
+            return "no corpse visible: no tooltip named its corpse"
         }
-        guard let label = corpseLabel(image, corpseNames) else { return "no corpse label visible" }
-        let fx = label.midX / Double(HUD.width), fy = (label.maxY + 200) / Double(HUD.height)
-        guard (0.2...0.8).contains(fx), (0.35...0.8).contains(fy) else { return "corpse point outside the view" }
+        hoverLoots += 1
         let before = chatLines(image)
-        let bounds = session.window.frame
-        do {
-            let routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds)
-            let at = CGPoint(x: bounds.minX + bounds.width * fx, y: bounds.minY + bounds.height * fy)
-            let request = NativeBackgroundClickDispatchRequest(
-                target: routed, eventTapPointTopLeft: at, appKitPoint: at, clickCount: 1, mouseButton: .right)
-            let dispatched = keys.withControl { Result { try NativeBackgroundClickTransport().dispatch(request) } }
-            guard let dispatched else { return "loot cancelled: input ownership revoked" }
-            _ = try dispatched.get()
-        } catch {
-            return "loot click failed: \(error)"
-        }
+        guard click(found, button: .right) else { return "loot click failed or input ownership revoked" }
         var fresh: [String] = []
-        for _ in 0..<FightLimits.lootPolls where fresh.isEmpty {
+        for _ in 0..<FightLimits.lootWalkPolls where fresh.isEmpty {
             await sleep(FightLimits.lootPollSeconds)
             guard let after = latestImage() else { continue }
             write(after, to: directory.appendingPathComponent("loot-after.jpg"), type: .jpeg)
             fresh = chatLines(after).filter { ($0.contains("receive loot") || $0.contains("You loot")) && !before.contains($0) }
         }
         episode.looted = !fresh.isEmpty
-        return episode.looted ? "looted: \(fresh.joined(separator: "; "))" : "right-clicked the corpse; no new loot line in chat"
+        _ = await parkPointer()  // no tooltip left over the next look
+        // The first miss is not "no corpse …", which ends the fight KILLED_NO_CORPSE: one missed chat line would give up
+        // a confirmed corpse, so Jev may loot again, as after a label click (review of #71). The second ends it.
+        if episode.looted { return "looted by its corpse's tooltip: \(fresh.joined(separator: "; "))" }
+        return hoverLoots < 2 ? "right-clicked its corpse's tooltip; no new loot line in chat"
+            : "no corpse loot: its corpse's tooltip was right-clicked twice, and no loot line came"
     }
 
     func perform(_ action: FightAction, observation: Obs, episode: inout Episode) async -> String {

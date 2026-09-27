@@ -210,6 +210,20 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
   - Only then is the point right-clicked, and chat is polled for the loot line, as before.
   - A right-click with no loot line lets Jev loot again once. The second ends the fight `KILLED_NO_CORPSE`.
 - **Evidence.** Sim only: `FightTests` covers the points and the reads. Live: the next run.
+- **Loot and fight back, live run 66 (27 Sept).** Every fight still ended `KILLED_NO_CORPSE`, and the character died.
+  - The plate reader read no plate in any quest fight that day (8 runs), so the plate hover never ran.
+  - A quest's fight back sought only M3's two creatures (`fightNames`). A grey "Roiling Winds" label 41 px tall stood
+    over the corpse, and was not taken.
+  - Attacked with nothing selected, a fight took combat alone for a kill (`Episode.update`). It was offered LOOT and
+    STOP but not SELECT_TARGET. Fourteen fight backs ended within a second, and the way to safety spent its rounds on
+    them without a walk. The owner's recovery rule then resurrected the character at the Spirit Healer.
+  - Now:
+    - A kill is a target seen alive that has gone. Combat alone offers SELECT_TARGET (Tab).
+    - The fight adds the creature it fights, read from the target frame while it lives, to the corpse names.
+    - The hover also tries below a label that names the corpse, then round the character, where a creature killed in
+      melee falls (`corpseSearchPoints`). Every point is confirmed by the corpse's tooltip first. The label is never
+      clicked blind: a living creature's plate of the same name reads as one. The search stops after 30 s.
+  - Evidence: sim only (`FightTests`: 227 checks). Live: the next run.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.
