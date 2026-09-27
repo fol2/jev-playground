@@ -677,10 +677,21 @@ enum QuestLimits {
     static let useSlots = 1  // USE_1 (M4m)
     static let roadSlots = 2  // ROAD_1 and ROAD_2
     static let roadGapSeconds = 600.0  // a walk round a gap by road: its legs, each bounded by its own walk
+    // Where a run's end walks to (the owner, 27 Sept: "error exit should still try best to leave danger zone"; between
+    // runs 56 and 57 the character stood idle among level 2-3 hostiles and was killed): the Zephras villages, by their
+    // NPCs' places in the town research (learning/research/zephras_services_route.md).
+    static let safePlaces: [(name: String, at: MapPoint)] = [("Thendal Village", (43.2, 24.0)), ("Shen'dar Village", (43.4, 44.8)),
+                                                            ("Valanaar", (58.2, 78.4))]
+    static let safeArrive = 1.0
+    static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
+    static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
+    static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
+    static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
     static let maxSteps = 12
-    // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
-    // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
-    static let runSeconds = 1500.0
+    // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
+    // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
+    // one fight at least (review of #72: 25 min left a fight back after the last walk running past 30).
+    static let runSeconds = 1200.0
     // A hunt that ends at one of its limits with no count risen fails its step; any other code that is
     // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
     static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
@@ -831,6 +842,44 @@ func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now
         await walk(i, leg, i == legs.count - 1 ? arrive : RoadLimits.gapArrive)
     }
     return outcome == "BY_ROAD" ? nil : outcome
+}
+
+/// Whether a quest run that ended so walks to a safe place before it exits: every end but the owner's takeover, keys
+/// held, a failed input handoff and death.
+func leavesDanger(_ outcome: String) -> Bool {
+    !(outcome.contains("OWNER") || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
+}
+
+/// The way to safety (M4r): in combat, a fight back first (SAFETY's, as M4i's); out of it, a walk; a walk that met
+/// combat is fought, then walked again, at most `walks` walks. "SAFE" on arrival; a fight not won ends it with "FIGHT_"
+/// and its outcome, a walk's other end with "WALK_" and its. Everything ends by `end`: a fight starts only with its
+/// whole `FightLimits.maxSeconds` left, and a walk gets what is left, at most `NavLimits.maxSeconds` (reviews of #72).
+/// Live run 65 (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and died.
+func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCombat: () async -> Bool,
+                       fightBack: () async -> String, walk: (Double) async -> String) async -> String {
+    var walked = 0
+    for _ in 0...(2 * walks) {
+        let left = end - now()
+        if await inCombat() {
+            guard left >= FightLimits.maxSeconds else { return "SAFE_TIME_LIMIT_IN_COMBAT" }
+            let fought = await fightBack()
+            guard QuestLimits.fightWon.contains(fought) else { return "FIGHT_" + fought }
+            continue
+        }
+        guard walked < walks else { return "SAFE_ROUNDS" }
+        guard left >= QuestLimits.safeWalkSeconds else { return "SAFE_TIME_LIMIT" }
+        walked += 1
+        let outcome = await walk(min(NavLimits.maxSeconds, left))
+        if outcome == "ARRIVED" { return "SAFE" }
+        if outcome != "COMBAT" { return "WALK_" + outcome }
+    }
+    return "SAFE_ROUNDS"
+}
+
+/// The nearest safe place within one walk of `at`, unless the character is already at one.
+func safePlace(from at: MapPoint) -> MapPoint? {
+    if QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) { return nil }
+    return QuestLimits.safePlaces.map(\.at).filter { distance(at, $0) <= QuestLimits.safeReach }.min { distance(at, $0) < distance(at, $1) }
 }
 
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
@@ -991,7 +1040,9 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
         return r
     }
-    while r.steps.count < QuestLimits.maxSteps {
+    // Jev's steps are counted, not SAFETY's fight backs: run 65 spent its twelve on five walks attacked and their fights
+    // back, and ended STEP_LIMIT in combat among hostiles (review of #72).
+    while r.steps.filter({ $0.quest != "fight back" }).count < QuestLimits.maxSteps {
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }

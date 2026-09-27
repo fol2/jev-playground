@@ -600,8 +600,8 @@ the run": a won fight goes on and re-offers the step; a stopped fight ends the r
     HUD, Jev, a lost fight, or keys held.
   - `--hunt-graph PATH` gives each hunt a fresh session of the hunt graph; without it a hunt is the legacy
     flat choice.
-  - No step starts after 25 minutes (the envelope allows 30), and a hunt gets what is left of them, at most
-    its own 15. A run takes up to twelve steps.
+  - No step starts after 20 minutes (the envelope allows 30; 25 until the review of #72), and a hunt gets
+    what is left of them, at most its own 15. A run takes up to twelve steps.
 - **Zoom.** A new character starts at the client's near zoom, and the owner wants the engine's own. At
   the start of `--quests` and `--hunt`, `setZoom` holds F10 (Camera Zoom Out) to the widest view from any
   zoom, then F11 (Camera Zoom In) back for `FightLimits.zoomInSeconds`.
@@ -678,7 +678,7 @@ where players walk: the zone coordinates under the minimap, on every frame.
     the distance, the road's length and its legs.
   - `walkRoad` walks each leg as a quest walk (`walkLegs`: Jev's moves; a red name ahead stops it, an attack
     is fought back). A leg may be longer than one walk, as the road does not bend on it (`walkStart`). No leg
-    starts after the run's 25 minutes (`ROAD_TIME_LIMIT`). Arriving (`BY_ROAD`) lets
+    starts after the run's 20 minutes (`ROAD_TIME_LIMIT`). Arriving (`BY_ROAD`) lets
     the run go on; a road that fails is not offered again this run.
   - `--quests` loads the roads at the start and logs a `roads` event. A file that does not decode stops the
     run before any walk; with no file the run ends at the zone's edge as before.
@@ -992,7 +992,7 @@ the way, for its experience too.
     A fight in combat then follows M4i: only a kill goes on, and any other outcome ends the run.
   - Any other outcome ends the run, as a lost fight back does.
 - **Bounds.** It is offered only straight after a stop, so a kill does not offer another fight. Each walk that stops
-  again offers it again, within the run's 12 steps and 25 minutes.
+  again offers it again, within the run's 12 steps and 20 minutes.
 - **Evidence (sim).** `HuntTests` checks that there is no offer without a stop, and that a kill offers the hunt again.
   It also checks that a loss ends the run, and that a held fight leaves the hunt failed. Live: not yet run.
 
@@ -1016,6 +1016,39 @@ the ridge M4d's straight walk stopped at, but a quest walk inside one leg (12 un
   - a memory of blocked cells shared by a step's legs;
   - one jump when blocked (Space, once the owner confirms it);
   - a learned "ground ends ahead" reader.
+## M4r — a run's end leaves the danger zone (27 Sept)
+
+Between live runs 56 and 57 the character stood idle among level 2-3 hostiles by the Elemental Convergence and was
+killed. The owner, 27 Sept: "error exit should still try best to leave danger zone".
+
+- **`leaveDanger`** (LiveQuestHost). Before a quest run exits, the character walks to the nearest safe place within
+  one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
+  Shen'dar, Valanaar), by their NPCs' places in the town research.
+- **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
+  - the owner's takeover, whatever step it stopped;
+  - keys held;
+  - a failed input handoff;
+  - death.
+- **How** (`leaveDangerRounds`):
+  - In combat, SAFETY fights back first (one M3 fight, as in M4i). No fresh HUD counts as combat.
+  - Out of combat, it walks. A walk that meets combat is fought, then walked again, for at most four walks. The last
+    walk's combat is fought too.
+  - A lost fight, or any other walk end, stops it.
+- **Time.** Everything ends inside the envelope's 30 minutes from the run's start. A fight starts only with its whole
+  150 s left. A walk gets what is left, at most 180 s, and none starts with less than 20 s left.
+  - So that a fight is always left for it, the run starts no step after 20 minutes, not 25. The last step's walk and
+    its fight back end by 25:30.
+- **The walk.**
+  - Its moves are a fixed preference: straight, then the detours. It makes no model call, so a run that ended on a
+    failed Jev call still walks.
+  - It walks on past a red name ahead, and at low health out of combat (`toSafety`): stopping among hostiles is what
+    it leaves. Live run 65 met combat at once, ended, and the character died where it stood.
+- **Steps.** SAFETY's fights back no longer use Jev's twelve steps. Run 65 spent them on five attacked walks and their
+  fights, and ended `STEP_LIMIT` in combat.
+- **Evidence.** Sim only.
+  - `HuntTests` covers which ends walk, the nearest village, the fights and walks, their time and the steps.
+  - `NavTests` covers a walk to safety past a red name, at low health, and within its seconds.
+  - Live: not yet run.
 
 ## Limits
 

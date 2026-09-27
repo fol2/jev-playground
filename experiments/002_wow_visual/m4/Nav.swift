@@ -338,6 +338,10 @@ struct NavDestination: Equatable {
     let x: Double
     let y: Double
     var arrive = NavLimits.arriveDefault
+    // A walk to safety (M4r) walks on past a red name ahead and at low health: stopping among hostiles is what it leaves
+    // (reviews of #72). Combat still stops it, and is fought back.
+    var toSafety = false
+    var seconds = NavLimits.maxSeconds  // a walk to safety gets what is left of the run envelope
     var point: MapPoint { (x, y) }
 }
 
@@ -525,9 +529,9 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
         }
         misses = 0
         here = o
-        if o.combat || o.player < FightLimits.playerSafety || body.ownerTookFocus() { ranOut = false; break }
+        if o.combat || (!d.toSafety && o.player < FightLimits.playerSafety) || body.ownerTookFocus() { ranOut = false; break }
         if distance(o.point, d.point) < d.arrive { attempt.arrived = true; ranOut = false; break }
-        if o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
+        if !d.toSafety, o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
             attempt.warned = true; ranOut = false; break
         }
         let now = body.now()
@@ -605,11 +609,11 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         }
         result.end = o
         if o.combat { return finish("COMBAT") }
-        if o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
+        if !d.toSafety && o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
         if distance(o.point, d.point) < d.arrive { return finish("ARRIVED") }
         if result.episode.sinceBest >= NavLimits.noProgressDecisions { return finish("NO_PROGRESS") }
         if result.decisions >= NavLimits.maxDecisions { return finish("DECISION_LIMIT") }
-        if body.now() - began >= NavLimits.maxSeconds { return finish("TIME_LIMIT") }
+        if body.now() - began >= d.seconds { return finish("TIME_LIMIT") }
         let allowed = navAdmissible(o, destination: d, episode: result.episode)
         if allowed.isEmpty { return finish("NO_ADMISSIBLE_MOVE") }
 
@@ -619,7 +623,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         let asked = body.now()
         guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),
                 policy: "nav-legacy-v1", now: asked, maximumAge: FightLimits.maxFrameAge,
-                deadline: min(asked + FightLimits.jevTimeout, began + NavLimits.maxSeconds)) else { return finish("HUD_UNREADABLE") }
+                deadline: min(asked + FightLimits.jevTimeout, began + d.seconds)) else { return finish("HUD_UNREADABLE") }
         let reply: [String: Any]
         do {
             reply = try await jev.ask(state: state, question: question)
@@ -644,7 +648,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         let current = body.readObservation().value
         let transition: String?
         if current?.combat == true { transition = "COMBAT" }
-        else if let current, current.player < FightLimits.playerSafety { transition = "LOW_HEALTH" }
+        else if let current, !d.toSafety, current.player < FightLimits.playerSafety { transition = "LOW_HEALTH" }
         else if let current, distance(current.point, d.point) < d.arrive { result.end = current; transition = "ARRIVED" }
         else { transition = nil }
         if let transition {

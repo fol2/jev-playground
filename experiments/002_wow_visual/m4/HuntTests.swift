@@ -1049,6 +1049,12 @@ extension NavTests {
         let lost = await runQuests(host: beaten, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
         check(lost.outcome == "FIGHT_JEV_STOP" && beaten.handed == ["The Gift of Skysight", "FIGHT_BACK"],
               "a fight that does not end in a kill, even one Jev stopped, ends the quest run: it may still be under attack")
+        let besieged = FakeQuests(Array(repeating: QuestRead(quests: hub, player: thendal, missing: []), count: QuestLimits.maxSteps))
+        besieged.outcomes = ["The Gift of Skysight": "WALK_COMBAT"]
+        let every = CannedGraph(Array(repeating: "DO:HAND_IN_1", count: QuestLimits.maxSteps + 1))
+        let siege = await runQuests(host: besieged, jev: every, graph: graph()!)
+        check(every.offered.count == QuestLimits.maxSteps && siege.steps.count == 2 * QuestLimits.maxSteps,
+              "review of #72 (live run 65): SAFETY's fights back do not use Jev's steps")
         let danger = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: []),
                                  QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: [], player: thendal, missing: [])])
         danger.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD"]  // slot 1: nearer
@@ -1182,6 +1188,40 @@ extension NavTests {
         let (backWin, backWinJev, _) = await stoppedHunt("BACK_KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(backStop.outcome == "FIGHT_JEV_STOP" && backWin.handed.count == 3 && backWinJev.offered[2].contains("DO:HUNT_1"),
               "review of #66: a fight in combat (attacked since the stop, or after a JEV_STOP) ends the run unless it kills, as a fight back does")
+        // The owner, 27 Sept: an error exit should still leave the danger zone.
+        check(["WALK_HUD_UNREADABLE", "WALK_JEV_FAILED", "NOTHING_TO_HAND_IN_OR_TAKE", "TIME_LIMIT", "WALK_LOW_HEALTH"].allSatisfy(leavesDanger)
+              && !["OWNER_TOOK_FOCUS", "WALK_KEYS_HELD", "HUNT_KEYS_HELD", "INPUT_HANDOFF_FAILED", "FIGHT_PLAYER_DEAD"].contains(where: leavesDanger),
+              "every run end walks to safety but the owner's takeover, held keys, a failed handoff and death")
+        check(!["WALK_OWNER_TOOK_FOCUS", "HUNT_OWNER_TOOK_FOCUS", "FIGHT_OWNER_TOOK_FOCUS"].contains(where: leavesDanger),
+              "review of #72: the owner's takeover ends no walk to safety, whatever step it stopped")
+        func wayRounds(_ combat: [Bool], _ fights: [String], _ walks: [String], left: [Double] = []) async -> (String, [String]) {
+            var combat = combat, fights = fights, walks = walks, left = left, done: [String] = []
+            let end = await leaveDangerRounds(QuestLimits.safeWalks, until: 10_000, now: { 10_000 - (left.isEmpty ? 1_000 : left.removeFirst()) },
+                                              inCombat: { combat.isEmpty ? false : combat.removeFirst() },
+                                              fightBack: { done.append("fight"); return fights.removeFirst() },
+                                              walk: { done.append("walk \(Int($0))"); return walks.removeFirst() })
+            return (end, done)
+        }
+        let (wayFought, wayFoughtSteps) = await wayRounds([true, false], ["KILLED_AND_LOOTED"], ["ARRIVED"])
+        let (wayMet, wayMetSteps) = await wayRounds([false, true, false], ["KILLED_NO_CORPSE"], ["COMBAT", "ARRIVED"])
+        check(wayFought == "SAFE" && wayFoughtSteps == ["fight", "walk 180"] && wayMet == "SAFE" && wayMetSteps == ["walk 180", "fight", "walk 180"],
+              "review of #72 (live run 65): in combat the way to safety fights back first; a walk that meets combat is fought and walked again")
+        let (wayLost, _) = await wayRounds([true], ["PLAYER_DEAD"], [])
+        let (wayStuck, _) = await wayRounds([false], [], ["NO_PROGRESS"])
+        let besetCombat = [true] + Array(repeating: [false, true], count: QuestLimits.safeWalks).flatMap { $0 }
+        let (wayEndless, wayEndlessSteps) = await wayRounds(besetCombat, Array(repeating: "KILLED_AND_LOOTED", count: 9), Array(repeating: "COMBAT", count: 4))
+        check(wayLost == "FIGHT_PLAYER_DEAD" && wayStuck == "WALK_NO_PROGRESS" && wayEndless == "SAFE_ROUNDS"
+              && wayEndlessSteps.filter { $0.hasPrefix("walk") }.count == QuestLimits.safeWalks && wayEndlessSteps.last == "fight",
+              "review of #72: the way to safety ends on a lost fight, a walk's other end or its walks; the last walk's combat is fought too")
+        let (wayLateFight, wayLateFightSteps) = await wayRounds([true], ["KILLED_AND_LOOTED"], [], left: [FightLimits.maxSeconds - 1])
+        let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
+        check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
+              "review of #72: all of it ends inside the run envelope: no fight without its whole time left, and a walk gets only what is left")
+        check(QuestLimits.runSeconds + NavLimits.maxSeconds + 2 * FightLimits.maxSeconds <= QuestLimits.envelopeSeconds,
+              "review of #72: a walk started just before the run's 20 minutes, its fight back and one fight on the way to safety end inside 30")
+        check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
+              && same(safePlace(from: (44, 40)), 43.4, 44.8),
+              "the nearest village within one walk; none when already there or too far")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])
@@ -1249,8 +1289,9 @@ extension NavTests {
         slow.huntTakes = 900
         let long = await runQuests(host: slow, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
         check(slow.handed == ["HUNT Agitators", "HUNT Agitators"] && long.outcome == "TIME_LIMIT"
-              && slow.budgets.first == HuntLimits.maxSeconds && slow.budgets.count == 2 && (590...600).contains(slow.budgets[1]),
-              "a hunt that counted some kills is offered again; the next gets what is left of the run's 25 min, and none starts after them")
+              && slow.budgets.first == HuntLimits.maxSeconds && slow.budgets.count == 2
+              && ((QuestLimits.runSeconds - 910)...(QuestLimits.runSeconds - 900)).contains(slow.budgets[1]),
+              "a hunt that counted some kills is offered again; the next gets what is left of the run's 20 min, and none starts after them")
         let late = FakeQuests(Array(repeating: QuestRead(quests: [winds], player: thendal, missing: []), count: 2))
         late.huntTakes = 1440; late.readTakes = [0, 60]
         let overran = await runQuests(host: late, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)

@@ -492,6 +492,22 @@ struct NavTests {
         let stopped = await runNav(body: wary, jev: scripted(), destination: d)
         check(stopped.outcome == "DANGER_AHEAD" && stopped.decisions == 1 && stopped.runtime?.status == .blocked && !wary.keys.holding,
               "runNav ends DANGER_AHEAD after the move a red name stopped: a walk never goes on into it")
+        let fleeing = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        fleeing.hostiles = [(40, 27)]
+        var safety = d
+        safety.toSafety = true
+        let fled = await runNav(body: fleeing, jev: scripted(), destination: safety)
+        check(fled.outcome != "DANGER_AHEAD" && fleeing.y < 29, "review of #72: a walk to safety goes on past a red name ahead")
+        let hurt = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0), stays = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        hurt.player = 0.2; stays.player = 0.2
+        let limped = await runNav(body: hurt, jev: scripted(), destination: safety)
+        let stayed = await runNav(body: stays, jev: scripted(), destination: d)
+        check(limped.outcome != "LOW_HEALTH" && hurt.y < 29 && stayed.outcome == "LOW_HEALTH",
+              "review of #72: out of combat at low health, a walk to safety walks on; any other walk stops")
+        var brief = d
+        brief.seconds = 5
+        let cut = await runNav(body: SimNav(clock: FightClock(), x: 40, y: 30, facing: 0), jev: scripted(), destination: brief)
+        check(cut.outcome == "TIME_LIMIT", "review of #72: a walk ends at its own seconds: a walk to safety at what is left of the envelope")
 
         let swept = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
         swept.keys.releaseAll()
