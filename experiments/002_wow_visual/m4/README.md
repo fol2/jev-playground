@@ -842,9 +842,10 @@ Runs 42-45 were unattended, as before.
   - `m4-nav --bags --keys wqe` lists the items. Nothing is clicked.
 - **USE_1** (quest graph `skyborne-quest-tools-v6`). A use-at quest whose objective names a bag item or a bar
   ability is offered as a use (`questItem`: the longest name its objective holds).
-  - An item is right-clicked. A text panel that names it is closed with Esc, and Esc is pressed only then.
+  - An item is right-clicked, after its slot is hovered again and still names it. A text panel that names it is
+    closed with Esc, and Esc is pressed only then. The use counts (`USED`) only when that panel opened.
   - An ability is used by its key on the bar. The run first walks to the quest's pin when the objective says
-    "near" (`usesNear`).
+    "near" (`usesNear`). There is no evidence at the key, so it never makes its quest a hand-in (`USED_ABILITY`).
   - A use is not offered again that run.
   - A used quest whose objective then sends the player to someone ("... then speak with Windshaper Boro") is
     offered as a hand-in (`talksAfterUse`). Its log line does not change.
@@ -857,7 +858,8 @@ Runs 42-45 were unattended, as before.
   - The log's own count ("Quests: 3/40") is read, and a parse that finds fewer quests stops the run
     `LOG_INCOMPLETE`.
 - **A neutral creature's body is no red name.** A hostile's name is drawn red only beyond plate range. A red
-  "name" within 60 px of a neutral plate's ends and up to 160 px under it is that creature's body (`dangerNames`).
+  "name" whose centre lies within 30 px of a neutral plate's span and up to 80 px under it is that creature's body
+  (`dangerNames`; the review of #54 narrowed it from 60 and 160).
   - Runs 35 and 44 had stopped at a Juvenile Vuldren's red-brown body.
   - The 24 Sept nest's real red name, level with a plate beside it, stays a danger.
 
