@@ -1140,7 +1140,7 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
   and once a run:
   - `TRAIN` at the class trainer, when the level read is above the level of the last visit. The level comes from the
     character's own portrait tooltip ("Level N"). The last visit's level is kept in `runs/002_wow_visual/memory/character.json`
-    (private). A lower level read is a new character with the same name, and forgets it.
+    (private), written only when a spell was learnt. A lower level read is a new character with the same name, and forgets it.
   - `SELL_JUNK` at a vendor, when the bags hold 8 items or more, or were not read this step (they are read only for a
     use-at quest; review of #77). Jev weighs it.
   - The NPCs and where to stand are knowledge: `learning/knowledge/zephras-town.json`.
@@ -1164,6 +1164,28 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
 - **Not in this slice:** buying food, drink or gear; repair; the gear upgrade rule at a vendor; other villages' NPCs.
 - **Evidence.** Sim: `HuntTests` covers the level, the money, the rows (on the live OCR lines), the offers, and one run
   that trains and sells. Live: the next run.
+
+## M4v — quest enders from the wiki (27 Sept)
+
+The owner's goal names "ref, wiki" beside ML vision. Live runs 67, 68 and 69 each offered the ready quest "Agitators", and each
+hand-in failed (`DIALOGUE_NOT_OPEN`, `NO_QUEST_MARK_IN_VIEW`). From the village the map showed no pin for it, so the hand-in
+sought its "?" where the character stood. Its ender is Yala Windwatcher in Thendal Grove, where she gave the quest (M4a).
+
+- **Knowledge** (`learning/knowledge/zephras-quests.json`): each quest's ender and where they stand, from warcraft.wiki.gg
+  (read by a research subagent; URLs per quest). Agitators → Yala Windwatcher (47.3, 21.9); Harvesting Windstones → Dalia the
+  Collector (43.2, 24.0); The Gift of Skysight → Ventaari Brightwish (42.6, 24.4).
+- **The log** (`withEnders`): each quest is named with its ender. Only a quest ready to hand in (or a delivery) with no map
+  pin takes its ender's place; one in progress keeps its own area (review of #78). A map pin stays, since it is what the
+  game shows now. Jev's hand-in offer names the ender.
+- **The hand-in** (`turnIn(ender:)`): with the ender's name known, the NPC is opened by its name first (`openByName`, M4u:
+  the name read at twice its size, the tooltip naming it). The completion page follows as before (a quest list's entry,
+  Continue). Another quest's page or the NPC's greeting is closed (`panelOpen` or `npcWindowOpen`), and the "?" is sought
+  after, as before. The search by name stops at the run's time.
+- **Also here (review of #77):** the trainer's level is remembered only when a spell was learnt, so a visit short of money
+  is offered again at the same level; the run's deadline is read again just before Train; a player's tooltip met while
+  hovering for an NPC is logged as "(a player)", never by name.
+- **Evidence.** Sim: `HuntTests` (the pin filled, a map pin kept, an unknown quest left alone; the offer names the ender).
+  Live: the next run.
 
 ## Limits
 

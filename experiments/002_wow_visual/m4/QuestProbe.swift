@@ -585,7 +585,9 @@ final class QuestRun {
             await sleep(0.4)
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
-            body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
+            // A player's tooltip (the character's own included) is not logged by name (review of #77).
+            let logged = read.contains { $0.contains("(Player)") } ? ["(a player)"] : Array(read.prefix(3))
+            body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": logged, "name": name, "again": again])
             switch unitCheck(read, name: name, declined: clearing ? [] : declined) {  // a fading tooltip is not this unit's
             case .declined: metOne = true; return false
             case .confirmed: return true
@@ -632,7 +634,9 @@ final class QuestRun {
     /// not in view; rest the pointer on its body until the game's tooltip names it (onUnit, two reads, tooltipGone); then
     /// right-click and wait for the window. The dialogue box's lines, or nil.
     func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
-        func found(_ image: CGImage?) -> TipLine? { upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3 } }
+        func found(_ image: CGImage?) -> TipLine? {
+            upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || (likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3) }
+        }
         var image = await frame()
         var line = found(image)
         if line == nil, let pulse = turnPulse(45) {
@@ -721,7 +725,7 @@ final class QuestRun {
             guard click(row.x + 40, row.y + 6) else { break }
             await sleep(0.5)
             // The row's click keeps the window; it is read once more before Train (review of #77).
-            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus() else { break }
+            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus(), hostNow() < deadline else { break }
             guard click(title.x + b.dx, title.y + b.dy) else { break }
             await sleep(1.2)
             let fresh = ((await frame(after: hostNow() + 0.2)).map(chatLines) ?? []).filter { !before.contains($0) && $0.contains("learned") }
@@ -892,7 +896,7 @@ final class QuestRun {
         return chat.contains { $0.lowercased().contains("accepted") } ? "ACCEPTED" : "ACCEPTED_UNCONFIRMED"
     }
 
-    func turnIn(_ quest: String) async -> String {
+    func turnIn(_ quest: String, ender: String? = nil, until deadline: Double = .infinity) async -> String {
         func ours(_ lines: [TipLine]) -> TipLine? { lines.first { sameTitle($0.text, quest) } }
         /// A delivery shows its progress page first ("Continue", live 24 Sept for Call of Earth).
         func pastContinue(_ dialog: [TipLine]) async -> [TipLine] {
@@ -903,19 +907,34 @@ final class QuestRun {
             return lines(QuestHUD.dialog, await frame())
         }
         var dialog = await pastContinue(lines(QuestHUD.dialog, await frame()))
-        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
-            let opened = await openAtMark(want: "question") { page in
-                var page = page
-                if self.has(page, "Complete Quest") == nil, let entry = ours(page) {  // an NPC with several quests lists them
-                    guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
-                    await self.sleep(1.5)
-                    page = self.lines(QuestHUD.dialog, await self.frame())
-                }
-                page = await pastContinue(page)
-                if self.has(page, "Complete Quest") != nil, ours(page) != nil { return .wanted(page) }
-                if self.has(page, "Continue") != nil, ours(page) != nil { return .failed("CONTINUE_DID_NOT_ADVANCE") }
-                return .other(page)
+        /// What an opened dialogue is: this quest's completion page (through its entry and Continue), another's, or a failure.
+        func page(_ page: [TipLine]) async -> Page {
+            var page = page
+            if has(page, "Complete Quest") == nil, let entry = ours(page) {  // an NPC with several quests lists them
+                guard click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
+                await sleep(1.5)
+                page = lines(QuestHUD.dialog, await frame())
             }
+            page = await pastContinue(page)
+            if has(page, "Complete Quest") != nil, ours(page) != nil { return .wanted(page) }
+            if has(page, "Continue") != nil, ours(page) != nil { return .failed("CONTINUE_DID_NOT_ADVANCE") }
+            return .other(page)
+        }
+        // M4v: an ender known by name is opened by its name first (openByName, the M4u rule); its "?" is sought only after.
+        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil, let ender, let opened = await openByName(ender, until: deadline) {
+            body.emit("ender_open", ["quest": quest, "ender": ender, "lines": opened.prefix(4).map(\.text)])
+            switch await page(opened) {
+            case .wanted(let d): dialog = d
+            case .failed(let code): return code
+            case .other(let seen):  // another quest's page (Complete Quest, Accept), or its greeting without this quest
+                if panelOpen(seen) || npcWindowOpen(seen, name: ender) {  // review of #78: a quest page has no "Goodbye"
+                    await tap(QuestHUD.escape)
+                    await sleep(0.6)
+                }
+            }
+        }
+        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
+            let opened = await openAtMark(want: "question") { await page($0) }
             guard let open = opened.dialog else { return opened.failure! }
             dialog = open
         }
@@ -999,6 +1018,7 @@ final class LiveQuestHost: QuestHost {
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
     var town: [TownNPC] = []  // M4u: the villages' vendors and trainers (learning/knowledge/zephras-town.json)
+    var enders: [QuestEnder] = []  // M4v: who takes each quest in, and where (learning/knowledge/zephras-quests.json)
     /// M4u: the level at the last visit to the trainer, from the character's memory (private, under runs/).
     var trainedAt: Int? = (try? Data(contentsOf: QuestHUD.characterMemory))
         .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.flatMap { $0["trained_at_level"] as? Int }
@@ -1072,8 +1092,9 @@ final class LiveQuestHost: QuestHost {
     }
 
     func readQuests() async -> QuestRead? {
-        let (quests, player, missing, givers) = await quester.readQuests(turnIfUnread: true)
+        let (read, player, missing, givers) = await quester.readQuests(turnIfUnread: true)
         guard let player else { return nil }
+        let quests = withEnders(read, enders)  // M4v: who takes each in; a quest with no map pin takes its ender's place
         // The bags are read only when a use-at quest might name an item in them (M4m).
         let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []
         if !items.isEmpty { emit("bags", ["items": items]) }
@@ -1101,7 +1122,8 @@ final class LiveQuestHost: QuestHost {
         let level = await quester.readLevel()
         let (outcome, learned) = await quester.train(npc.name, level: level ?? 1, until: runDeadline)
         emit("town_done", ["npc": npc.name, "outcome": outcome, "learned": learned, "level": orNull(level)])
-        if let level, outcome != "TRAINER_NOT_OPEN", outcome != "CLICK_FAILED" {
+        // Remembered only when a spell was learnt: a visit short of money is offered again at the same level (review of #77).
+        if let level, !learned.isEmpty {
             trainedAt = level
             try? FileManager.default.createDirectory(at: QuestHUD.characterMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? JSONSerialization.data(withJSONObject: ["trained_at_level": level]).write(to: QuestHUD.characterMemory)
@@ -1231,7 +1253,7 @@ final class LiveQuestHost: QuestHost {
         let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
         if let pin, let stop = await walkBeside(pin, label: quest.title) { return stop }
         if let pin = quest.pin { await quester.face(pin) }
-        let outcome = await quester.turnIn(quest.title)
+        let outcome = await quester.turnIn(quest.title, ender: quest.ender, until: runDeadline)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
         return outcome
@@ -1352,6 +1374,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                              huntGraph: hunting, tactics: tactics)
     host.roads = roads
     host.town = (try? TownNPC.load()) ?? []  // M4u: the vendor and the trainer of the villages learnt so far
+    host.enders = (try? QuestEnder.load()) ?? []  // M4v: the quest enders from the wiki
     log.emit("town", ["npcs": host.town.map(\.name)])
     host.runDeadline = hostNow() + QuestLimits.runSeconds
     // The bar's other skills ("Skysight", from a quest) are abilities a use-at quest may name (M4m).

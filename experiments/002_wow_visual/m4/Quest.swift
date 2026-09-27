@@ -239,6 +239,7 @@ struct PlannedQuest {
     var ready: Bool  // the log shows "?" rather than "..."
     var objective: String
     var pin: MapPoint?  // from hovering the world map's pins
+    var ender: String? = nil  // who takes it in, from the quest knowledge (M4v)
 }
 
 // MARK: - Working memory: the quest log (the owner, 25 Sept: remember what was read, to cut rescans)
@@ -997,7 +998,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
             && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false  // no pin: its NPC may stand here
     }
     let handIns = open.prefix(QuestLimits.slots).enumerated().map { i, q in
-        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), (q.pin.map { "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away($0)) units away) " }
+        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), (q.pin.map { "Walk to the quest giver of \"\(q.title)\"\(q.ender.map { ", \($0)," } ?? "") (level \(q.level), \(away($0)) units away) " }
             ?? "Find the quest giver of \"\(q.title)\" (level \(q.level)) near here: the map showed no pin, which hides under the "
                 + "player's arrow when its NPC stands here, ")
             + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
@@ -1267,7 +1268,7 @@ func copper(_ text: String) -> Int? {
 func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
     lines.contains { sameUnit($0.text, trainer) || likeName($0.text, trainer) }
         && !lines.contains { nameKey($0.text) == nameKey("Goodbye") }
-        && lines.contains { $0.text.contains("Rank") || $0.text.lowercased().hasPrefix("requires") }
+        && lines.contains { $0.text.contains("(Rank") || $0.text.lowercased().hasPrefix("requires") }
 }
 
 /// Whether an NPC's window is open at the left, not just its name in the world there (review of #77): its title, and a
@@ -1276,7 +1277,7 @@ func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
 func npcWindowOpen(_ lines: [TipLine], name: String) -> Bool {
     lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && lines.contains { l in
         let k = nameKey(l.text)
-        return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("Rank") || l.text.lowercased().hasPrefix("requires")
+        return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("(Rank") || l.text.lowercased().hasPrefix("requires")
             || (k.hasPrefix("page") && l.text.contains(" of "))
     }
 }
@@ -1318,4 +1319,36 @@ func townOffers(_ read: QuestRead, npcs: [TownNPC], failed: Set<String>) -> [(sk
             + "; the money buys training."))
     }
     return out
+}
+
+// MARK: M4v — quest enders from the wiki
+
+/// Who takes a quest in, and where they stand (`learning/knowledge/zephras-quests.json`, from warcraft.wiki.gg; M4v). Live runs
+/// 67-69 (27 Sept): "Agitators" was ready, the map showed no pin for it from the village, and each hand-in sought a "?" where
+/// the character stood; its ender, Yala Windwatcher, stands in Thendal Grove.
+struct QuestEnder: Codable, Equatable {
+    let title: String
+    let ender: String
+    let at: [Double]
+    static let file = "experiments/002_wow_visual/learning/knowledge/zephras-quests.json"
+    static func load(_ path: String = file) throws -> [QuestEnder] {
+        guard FileManager.default.fileExists(atPath: path) else { return [] }
+        struct Book: Codable { let quests: [QuestEnder] }
+        let quests = try JSONDecoder().decode(Book.self, from: Data(contentsOf: URL(fileURLWithPath: path))).quests
+        guard quests.allSatisfy({ $0.at.count == 2 }) else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path]) }
+        return quests
+    }
+}
+
+/// The log's quests with their enders named from the knowledge. Only a quest ready to hand in (or a delivery) with no map pin
+/// takes its ender's place: a quest in progress keeps its own area, or none (review of #78: "Harvesting Windstones" at 0/15
+/// would have walked to Dalia in the village). A map pin stays: it is what the game shows now.
+func withEnders(_ quests: [PlannedQuest], _ enders: [QuestEnder]) -> [PlannedQuest] {
+    quests.map { q in
+        guard let e = enders.first(where: { sameTitle($0.title, q.title) }) else { return q }
+        var named = q
+        named.ender = e.ender
+        if named.pin == nil, [.handIn, .travel].contains(questKind(q)) { named.pin = (e.at[0], e.at[1]) }
+        return named
+    }
 }

@@ -1,0 +1,11 @@
+{
+  "source": "warcraft.wiki.gg quest and NPC pages, read by a research subagent on 27 Sept 2026 (URLs per quest). Live: Yala Windwatcher gave Agitators at about 47.3, 21.9 (M4a, 23 Sept). A quest's map pin, when the map shows one, is live evidence and is used instead.",
+  "quests": [
+    {"title": "Agitators", "ender": "Yala Windwatcher", "at": [47.3, 21.9],
+     "sources": ["https://warcraft.wiki.gg/wiki/Agitators", "https://warcraft.wiki.gg/wiki/Yala_Windwatcher"]},
+    {"title": "Harvesting Windstones", "ender": "Dalia the Collector", "at": [43.2, 24.0],
+     "sources": ["https://warcraft.wiki.gg/wiki/Harvesting_Windstones"]},
+    {"title": "The Gift of Skysight", "ender": "Ventaari Brightwish", "at": [42.6, 24.4],
+     "sources": ["https://warcraft.wiki.gg/wiki/The_Gift_of_Skysight", "https://warcraft.wiki.gg/wiki/Ventaari_Brightwish"]}
+  ]
+}
