@@ -76,6 +76,20 @@ func compass(dx: Double, dy: Double) -> Double {  // dy grows southwards, as on 
     (atan2(dx, -dy) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
 }
 
+/// The facing a walk or a hunt acts on, from the rule (arrowFacing) and the learned reader (M5, FacingReader): the rule's
+/// where the two agree within 30 degrees (it is finer), the learned one at 0.7 or more where the rule has none, and none
+/// where they disagree, since a wrong bearing turns the character the wrong way. Live run 52 (27 Sept), beside the Elemental
+/// Convergence: the rule read 350 and 316 where the arrow faced about 150, then nothing where it faced about 50; the reader
+/// read 152 and 159, then 30 (0.75). On the held-out runs the reader was more than 30 degrees wrong on 4 of 83 frames at
+/// 0.7 or more, so it does not overrule a reading of the rule.
+func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?) -> Double? {
+    switch (rule, learned) {
+    case let (r?, l?): return abs(angleError(r, l.bearing)) <= 30 ? r : nil
+    case let (nil, l?): return l.confidence >= 0.7 ? l.bearing : nil
+    case let (r, nil): return r
+    }
+}
+
 /// Facing from the minimap arrow as a compass bearing (0 north, 90 east). The arrow is a silver cone
 /// with a navy dot at its tail; quest icons often sit beside it and their highlights are silver too.
 /// So only silver connected to the navy dot counts, and the facing is the ray from the dot along which

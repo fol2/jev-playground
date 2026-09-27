@@ -14,6 +14,8 @@
 //   m5-perceive --roads         the roads of every source's trails to learning/knowledge/zephras-roads.json, and each
 //                               source held out against the roads of the others
 //   m5-perceive --kinds FRAME...  each rule mark of the frames with the kind the learned reader names (live run 31)
+//   m5-perceive --facing-labels | --facing-train [final] | --facing-baseline | --facing-read FRAME...  the minimap arrow's
+//                               bearing, learnt from the rule's steady readings (Facing.swift)
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -379,6 +381,11 @@ struct PerceiveTool {
             case ("--obj-train", 1): exit(try objTrain())
             case ("--obj-train", 2) where args[1] == "final": exit(try objTrain(final: true))
             case ("--obj-baseline", 1): exit(try objBaseline())
+            case ("--facing-labels", 1): exit(try facingLabels())
+            case ("--facing-train", 1): exit(try facingTrain())
+            case ("--facing-train", 2) where args[1] == "final": exit(try facingTrain(final: true))
+            case ("--facing-baseline", 1): exit(try facingBaseline())
+            case ("--facing-read", let n) where n >= 2: exit(try facingRead(Array(args.dropFirst())))
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n, wholeFrames: true))
@@ -391,7 +398,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME... | --red-propose | --red-sheet N | --red-audit FILE | --red-train [final] | --red-baseline | --obj-propose | --obj-sheet N [RUN] | --obj-audit FILE | --obj-train [final] | --obj-baseline\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME... | --red-propose | --red-sheet N | --red-audit FILE | --red-train [final] | --red-baseline | --obj-propose | --obj-sheet N [RUN] | --obj-audit FILE | --obj-train [final] | --obj-baseline | --facing-labels | --facing-train [final] | --facing-baseline | --facing-read FRAME...\n", stderr)
         exit(64)
     }
 }

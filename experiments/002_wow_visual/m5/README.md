@@ -418,6 +418,63 @@ hunt: frame -> ObjectReader (256 px tiles over the ground in view, merged) -> ob
 - **Which object it is, the detector does not say.** PICK_UP_OBJECT hovers it, and only a tooltip that names an open
   objective is right-clicked (m4/README.md, M4n).
 
+## The facing (27 Sept)
+
+The walk and the hunt read the character's facing from the minimap arrow with a pixel rule (`arrowFacing`). In the open
+the rule is good: on 33 frames where the character's own motion over 1.5-4 s gave the bearing, it was within 25 degrees
+on 32 (median 3). It fails beside the minimap's icons. In live run 52 (27 Sept) the character stood by the Elemental
+Convergence. There the rule read 350 and 316 where the arrow faced about 150, then nothing where it faced about 50, and
+the walk ended `WALK_HUD_UNREADABLE`. The owner's line is that the engine sees through learned models, so the arrow's
+bearing is now learnt too.
+
+```text
+saved walk and hunt frames -> m5-perceive --facing-labels (the rule's steady readings) -> --facing-train [final]
+    -> models/facing.mlmodel (private) -> --facing-baseline (score) / --facing-read FRAME... (any frame, rule beside it)
+walk, hunt: frame -> FacingReader (the arrow's crop, classes every 10 degrees) + arrowFacing -> fusedFacing
+```
+
+| File | Role | Proof |
+|---|---|---|
+| `Marks.swift` | `FacingCrop`, and `turnedCrop`: the arrow's crop, turned and scaled up, with optional quest-icon dots | `MarksTests.swift` |
+| `Facing.swift` | `m5-perceive --facing-*`: labels, Create ML `MLImageClassifier` training, the per-split score, reads of any frame | argument refusal in `tools/MotorProof.swift` |
+| `Reader.swift` | `FacingReader`: the bearing, as the probability-weighted mean of the classes near the top one | built into `m4-nav`; scored by `--facing-baseline` |
+
+- **Labels.** The labels are the rule's readings where the next look within 0.6 s repeats them within 8 degrees: 927 frames
+  from 27 runs (training 704, validation 140, test 83).
+  - A walk's or hunt's looks are matched to their folder by their frame chain (0, 1, 2 ...). A quest read's position
+    looks fall between them.
+  - A first matching by frame number alone put walk 1's bearings on walk 2's frames: a crop sheet showed arrows facing
+    north labelled south. A run whose chains do not fit its folders is left out.
+  - Walk looks now log their frame's file.
+- **Training crops.** Each training crop is also turned by 60 to 300 degrees, so every bearing is seen on many backgrounds.
+  Half of them get one or two yellow dots beside the arrow, as quest icons sit there.
+  - Turning by every 30 degrees (8448 crops) failed in Create ML ("Failed to create CVPixelBufferPool"), as did a
+    32 px crop. The crop is the frame's 32 px round the arrow, scaled up to 96.
+- **Designs.** Each was trained on the training runs and chosen on the validation runs:
+
+| Design | Validation within 15 degrees | Test within 15 degrees |
+|---|---|---|
+| 48 px crop, turns of 60 | 118 / 140 | 55 / 83 |
+| 32 px crop scaled to 96, turns of 60 | 123 / 140 | 62 / 83 |
+| as above, with quest-icon dots (**shipped**) | **125 / 140** | **73 / 83** |
+| as above, fitted on training and validation (`final`) | (fitted) | 70 / 83 |
+
+- **Which model was shipped, and why.** The shipped model is the design with the dots, trained on the training runs
+  only. It has the only estimate on unseen data (validation); the `final` fit's training accuracy was 1.000.
+- **The test is spent for this choice.** Both were also scored on the test runs, and read on run 52's frames where the
+  rule failed. Run 52 is a test run: the design read 152, 159 and then 30 (0.75) where the arrow faced about 150 and 50;
+  the `final` fit read 329 (0.73) for about 50. That comparison informed the choice, so the test set is no longer
+  held out for it. The next live runs, whose walk looks name their frames, are the fresh held-out evidence.
+- **How the walk uses it (`fusedFacing`, m4/Nav.swift).**
+  - Where the rule and the reader agree within 30 degrees, the walk takes the rule's bearing, which is finer.
+  - Where the rule reads nothing, it takes the reader's bearing at 0.7 or more.
+  - Where they disagree, it takes none: a wrong bearing turns the character the wrong way.
+  - On the test frames the reader was more than 30 degrees wrong on 4 of 83 at 0.7 or more. Where it confidently read
+    a flipped arrow, it disagreed with the rule and gave no bearing.
+  - Without the private model the rule reads alone, as before. Every walk look logs `facing_rule`, `facing_learned`
+    and `facing_confidence`.
+- **A frame takes about 12 ms.**
+
 ## Next
 
 1. Audit the shadow's live frames. Let the learned reader replace the rules' marks only when it beats them on held-out

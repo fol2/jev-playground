@@ -137,19 +137,23 @@ final class LiveNavBody: NavBody {
         let image = frame.image
         let pixels = rgba(image)
         let names = redNames(pixels)
+        var file: String? = nil  // the saved frame, as its folder and name, for learning from later (M5 facing)
         if frameNo % 2 == 0 || !names.isEmpty {  // every frame with a red name is kept, for calibration
             write(image, to: directory.appendingPathComponent(String(format: "f%03d.jpg", frameNo)), type: .jpeg)
+            file = directory.lastPathComponent + String(format: "/f%03d.jpg", frameNo)
         }
         frameNo += 1
         let (text, read) = readCoords(image)
-        guard let at = read, let facing = arrowFacing(pixels) else {
-            emit("unreadable", ["coords_text": text, "frame": frameNo - 1])
+        let seen = seenFacing(image, pixels)
+        guard let at = read, let facing = seen.bearing else {
+            emit("unreadable", ["coords_text": text, "frame": frameNo - 1].merging(seen.fields) { a, _ in a })
             return nil
         }
         let hud = observe(pixels, plates: false)
         let red = redDanger(image, pixels, names: names, reader: redReader)
         let warnings = red.danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
-        let fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
+        let fields: [String: Any] = ["frame": frameNo - 1, "file": orNull(file), "x": at.x, "y": at.y, "facing": Int(facing.rounded()),
+                                     "combat": hud.combat].merging(seen.fields) { a, _ in a }
         emit("look", fields.merging(red.fields) { a, _ in a })
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
                       warnings: warnings)
@@ -162,6 +166,19 @@ final class LiveNavBody: NavBody {
         watchdog.cancel()
         keys.releaseAll()
     }
+}
+
+/// The learned facing reader (M5), loaded once; nil without its private model, and the rule alone reads the arrow.
+let facingReader: FacingReader? = try? FacingReader()
+
+/// A frame's facing (fusedFacing) with the rule's and the reader's readings for the log.
+func seenFacing(_ image: CGImage, _ pixels: RGBA) -> (bearing: Double?, fields: [String: Any]) {
+    let rule = arrowFacing(pixels)
+    guard let reader = facingReader else { return (rule, [:]) }
+    let learned = try? reader.facing(image)
+    return (fusedFacing(rule: rule, learned: learned),
+            ["facing_rule": orNull(rule.map { Int($0.rounded()) }), "facing_learned": orNull(learned.map { Int($0.bearing.rounded()) }),
+             "facing_confidence": orNull(learned.map { roundTo($0.confidence) })])
 }
 
 /// jev.jsonl rows and the manifest's outcome, usage and latency fields, shared by --sim-jev and --execute.

@@ -105,12 +105,14 @@ final class LiveHuntHost: HuntHost {
         walkNo += 1
         let pixels = rgba(image)
         let (text, read) = readCoords(image)
-        guard let at = read, let facing = arrowFacing(pixels) else {
-            emit("unreadable", ["coords_text": text, "walk_frame": walkNo - 1])
+        let seen = seenFacing(image, pixels)
+        guard let at = read, let facing = seen.bearing else {
+            emit("unreadable", ["coords_text": text, "walk_frame": walkNo - 1].merging(seen.fields) { a, _ in a })
             return nil
         }
         let hud = observe(pixels, plates: false)
-        emit("walk_look", ["walk_frame": walkNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
+        emit("walk_look", ["walk_frame": walkNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
+            .merging(seen.fields) { a, _ in a })
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
     }
 
@@ -154,6 +156,7 @@ final class LiveHuntHost: HuntHost {
         let pixels = rgba(image)
         let name = upscaledText(image, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces)
         var o = pixelObs(pixels)
+        o.facing = seenFacing(image, pixels).bearing
         o.objectives = objectives
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
