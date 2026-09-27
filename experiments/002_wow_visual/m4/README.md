@@ -870,6 +870,7 @@ Runs 42-45 were unattended, as before.
 | 44 | Walks to the Elemental Convergence (Skysight, key 9) and its retreat stopped `DANGER_AHEAD` at a Vuldren's body |
 | 45 | With the body filter, the same walks still stopped `DANGER_AHEAD`: small red detections far off, too small to read, in the Vuldren field |
 | 46 | With the learned red-name reader (M5): Jev chose to hunt for Harvesting Windstones, a collect-from-the-ground quest; the hunt found no creature to count (`HUNT_NO_TARGET_FOUND`). The next quest read ended the run `POSITION_UNREADABLE`: a Pesky Cirrusfly's nameplate lay over the coordinates under the minimap |
+| 47 | After the quest read turned when a plate hid the coordinates (#56): the read found the place, then the hunt's walk to Harvesting Windstones read the coordinates once, under the same Cirrusfly's plate, and was refused `WALK_HUD_UNREADABLE`, which ends a run |
 
 **Limits of M4m.**
 - The walk's red-name check still stops walks through the Vuldren field. It sees far red detections that are too
@@ -878,8 +879,10 @@ Runs 42-45 were unattended, as before.
   the candidates a learned reader reads as no text (`redDanger`; ../m5/README.md, "Red names the walk may pass").
 - Objects on the ground (Harvesting Windstones) still have no skill.
 - The bags are read on every quest read that has a use-at quest, about 0.9 s a filled slot.
-- **A plate over the coordinates.** After run 46, when five fresh frames give no position, a quest run's read turns
-  in place 45° at a time, up to three times, and reads three frames after each turn (`position_turn` in the log).
+- **A plate over the coordinates.** After runs 46 and 47, when five fresh frames give no position, a quest run turns
+  in place 45° at a time, up to three times, and reads three frames after each turn (`position_turn` in the log):
+  before a quest read and before a walk starts (`QuestRun.position`). The hunt's start beside a danger reads five
+  frames and does not turn.
   A standing creature's plate does not move by itself. `--plan` does not turn.
 
 ## Limits

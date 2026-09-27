@@ -353,23 +353,28 @@ final class QuestRun {
 
     func has(_ lines: [TipLine], _ text: String) -> TipLine? { lines.first { $0.text.contains(text) } }
 
-    /// M4d: the quest log and the world map's pins, read-only. L opens the map; the pointer rests on each
-    /// pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
+    /// M4d: the quest log and the world map's pins; `turnIfUnread` as `position(turn:)`, else read-only. L opens the map;
+    /// the pointer rests on each pin and its tooltip names the quest; a pin can hide under the player's arrow, so that spot too.
     /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
     /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
     func readQuests(turnIfUnread: Bool = false) async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
-        // One frame's OCR can lose a glyph of the coordinates (live run 28: POSITION_UNREADABLE on "44.9.2314"), so up to
-        // five fresh frames are read, as a walk bears six unreadable ones.
+        let player = await position(turn: turnIfUnread)
+        return await readQuests(at: player)
+    }
+
+    /// The character's place, from the coordinates under the minimap. One frame's OCR can lose a glyph of them (live run
+    /// 28: POSITION_UNREADABLE on "44.9.2314"), so up to five fresh frames are read, as a walk bears six unreadable ones.
+    /// A creature's nameplate can sit over them, and a standing creature's plate does not move (live runs 46 and 47,
+    /// 27 Sept: a Pesky Cirrusfly's plate ended a quest read POSITION_UNREADABLE and a walk's start WALK_HUD_UNREADABLE).
+    /// So with `turn` the character then turns in place, 45° at a time, up to three times, reading after each turn, as a
+    /// human turns the camera. `--plan` does not turn: it moves nothing.
+    func position(turn: Bool) async -> MapPoint? {
         var player = (await frame()).flatMap { readCoords($0).at }
         for _ in 0..<4 where player == nil {
             let asked = hostNow()
             player = (await frame(after: asked + 0.2)).flatMap { readCoords($0).at }
         }
-        // A creature's nameplate can sit over the coordinates (live run 46, 27 Sept: a Pesky Cirrusfly's plate under the
-        // minimap ended the run POSITION_UNREADABLE), and a standing creature's plate does not move. So the character turns
-        // in place, 45° at a time, up to three times, reading after each turn, as a human turns the camera. Not in --plan,
-        // which moves nothing.
-        if turnIfUnread, player == nil, let pulse = turnPulse(45) {
+        if turn, player == nil, let pulse = turnPulse(45) {
             for turn in 1...3 where player == nil {
                 body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls
                 guard body.keys.press(pulse.code) else { break }
@@ -382,6 +387,10 @@ final class QuestRun {
                 body.emit("position_turn", ["turn": turn, "read": player != nil])
             }
         }
+        return player
+    }
+
+    func readQuests(at player: MapPoint?) async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         let parked = hostNow()
         await sleep(0.4)
@@ -901,7 +910,7 @@ final class LiveQuestHost: QuestHost {
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
     /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
     func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
-        let at = quester.body.look().map { (x: $0.x, y: $0.y) }
+        let at = await quester.position(turn: true)  // a plate over the coordinates must not refuse the walk (live run 47)
         switch walkStart(at: at, to: pin, road: road, arrive: arrive) {
         case .refused(let outcome): return outcome
         case .there: return nil
@@ -970,7 +979,7 @@ final class LiveQuestHost: QuestHost {
     /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
         if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) {
-            let here = quester.body.look().map(\.point)
+            let here = await quester.position(turn: false)  // five frames; no turning beside a danger
             guard huntStartsNear(stop, at: here, pin: pin) else { return stop }
             emit("hunt_near", ["stop": stop, "pin": [pin.x, pin.y], "at": orNull(here.map { [$0.x, $0.y] })])
         }
