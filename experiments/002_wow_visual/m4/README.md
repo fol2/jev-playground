@@ -881,8 +881,9 @@ Runs 42-45 were unattended, as before.
 - The bags are read on every quest read that has a use-at quest, about 0.9 s a filled slot.
 - **A plate over the coordinates.** After runs 46 and 47, when five fresh frames give no position, a quest run turns
   in place 45° at a time, up to three times, and reads three frames after each turn (`position_turn` in the log):
-  before a quest read and before a walk starts (`QuestRun.position`). The hunt's start beside a danger reads five
-  frames and does not turn.
+  before a quest read and before a walk starts (`QuestRun.position`). A turn needs a fresh frame, no combat and no
+  owner takeover (review of #57). A retreat, and the hunt's start beside a danger, read five
+  frames and do not turn.
   A standing creature's plate does not move by itself. `--plan` does not turn.
 
 ## Limits

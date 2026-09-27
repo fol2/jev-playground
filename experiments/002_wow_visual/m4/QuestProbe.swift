@@ -367,22 +367,31 @@ final class QuestRun {
     /// A creature's nameplate can sit over them, and a standing creature's plate does not move (live runs 46 and 47,
     /// 27 Sept: a Pesky Cirrusfly's plate ended a quest read POSITION_UNREADABLE and a walk's start WALK_HUD_UNREADABLE).
     /// So with `turn` the character then turns in place, 45° at a time, up to three times, reading after each turn, as a
-    /// human turns the camera. `--plan` does not turn: it moves nothing.
+    /// human turns the camera. A turn is only for live coordinates under a plate: never without a fresh frame (stale vision
+    /// pauses), in combat (the fight answers it) or once the owner has taken over (review of #57). `--plan` does not turn:
+    /// it moves nothing; nor does a retreat, beside a danger.
     func position(turn: Bool) async -> MapPoint? {
-        var player = (await frame()).flatMap { readCoords($0).at }
+        var seen = await frame()
+        var player = seen.flatMap { readCoords($0).at }
         for _ in 0..<4 where player == nil {
             let asked = hostNow()
-            player = (await frame(after: asked + 0.2)).flatMap { readCoords($0).at }
+            seen = await frame(after: asked + 0.2)
+            player = seen.flatMap { readCoords($0).at }
         }
         if turn, player == nil, let pulse = turnPulse(45) {
             for turn in 1...3 where player == nil {
+                guard let last = seen, !observe(rgba(last), plates: false).combat, !body.ownerTookFocus() else {
+                    body.emit("position_turn", ["turn": turn, "skipped": seen == nil ? "no_fresh_frame" : "combat_or_owner"])
+                    break
+                }
                 body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls
                 guard body.keys.press(pulse.code) else { break }
                 await sleep(Double(pulse.ms) / 1000)
                 body.keys.lift(pulse.code)
                 for _ in 0..<3 where player == nil {
                     let asked = hostNow()
-                    player = (await frame(after: asked + 0.3)).flatMap { readCoords($0).at }
+                    seen = await frame(after: asked + 0.3)
+                    player = seen.flatMap { readCoords($0).at }
                 }
                 body.emit("position_turn", ["turn": turn, "read": player != nil])
             }
@@ -910,16 +919,18 @@ final class LiveQuestHost: QuestHost {
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
     /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
     func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
-        let at = await quester.position(turn: true)  // a plate over the coordinates must not refuse the walk (live run 47)
+        // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
+        // and a walk that ends so ends the run: WALK_ outcomes stop runQuests. Checked before any turn to read the place.
+        if walker?.holding == true { return "WALK_KEYS_HELD" }
+        // A plate over the coordinates must not refuse the walk (live run 47); a retreat does not turn beside the danger.
+        // Only the coordinates are read here: the arrow is the walk's own first look (runNav).
+        let at = await quester.position(turn: !retreating)
         switch walkStart(at: at, to: pin, road: road, arrive: arrive) {
         case .refused(let outcome): return outcome
         case .there: return nil
         case .walk: break
         }
         if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
-        // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
-        // and a walk that ends so ends the run: WALK_ outcomes stop runQuests.
-        if walker?.holding == true { return "WALK_KEYS_HELD" }
         walks += 1
         let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
