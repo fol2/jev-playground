@@ -1303,8 +1303,10 @@ memory (M4d) is keyed by the zone's name and the tracker's text, which change wi
   a walk that stopped, a retreat or a road: none.
 - `LiveQuestHost` keeps the last log (with the minimap's givers), the bags' names and the level, and reads each again only
   when stale; the log also after a walk of 3 units or more, as the givers change with the place. The place is read each step.
-  A fight back or ahead and a worn upgrade make their reads stale too.
-- Evidence: sim (`HuntTests`: each step's stale reads). Live: the next run.
+  A fight back or ahead and a worn upgrade make their reads stale too. The gear check of M4x follows the same events: after a
+  hunt only when it fought, after a hand-in only when it completed (live run 81: a hunt with no fight re-read the bags).
+- Evidence: sim (`HuntTests`: each step's stale reads). Live run 81 (two steps, each after a walk of more than 3 units): the
+  level was read once for two steps; the bags twice, the second by the gear check this now leaves out.
 
 ## Limits
 

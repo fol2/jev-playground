@@ -1388,7 +1388,7 @@ final class LiveQuestHost: QuestHost {
         let outcome = await quester.turnIn(quest.title, ender: quest.ender, until: runDeadline)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         stale.formUnion(staleAfter(.handIn(quest), outcome))
-        gearUnchecked = true  // a reward is in the bags (M4x)
+        if outcome.hasPrefix("COMPLETED") { gearUnchecked = true }  // a reward is in the bags (M4x)
         forgetLog(outcome)
         return outcome
     }
@@ -1445,7 +1445,7 @@ final class LiveQuestHost: QuestHost {
         let result = await runHunt(host: hunter, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
                                    graph: graph, seconds: seconds)
         let outcome = huntOutcome(result.outcome, start: result.start, end: result.end)
-        gearUnchecked = true
+        if !result.fights.isEmpty { gearUnchecked = true }  // M4ab: only a hunt that fought looted (live run 81: none, a bag read)
         emit("hunt_end", ["hunt": hunts, "quest": quest.title, "code": result.outcome, "outcome": outcome,
                           "fights": result.fights.map(\.outcome), "decisions": result.decisions])
         stale.formUnion(staleAfter(.hunt(quest), outcome))
