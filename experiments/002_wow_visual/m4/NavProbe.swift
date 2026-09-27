@@ -83,6 +83,7 @@ func apiKey() throws -> String {
 
 /// Live body: the latest window frame, pid keys through LiveKeys and a 0.2 s watchdog timer.
 final class LiveNavBody: NavBody {
+    var facingState: FacingState? { facingReader != nil ? liveFacing : nil }
     let session: Session
     let feed: FrameFeed
     let directory: URL
@@ -174,13 +175,19 @@ final class LiveNavBody: NavBody {
 let facingReader: FacingReader? = try? FacingReader()
 
 /// A frame's facing (fusedFacing) with the rule's and the reader's readings for the log.
+/// The live facing's last readings and a turn test's trust (FacingState), shared by walks and hunts: one character, one arrow.
+let liveFacing = FacingState()
+
 func seenFacing(_ image: CGImage, _ pixels: RGBA) -> (bearing: Double?, fields: [String: Any]) {
     let rule = arrowFacing(pixels)
     guard let reader = facingReader else { return (rule, [:]) }
     let learned = try? reader.facing(image)
-    return (fusedFacing(rule: rule, learned: learned),
+    liveFacing.rule = rule
+    liveFacing.learned = learned?.bearing
+    let trust = currentTrust(liveFacing, rule: rule, learned: learned?.bearing, now: hostNow())
+    return (fusedFacing(rule: rule, learned: learned, trust: trust),
             ["facing_rule": orNull(rule.map { Int($0.rounded()) }), "facing_learned": orNull(learned.map { Int($0.bearing.rounded()) }),
-             "facing_confidence": orNull(learned.map { roundTo($0.confidence) })])
+             "facing_confidence": orNull(learned.map { roundTo($0.confidence) }), "facing_trust": orNull(liveFacing.trust?.rawValue)])
 }
 
 /// jev.jsonl rows and the manifest's outcome, usage and latency fields, shared by --sim-jev and --execute.

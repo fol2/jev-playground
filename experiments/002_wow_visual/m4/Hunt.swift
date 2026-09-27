@@ -666,6 +666,11 @@ protocol HuntHost: NavBody {
     /// PICK_UP_OBJECT: the nearest object in view hovered, and right-clicked only when its tooltip names an unfinished
     /// objective. A result that begins "picked up" counts it.
     func pickUp(objectives: [Objective]) async -> String
+    var facingState: FacingState? { get }  // the live facing's readings, for a turn test; nil in a simulation
+}
+
+extension HuntHost {
+    var facingState: FacingState? { nil }
 }
 
 extension HuntHost {
@@ -844,7 +849,8 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             // live run 55 (27 Sept): the facing unread on every survey at the Windstones' area ended the hunt so
             if misses == HuntLimits.unreadableLimit - 1 && !o.combat {  // in combat a turn is the fight's (review of #63)
-                await unstickTurn(host.keys, misses: misses, sleep: { await host.sleep($0) }, emit: host.emit)
+                await unstickTurn(host.keys, misses: misses, sleep: { await host.sleep($0) }, emit: host.emit,
+                                  facing: host.facingState, reread: { _ = host.survey() }, now: host.now)
             }
             await host.sleep(HuntLimits.settle)
             continue
