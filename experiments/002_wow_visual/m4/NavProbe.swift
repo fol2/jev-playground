@@ -44,16 +44,25 @@ func upscaledText(_ image: CGImage, _ box: CGRect) -> [String] {
 
 /// The coordinates under the minimap: the raw OCR, and only when it does not parse the masked ones
 /// (NavHUD.coordsMasks, agreedCoords). `text` is everything read, for the log.
-func readCoords(_ image: CGImage) -> (text: String, at: MapPoint?) {
+/// `tracked`: a live frame, checked against the run's track (PositionTrack); saved frames of many runs are not.
+func readCoords(_ image: CGImage, tracked: Bool = true) -> (text: String, at: MapPoint?) {
+    let check: (MapPoint) -> MapPoint? = tracked ? plausible : { $0 }
     let box = CGRect(x: NavHUD.coordsX, y: NavHUD.coordsY, width: NavHUD.coordsWidth, height: NavHUD.coordsHeight)
     let raw = upscaledText(image, box).joined(separator: " ")
-    if let at = parseCoords(raw) { return (raw, at) }
+    if let at = parseCoords(raw) { return (raw, check(at)) }
     guard let crop = image.cropping(to: box) else { return (raw, nil) }
     let pixels = rgba(crop), whole = CGRect(x: 0, y: 0, width: box.width, height: box.height)
     let masked = NavHUD.coordsMasks.map { mask in
         cgImage(whiteText(pixels, spread: mask.spread, floor: mask.floor)).map { upscaledText($0, whole).joined(separator: " ") } ?? ""
     }
-    return (([raw] + masked).joined(separator: " | "), agreedCoords(raw: raw, masked: masked))
+    return (([raw] + masked).joined(separator: " | "), agreedCoords(raw: raw, masked: masked).flatMap(check))
+}
+
+/// One track for the run: a walk, a hunt and the quest read all read the one character's place.
+private let positionLock = NSLock()
+nonisolated(unsafe) private var positions = PositionTrack()  // guarded by positionLock
+private func plausible(_ at: MapPoint) -> MapPoint? {
+    positionLock.withLock { positions.accept(at, t: hostNow()) } ? at : nil
 }
 
 func cgImage(_ image: RGBA) -> CGImage? {
@@ -217,7 +226,7 @@ func navReplay(_ directory: String) throws -> Int32 {
             log.emit("frame", ["file": name, "skipped": "\(image.width)x\(image.height) is not the calibrated layout"])
             continue
         }
-        let (text, at) = readCoords(image)
+        let (text, at) = readCoords(image, tracked: false)
         let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
         let hud = observe(rgba(image), plates: true)
         log.emit("frame", ["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),

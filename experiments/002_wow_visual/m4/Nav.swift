@@ -164,6 +164,26 @@ func parseCoords(_ text: String) -> MapPoint? {
     return (Double(n[0]) + Double(n[1]) / 10, Double(n[2]) + Double(n[3]) / 10)
 }
 
+/// Readings of the zone coordinates in time. One that moved further than a character can since the last is a misread
+/// glyph, not a place (live run 33, 27 Sept: 43.3 read as 48.3 and as 3.3 on single frames while standing, and a hunt walk
+/// "moved 59.55"). Three in a row that agree with each other are the place, whatever the last one was.
+struct PositionTrack {
+    static let speed = 0.5, slack = 0.5, agree = 3  // y units a second; walking is about 0.16 (live run 3)
+    private(set) var last: (at: MapPoint, t: Double)?
+    private var doubted: [MapPoint] = []
+
+    mutating func accept(_ at: MapPoint, t: Double) -> Bool {
+        if let last, distance(at, last.at) > PositionTrack.slack + PositionTrack.speed * max(0, t - last.t) {
+            doubted.append(at)
+            let recent = doubted.suffix(PositionTrack.agree)
+            guard recent.count == PositionTrack.agree, recent.allSatisfy({ distance($0, at) <= 0.3 }) else { return false }
+        }
+        doubted = []
+        last = (at, t)
+        return true
+    }
+}
+
 /// Zone-map coordinates are percent of a 3:2 map, so one x unit is 1.5 y units of ground.
 let mapAspect = 1.5
 

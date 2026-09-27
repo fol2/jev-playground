@@ -609,16 +609,29 @@ final class QuestRun {
         await sleep(2.0)
         let fresh = ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }
         body.emit("after_complete", ["chat": fresh])
-        let after = lines(QuestHUD.dialog, await frame())
+        var after = lines(QuestHUD.dialog, await frame())
         guard has(after, "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
-        // The owner: always accept quests. A follow-up offered on completion shows an "Accept" button.
-        if let accept = acceptButton(after) {
+        // The owner: always accept quests. On completion the NPC shows a follow-up's offer ("Accept"), or its greeting again
+        // with the quests it now offers (live run 32, 27 Sept: "Elemental Unrest" and "Embracing the Elements" after Harmony
+        // in Balance, left open). Each is taken in turn, at most three; an entry whose page shows no Accept ends it.
+        for _ in 0..<3 {
+            if acceptButton(after) == nil, let entry = offeredEntry(after, ours: logTitles) {
+                guard click(entry.x + 40, entry.y + 7) else { break }
+                await sleep(1.5)
+                after = lines(QuestHUD.dialog, await frame())
+            }
+            guard let accept = acceptButton(after) else { break }
             body.emit("accept", ["controller": "RULE", "rule": "owner: always accept quests", "dialog": after.prefix(3).map(\.text)])
             let before = Set((await frame()).map(chatLines) ?? [])
-            if click(accept.x + 30, accept.y + 7) {
-                await sleep(1.5)
-                body.emit("accepted", ["chat": ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }])
-            }
+            guard click(accept.x + 30, accept.y + 7) else { break }
+            await sleep(1.5)
+            body.emit("accepted", ["chat": ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }])
+            after = lines(QuestHUD.dialog, await frame())
+        }
+        // The character pane is read where the dialogue stands (run 32: the greeting's lines were read as the slot's tooltip).
+        if panelOpen(after) {
+            await tap(QuestHUD.escape)
+            await sleep(0.8)
         }
         guard let equip else { return "COMPLETED" }
 

@@ -352,23 +352,27 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
     dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
 }
 
-/// The quest an NPC's greeting offers to take: the first entry after its yellow "!" icon, which OCR reads as a leading
-/// "!" (live run 14, 26 Sept: Ailee Farheart's "Hello, shaman." above "! Coming of Age"). OCR reads that "!" as "?" too
-/// (live run 31, 27 Sept: "? The Gift of Skysight"). A "?" entry hands in a quest of the log (`ours`), so one that is not
-/// in it is offered; its page must still show Accept.
-/// The greeting's entry the minimap's tooltip named: a line after a quest icon ("!" or "?") whose text is one of `names`.
-/// The panel's title is the NPC's name, which a "!" tooltip names too (live run 32, 27 Sept: Ventaari Brightwish's title
-/// was clicked and his offer left), so a line without an icon is never it.
-func namedEntry(_ dialog: [TipLine], names: [String]) -> TipLine? {
-    dialog.first { l in (l.text.hasPrefix("!") || l.text.hasPrefix("?")) && names.contains { nameKey($0) == nameKey(l.text) } }
+/// A greeting's quest entry: its icon, then a title (capitalised, three letters at least). OCR reads the yellow icon as one
+/// character, not always the same: "!" (live run 14, 26 Sept: "! Coming of Age" below "Hello, shaman."), "?" (run 31:
+/// "? The Gift of Skysight") and "g" (run 33: "g Elemental Unrest"). The title, or nil for another line: the NPC's name,
+/// the greeting's text, a bare icon.
+func questEntry(_ text: String) -> String? {
+    let parts = text.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2, parts[0].count == 1, let first = parts[1].first, first.isUppercase,
+          parts[1].filter(\.isLetter).count >= 3 else { return nil }
+    return String(parts[1])
 }
 
+/// The greeting's entry the minimap's tooltip named. The panel's title is the NPC's name, which a "!" tooltip names too
+/// (live run 32, 27 Sept: Ventaari Brightwish's title was clicked and his offer left), so only a quest entry is it.
+func namedEntry(_ dialog: [TipLine], names: [String]) -> TipLine? {
+    dialog.first { l in questEntry(l.text).map { t in names.contains { nameKey($0) == nameKey(t) } } ?? false }
+}
+
+/// The quest an NPC's greeting offers to take: the first entry whose quest is not in the log (`ours`). An entry of the
+/// log's is one to hand in, whatever its icon read as; the page must still show Accept.
 func offeredEntry(_ dialog: [TipLine], ours: [String]) -> TipLine? {
-    dialog.first { l in
-        let title = String(l.text.dropFirst())
-        guard title.filter(\.isLetter).count >= 3 else { return false }
-        return l.text.hasPrefix("!") || (l.text.hasPrefix("?") && !ours.contains { sameTitle(title, $0) })
-    }
+    dialog.first { l in questEntry(l.text).map { t in !ours.contains { sameTitle(t, $0) } } ?? false }
 }
 
 /// A panel is open when the box holds one of a panel's own buttons, a whole line. The world shows through

@@ -638,6 +638,12 @@ extension NavTests {
                             ("? The Gift of Skysight", 30, 400), ("Goodbye", 40, 690)])
         check(offeredEntry(skysight, ours: ours)?.y == 400,
               "a \"?\" entry whose quest is not in the log is one to take (OCR read its \"!\" as \"?\"); the log's own is not")
+        // Live run 33: Rorian's "!" read as "g"; his greeting's own lines are no entries.
+        let unrest = tip([("Rorian the Dayseeker", 30, 200), ("What do you need of me, child of", 30, 260), ("Lephras?", 30, 290),
+                          ("A fine day for it.", 30, 320), ("g Elemental Unrest", 30, 400), ("Goodbye", 40, 690)])
+        check(offeredEntry(unrest, ours: ours)?.y == 400 && questEntry("g Elemental Unrest") == "Elemental Unrest"
+              && questEntry("A fine day for it.") == nil && questEntry("Lephras?") == nil,
+              "a quest entry is one icon character and a capitalised title, whatever the icon read as")
         // Live run 32: the "!" tooltip named "Rorian the Dayseeker" and "Ventaari Brightwish"; Ventaari's title was clicked.
         check(namedEntry(skysight, names: ["Rorian the Dayseeker", "Ventaari Brightwish"]) == nil
               && namedEntry(greeting, names: ["Coming of Age"])?.y == 400,

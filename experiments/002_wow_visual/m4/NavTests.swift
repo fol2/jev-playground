@@ -107,6 +107,14 @@ struct NavTests {
               "live run 31: a decimal point read as a comma keeps its glyph and is a position")
         check(same(parseCoords("42.G,24.3"), 42.6, 24.3) && same(parseCoords("42.G,24.З"), 42.6, 24.3) && parseCoords("42.G,24") == nil,
               "live run 32: a \"6\" read as \"G\" and a \"3\" as a Cyrillic \"З\" are those digits; a lost decimal is still no position")
+        var track = PositionTrack()
+        let standing = [track.accept((43.3, 24), t: 0), track.accept((48.3, 24), t: 0.4), track.accept((3.3, 24), t: 0.8),
+                        track.accept((43.3, 24), t: 1.2), track.accept((43.4, 24.1), t: 3)]
+        check(standing == [true, false, false, true, true],
+              "live run 33: a reading 5 or 40 units from the last, a fraction of a second later, is no place; a step is")
+        _ = [track.accept((50, 30), t: 4), track.accept((50, 30), t: 4.4)]
+        check(track.accept((50.1, 30), t: 4.8) && track.last?.at.x == 50.1,
+              "three readings that agree are the place, far as it is from the last (a teleport, or a wrong last reading)")
         // 25 Sept, live: a quest giver's orange name across the box. Raw first; masks only when they agree.
         check(same(agreedCoords(raw: "42.5, 23.7", masked: ["12.5, 23.7", "12.5, 23.7"]), 42.5, 23.7), "a raw reading that parses is kept")
         check(same(agreedCoords(raw: "43.0.23к7 Eнн", masked: ["43.0,23.7", "43.0, 23.7"]), 43.0, 23.7), "masks that agree read through a name")
