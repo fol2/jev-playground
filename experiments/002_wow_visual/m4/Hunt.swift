@@ -31,7 +31,7 @@ enum HuntLimits {
     static let viewDegrees = 90.0
     static let nearRow = 0.35  // a plate lower in view than this fraction of its height is near (roughly 25 yards)
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
-    /// A hunt's walk that stopped at a red name this near its quest's pin (y units) starts the hunt there: see huntStartsNear.
+    /// A walk that stopped at a red name this near its quest's pin (map units) offers its step FROM_HERE: see stepStartsNear.
     static let startNear = 3.0
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53

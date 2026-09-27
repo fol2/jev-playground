@@ -790,11 +790,12 @@ func talksAfterUse(_ q: PlannedQuest) -> Bool {
     return ["then speak with", "then talk to", "then talk with", "then return to", "then report to"].contains { text.contains($0) }
 }
 
-/// Whether a hunt starts where its walk stopped. A walk stops at a red name ahead, and near a kill quest's pin red names are
-/// most likely its creatures (live run 35, 27 Sept: 1.9 from the pin, two level-1 Juvenile Vuldren, one's red-brown body read
-/// as a red name; the run retreated and ended). Within startNear the hunt starts: it reads each plate's name, fights only what
-/// counts and fights back. Any other stop, or further away, ends the step as before.
-func huntStartsNear(_ stop: String, at: MapPoint?, pin: MapPoint) -> Bool {
+/// Whether a step whose walk stopped may start from where the character stands: FROM_HERE is offered, and Jev chooses it
+/// or not (the owner, 27 Sept: Jev decides, not a script). A walk stops at a red name ahead, and near a kill quest's pin
+/// red names are most likely its creatures (live run 35: 1.9 from the pin, two level-1 Juvenile Vuldren). Near a place
+/// where an ability is used, they may be what guards it (live run 48: Al'Aketh Converts 1.8 from the Elemental
+/// Convergence, and Skysight was never cast). Any other stop, or further away, offers nothing new.
+func stepStartsNear(_ stop: String, at: MapPoint?, pin: MapPoint) -> Bool {
     stop == "WALK_DANGER_AHEAD" && at.map { distance($0, pin) <= HuntLimits.startNear } == true
 }
 
@@ -837,7 +838,7 @@ func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String
 /// owner: survive first). A use-at quest is offered as a use when its objective names an item in the bags or an ability
 /// on the bar (M4m). Only when none of these is left
 /// (the owner: this zone first) are the quests beyond one walk offered, each by the route `roads` give from here.
-func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, roads: RoadGraph? = nil, used: Set<String> = [])
+func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = nil, roads: RoadGraph? = nil, used: Set<String> = [])
     -> [(skill: String, step: QuestStep, criterion: String)] {
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
@@ -878,8 +879,28 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
             + "\(HuntLimits.maxFights) fights. Objects on the ground that the objectives name are picked up only where the object "
             + "detector sees them (PICK_UP_OBJECT). The log reads: \(q.objective)")
     }
-    let back = danger && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
+    let back = stopped != nil && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
         + "a hostile creature's red name came into view ahead of it.")] : []
+    // The stopped step, from here, when it stopped within startNear of its place: its quest without the pin, so no walk.
+    let here: [(String, QuestStep, String)] = {
+        func near(_ q: PlannedQuest) -> PlannedQuest? {
+            guard let pin = q.pin, stepStartsNear("WALK_DANGER_AHEAD", at: read.player, pin: pin) else { return nil }
+            var h = q
+            h.pin = nil
+            return h
+        }
+        let why = "the walk there stopped for a hostile creature's red name ahead"
+        switch stopped {
+        case .hunt(let q)?: return near(q).map { [("FROM_HERE", QuestStep.hunt($0), "Hunt for \"\(q.title)\" from here: \(why), "
+            + "\(away(q.pin!)) units from its area. Near a kill quest's area such creatures are most likely the ones it names. The hunt "
+            + "reads each plate's name, fights only what the tracker's unfinished objectives name, and fights back when attacked. "
+            + "The log reads: \(q.objective)")] } ?? []
+        case .use(let q, let item)? where usesNear(q): return near(q).map { [("FROM_HERE", QuestStep.use($0, item: item),
+            "Use \"\(item)\" from here, as \"\(q.title)\" asks: \(why), \(away(q.pin!)) units from its place. Hostile creatures "
+            + "may be near, and may attack. The log reads: \(q.objective)")] } ?? []
+        default: return []
+        }
+    }()
     let usable = questPlan(read.quests, from: read.player).compactMap { q -> (PlannedQuest, String)? in
         guard questKind(q) == .useAt, !failed.contains(QuestStep.use(q, item: "").key) else { return nil }
         return questItem(q, items: read.items + read.abilities).map { (q, $0) }
@@ -890,8 +911,8 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
             + (usesNear(u.0) && u.0.pin != nil ? ", at the quest's place (\(away(u.0.pin!)) units away), " : ", here, ")
             + "as \"\(u.0.title)\" (level \(u.0.level)) asks. The log reads: \(u.0.objective)")
     }
-    let here = back + handIns + accepts + uses + hunts
-    guard here.isEmpty, let roads else { return here }
+    let offers = back + here + handIns + accepts + uses + hunts
+    guard offers.isEmpty, let roads else { return offers }
     // ponytail: no map check; the run envelope is Zephras Isle, where the roads were learned. Compare the zone's
     // name above the minimap with roads.subzones before runs leave it.
     let far = questPlan(read.quests, from: read.player).filter { q in
@@ -942,7 +963,7 @@ struct QuestResult {
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
-    var stuck = 0
+    var stuck = 0, last: QuestStep?
     let deadline = host.now() + QuestLimits.runSeconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -954,7 +975,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads, used: used)
+        let offers = questOffers(read, failed: failed, stopped: r.steps.last?.outcome == "WALK_DANGER_AHEAD" ? last : nil, roads: roads, used: used)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -982,6 +1003,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .retreat: outcome = await host.retreat()
         }
         r.steps.append((offer.step.name, outcome))
+        last = offer.step
         if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
             host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])
             let fought = await host.fightBack()

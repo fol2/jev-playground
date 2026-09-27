@@ -211,9 +211,9 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
-        check(huntStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
-              && !huntStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
-              "live run 35: a hunt walk stopped by a red name near its pin starts the hunt; far away, unseen, or another stop ends the step")
+        check(stepStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
+              && !stepStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
+              "live runs 35 and 48: a walk stopped by a red name near its pin may start its step from there; far away, unseen, or another stop may not")
         // Runs 35 and 44: a Juvenile Vuldren's body under its own yellow plate read as a red name; the 24 Sept nest's red name,
         // level with a neutral plate beside it, is a real one.
         let body35 = RedName(x0: 1128, x1: 1152, y0: 631, y1: 639), nest = RedName(x0: 888, x1: 920, y0: 399, y1: 415)
