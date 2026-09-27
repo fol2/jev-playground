@@ -13,7 +13,7 @@ let minPerceptionChecks = 29  // M5: the current count: removing a check must lo
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
 let perceptionFile = navDir + "perception.jsonl"  // the accepted readings of the perception regression set
-let minPerceptionFrames = 2453  // the current count: dropping frames from the set must lower this on purpose
+let minPerceptionFrames = 5714  // the current count: dropping frames from the set must lower this on purpose
 
 /// Exactly one "NAME checks passed: N" line, with N at least `minimum`.
 func counted(_ output: String, _ name: String = "motor", _ minimum: Int = minChecks, label: String = "checks passed") throws -> Int {
