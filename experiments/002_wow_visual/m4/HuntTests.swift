@@ -1049,6 +1049,12 @@ extension NavTests {
         check(!trainerOpen(boroGossip, trainer: "Windshaper Boro") && trainerOpen(window, trainer: "Windshaper Boro")
               && !trainerOpen(window, trainer: "Uualia Suncrest"),
               "review of #77: rows and Train are clicked only in the trainer's own window, never in its gossip (live OCR of both)")
+        let merchant: [TipLine] = [TipLine(text: "Uualia Suncrest", x: 160, y: 164), TipLine(text: "Page 1 of 2", x: 156, y: 524),
+                                   TipLine(text: "Buyback", x: 120, y: 640)]
+        let worldName: [TipLine] = [TipLine(text: "Uualia Suncrest", x: 300, y: 500), TipLine(text: "<General Goods>", x: 300, y: 512)]
+        check(npcWindowOpen(merchant, name: "Uualia Suncrest") && npcWindowOpen(boroGossip, name: "Windshaper Boro")
+              && npcWindowOpen(window, name: "Windshaper Boro") && !npcWindowOpen(worldName, name: "Uualia Suncrest"),
+              "review of #77: Esc only while the NPC's window shows, never for its name standing in the world at the left")
         func town(_ level: Int?, _ trained: Int?, _ bags: Int?, at: MapPoint? = nil, failed: Set<String> = []) -> [String] {
             var r = QuestRead(quests: [], player: at ?? (42.8, 23.5), missing: [])
             r.level = level; r.trainedAt = trained; r.bagsUsed = bags

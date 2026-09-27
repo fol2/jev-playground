@@ -1154,8 +1154,11 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
     "Goodbye", a "Rank" or "Requires" line; review of #77), each row the level allows is clicked and Train pressed, at most six
     (`trainerRows`; a misread level is tried, since the game refuses what it does not allow). The chat's "You have learned"
     is the evidence (`TRAINED n`, `NOTHING_TO_TRAIN`).
-  - Each window is closed with Esc, only while its title shows. The owner's takeover stops every turn and click, and the
-    window's work starts only inside the run's time; the Train loop stops at its end.
+  - Each window is closed with Esc only while it shows: its title and a line only such a window has (`npcWindowOpen`: the
+    gossip's "Goodbye", a trainer row, the merchant's "Buyback" or "Page N of M"). An NPC's name standing in the world at
+    the left is no window (review of #77). The owner's takeover and the run's time stop every turn and click of a visit:
+    the search by name, each sell click, the gossip click, each row and each Train (Train only after the window is read
+    again).
 - **Also here:** Jev's danger criteria say "red name or plate" (review of #75); a corpse search that finds nothing logs what
   its points showed (`corpse_hover_miss`; live run 68 looted once by tooltip and missed twice, saying nothing).
 - **Not in this slice:** buying food, drink or gear; repair; the gear upgrade rule at a vendor; other villages' NPCs.

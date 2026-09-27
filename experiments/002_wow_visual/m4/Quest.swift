@@ -1270,6 +1270,17 @@ func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
         && lines.contains { $0.text.contains("Rank") || $0.text.lowercased().hasPrefix("requires") }
 }
 
+/// Whether an NPC's window is open at the left, not just its name in the world there (review of #77): its title, and a
+/// line only such a window has: the gossip's "Goodbye", a trainer row's "Rank" or "Requires", the merchant's "Buyback"
+/// tab or its "Page N of M" (live, 27 Sept). Esc is pressed only then: with nothing open it is the Game Menu.
+func npcWindowOpen(_ lines: [TipLine], name: String) -> Bool {
+    lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && lines.contains { l in
+        let k = nameKey(l.text)
+        return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("Rank") || l.text.lowercased().hasPrefix("requires")
+            || (k.hasPrefix("page") && l.text.contains(" of "))
+    }
+}
+
 /// The trainer window's spell rows to try, top to bottom (live, 27 Sept): each name line with five letters or more, with
 /// its "Requires: Level N" line under it when there is one. A row whose level reads above `level` is left out; a misread
 /// level ("Level G") is tried: the game's Train does nothing for a row it does not allow.

@@ -631,13 +631,13 @@ final class QuestRun {
     /// Open a town NPC's window by its name (M4u), as a human does: find the name over its head, turning in place if it is
     /// not in view; rest the pointer on its body until the game's tooltip names it (onUnit, two reads, tooltipGone); then
     /// right-click and wait for the window. The dialogue box's lines, or nil.
-    func openByName(_ name: String) async -> [TipLine]? {
+    func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
         func found(_ image: CGImage?) -> TipLine? { upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3 } }
         var image = await frame()
         var line = found(image)
         if line == nil, let pulse = turnPulse(45) {
             for _ in 0..<8 where line == nil {
-                guard !body.ownerTookFocus() else { return nil }
+                guard !body.ownerTookFocus(), hostNow() < deadline else { return nil }
                 body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 guard body.keys.press(pulse.code) else { return nil }
                 await sleep(Double(pulse.ms) / 1000)
@@ -652,7 +652,7 @@ final class QuestRun {
         let centre = line.x + 3 * Double(line.text.count)  // about 6 px a letter at this size ("Windshaper Boro", 90 px)
         let mark: QuestMark = (x: centre, y: line.y - h, h: h, body: line.y + 12 + 2.4 * h, nameX: centre, nameTop: line.y)
         body.emit("town_npc", ["name": name, "read": line.text, "at": [Int(line.x), Int(line.y)]])
-        guard let point = (await onUnit(mark, in: image, known: name)).point, !body.ownerTookFocus() else { return nil }
+        guard let point = (await onUnit(mark, in: image, known: name)).point, !body.ownerTookFocus(), hostNow() < deadline else { return nil }
         guard click(point.x, point.y, right: true) else { return nil }
         return await arrive()
     }
@@ -660,7 +660,7 @@ final class QuestRun {
     /// The merchant's window is open (its title the vendor's name): Sell All Junk Items, as a human does (M4u). Its tooltip is
     /// read before the click; the game's confirmation ("…sell all junk items…") is answered Yes; the money after is the
     /// evidence. The window is closed with Esc. SOLD n (copper), NO_JUNK (no confirmation came: nothing grey to sell), or why not.
-    func sellJunk(_ vendor: String) async -> String {
+    func sellJunk(_ vendor: String, until deadline: Double = .infinity) async -> String {
         guard let title = lines(QuestHUD.dialog, await frame()).first(where: { sameUnit($0.text, vendor) || likeName($0.text, vendor) }) else {
             return "MERCHANT_NOT_OPEN"
         }
@@ -675,14 +675,14 @@ final class QuestRun {
         let tip = lines(CGRect(x: title.x + t.dx, y: title.y + t.dy, width: t.width, height: t.height), await frame(after: hostNow() + 0.2))
         guard tip.contains(where: { nameKey($0.text).contains(nameKey("Sell All Junk")) }) else { await close(vendor); return "NO_SELL_JUNK_BUTTON" }
         let before = await money()
-        guard !body.ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard !body.ownerTookFocus(), hostNow() < deadline else { await close(vendor); return "OWNER_OR_TIME" }
         guard click(title.x + b.dx, title.y + b.dy) else { await close(vendor); return "CLICK_FAILED" }
         await sleep(1.0)
         let popup = lines(QuestHUD.popup, await frame(after: hostNow() + 0.2))
         guard popup.contains(where: { nameKey($0.text).contains(nameKey("sell all junk")) }),
               let yes = popup.first(where: { nameKey($0.text) == nameKey("Yes") }) else { await close(vendor); return "NO_JUNK" }
         body.emit("sell_junk", ["controller": "RULE", "vendor": vendor, "money_before": orNull(before)])
-        guard !body.ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard !body.ownerTookFocus(), hostNow() < deadline else { await close(vendor); return "OWNER_OR_TIME" }
         guard click(yes.x + 12, yes.y + 7) else { await close(vendor); return "CLICK_FAILED" }
         await sleep(1.5)
         let after = await money()
@@ -698,6 +698,7 @@ final class QuestRun {
     func train(_ trainer: String, level: Int, until deadline: Double) async -> (outcome: String, learned: [String]) {
         var dialog = lines(QuestHUD.dialog, await frame())
         if let option = dialog.first(where: { nameKey($0.text).contains(nameKey("like training")) }) {
+            guard !body.ownerTookFocus(), hostNow() < deadline else { await close(trainer); return ("OWNER_OR_TIME", []) }
             guard click(option.x + 40, option.y + 6) else { await close(trainer); return ("CLICK_FAILED", []) }
             await sleep(1.5)
             dialog = lines(QuestHUD.dialog, await frame())
@@ -719,6 +720,8 @@ final class QuestRun {
             let before = Set((await frame()).map(chatLines) ?? [])
             guard click(row.x + 40, row.y + 6) else { break }
             await sleep(0.5)
+            // The row's click keeps the window; it is read once more before Train (review of #77).
+            guard trainerOpen(lines(QuestHUD.dialog, await frame()), trainer: trainer), !body.ownerTookFocus() else { break }
             guard click(title.x + b.dx, title.y + b.dy) else { break }
             await sleep(1.2)
             let fresh = ((await frame(after: hostNow() + 0.2)).map(chatLines) ?? []).filter { !before.contains($0) && $0.contains("learned") }
@@ -733,7 +736,7 @@ final class QuestRun {
     /// Esc, only while the NPC's window still shows its title at the left: Esc with nothing open is the Game Menu, and a
     /// world name can stand in that box.
     func close(_ name: String) async {
-        if lines(QuestHUD.dialog, await frame()).contains(where: { sameUnit($0.text, name) || likeName($0.text, name) }) {
+        if npcWindowOpen(lines(QuestHUD.dialog, await frame()), name: name) {
             await tap(QuestHUD.escape)
             await sleep(0.6)
         }
@@ -1088,10 +1091,10 @@ final class LiveQuestHost: QuestHost {
         if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
         guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
         guard hostNow() < runDeadline else { return "TOWN_TIME_LIMIT" }  // the window's work starts only inside the run
-        guard let opened = await quester.openByName(npc.name) else { return "NPC_NOT_OPENED" }
+        guard let opened = await quester.openByName(npc.name, until: runDeadline) else { return "NPC_NOT_OPENED" }
         emit("town_open", ["npc": npc.name, "lines": opened.prefix(4).map(\.text)])
         if npc.role == "vendor" {
-            let outcome = await quester.sellJunk(npc.name)
+            let outcome = await quester.sellJunk(npc.name, until: runDeadline)
             emit("town_done", ["npc": npc.name, "outcome": outcome])
             return outcome
         }
