@@ -354,6 +354,11 @@ walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNa
 | Test, held out | 7 / 0 | 0 / 38 | 0 of 7 | 0 of 148 |
 
 - **Small held-out evidence.** The test runs hold 7 names; the rule alone would have stopped all 38 false ones.
+- **The walk's own decision, replayed** (`m4-nav --replay`, sim, offline) on the walk and hunt frames of the quest
+  runs of 26-27 Sept that have a candidate:
+  - Test runs: 2 of 9 frames still stop, both at a real Cirrusfly Soldier's name.
+  - Validation runs: 0 of 25.
+  - Training runs: 10 of 131, at 7 names and 3 lines of red text.
 - **Not bit-stable.** Scene-print revision 2 with logistic regression; a new SDK may shift the numbers.
 - **Without the model the rule alone decides**, as before (`red_filter: rule` in the log). The model is private.
 
