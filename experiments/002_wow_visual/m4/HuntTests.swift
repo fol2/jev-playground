@@ -51,6 +51,10 @@ extension NavTests {
         check(objectTipObjective(["Windstone Cluster"], in: windstones) != nil && objectTipObjective(["Windstone Cluster", "Level 3"], in: windstones) == nil
               && objectTipObjective(["Pesky Cirrusfly"], in: kill) == nil && !huntAdmissible({ var k = seen; k.objectives = kill; return k }()).contains(.pickUp),
               "review of #59: a unit's tooltip (a Level line) is never an object, and a kill objective is not picked up")
+        check(confirmedObject([["Windstone Cluster"], ["Windstone Cluster"]], in: windstones) != nil && confirmedObject([["Windstone Cluster"]], in: windstones) == nil
+              && confirmedObject([["Windstone Cluster"], ["Juvenile Vuldren", "LeveI 1"]], in: windstones) == nil
+              && confirmedObject([["Windstone Cluster"], []], in: windstones) == nil,
+              "review of #59: a hover is confirmed by two reads naming the objective; one, a unit's second read (\"LeveI\" too) or a gone one is not")
         let packet = huntStatePacket(seen, recent: [], fights: [], blocked: [])
         check((packet["objects_on_the_ground_in_view"] as? [[String: Any]])?.count == 2 && (packet["goal"] as? String)?.contains("PICK_UP_OBJECT") == true
               && huntInstructions.contains("objects_on_the_ground_in_view"),

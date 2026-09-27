@@ -893,18 +893,20 @@ The hunt could only fight, so a collect quest of objects on the ground was never
 so the pick-up is a choice Jev makes, not a script's loop; and it sees through a learned model, not a pixel rule.
 
 - **PICK_UP_OBJECT**, a hunt skill in the search node of `skyborne-hunt-tools-v3`. The survey reads the objects in
-  view with the M5 object detector (`ObjectReader`, m5/README.md) while an objective is open.
+  view with the M5 object detector (`ObjectReader`, m5/README.md) only while a collect objective is open, and not on
+  a frame already older than its age limit less the detector's 0.7 s (the `look` event logs each survey's ms).
 - **Admissibility (the script's part):** offered only with an object in view, an open collect objective (its text
   names no defeat), health for walking and no combat. After two pick-ups that picked nothing up it is not offered
   again until a walk: a Tab or a look around does not make a false object worth hovering again.
 - **Jev's view:** the state lists the objects in view (screen place, confidence), and the goal says what a pick-up does.
 - **The skill:** the object nearest the character's feet is hovered, as a human rests the pointer.
   - Before that, the pointer waits off every unit until two fresh frames show no tooltip (`tooltipGone`, at most 4 s).
-  - Only a tooltip that names an open collect objective and is not a unit's (no "Level" line) is right-clicked
-    (`objectTipObjective`), and only with no combat read just before. Click-to-Move walks there and picks it up.
+  - The pointer jumps to the object (one move event). Two fresh tooltip reads there must name one open collect
+    objective, and neither may be a unit's ("Level" line, `confirmedObject`). Only then, with no combat read just
+    before, is it right-clicked. Click-to-Move walks there and picks it up.
   - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
-  - An attack ends the wait, and a tap of forward stops Click-to-Move. A pick-up that counts is progress, as a fight
-    is, for the hunt's search limit.
+  - An attack ends the wait, as does no count by then, and a tap of forward stops Click-to-Move. A pick-up that
+    counts is progress, as a fight is, for the hunt's search limit.
 - **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
   The HUNT offer tells Jev so.
 

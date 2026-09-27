@@ -117,9 +117,18 @@ func collects(_ o: Objective) -> Bool {
 /// The collect objective an object's tooltip names. A unit's tooltip (a "Level" line) names none: the detector's box on a
 /// creature that counts must not be right-clicked, which would start a fight outside the fight's admissibility (review of #59).
 func objectTipObjective(_ lines: [String], in objectives: [Objective]) -> Objective? {
-    guard !lines.contains(where: { $0.lowercased().hasPrefix("level ") }) else { return nil }
+    guard !lines.contains(where: { nameKey($0).hasPrefix("level") }) else { return nil }  // "LeveI 3" too
     let collect = objectives.filter(collects)
     return lines.lazy.compactMap { objective(for: $0, in: collect) }.first
+}
+
+/// The object a hover confirms: two fresh tooltip reads at the hovered point, after the tooltip from before had gone, name one
+/// collect objective and neither is a unit's. One read could still be a tooltip that had not yet given way (review of #59).
+func confirmedObject(_ reads: [[String]], in objectives: [Objective]) -> Objective? {
+    guard reads.count >= 2 else { return nil }
+    let named = reads.suffix(2).map { objectTipObjective($0, in: objectives) }
+    guard let first = named.first ?? nil, named.last ?? nil == first else { return nil }
+    return first
 }
 
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
