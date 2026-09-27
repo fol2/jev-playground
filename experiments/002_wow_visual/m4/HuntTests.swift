@@ -1168,6 +1168,10 @@ extension NavTests {
         unsettled.gearSettled = false
         check(settledOffers.contains("SELL_JUNK") && townOffers(unsettled, npcs: book, failed: []).map(\.skill) == ["TRAIN"],
               "second review of #80: while an upgrade may lie in the bags unworn, the vendor is not offered (the trainer is)")
+        check(!townNameHit("aria Darkwina Darkbloom", "Windshaper Boro") && townNameHit("Windshaper Boro", "Windshaper Boro")
+              && townNameHit("Wlndshaper Boro", "Windshaper Boro") && townNameHit("Windshaper Bor", "Windshaper Boro")
+              && townNameHit("Uualia Suncrest", "Uualia Suncrest"),
+              "live run 78: a longer player's name sharing letters with the trainer's is not his; an OCR slip of his own still is")
         check(npcWindowShown(tip([("Uualia Suncrest", 216, 165), ("Buyback", 300, 560)])) && !npcWindowShown(beltTip),
               "M4x: a merchant's window, whoever's, holds the equip back (a right-click there sells)")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])

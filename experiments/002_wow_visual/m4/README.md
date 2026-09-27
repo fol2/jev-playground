@@ -1164,6 +1164,9 @@ leaves the field now and then to empty the bags at a vendor and to learn new spe
 - **Not in this slice:** buying food, drink or gear; repair; the gear upgrade rule at a vendor; other villages' NPCs.
 - **Evidence.** Sim: `HuntTests` covers the level, the money, the rows (on the live OCR lines), the offers, and one run
   that trains and sells. Live: the next run.
+- **Fix, live run 78:** the view search took a player's longer name ("aria Darkwina Darkbloom") for "Windshaper Boro": the
+  name match was a share of letters in order, bounded only from below in length. `townNameHit` bounds it both ways (within
+  3 letters); the hover's own check had already refused to click the player, and the visit ended `NPC_NOT_OPENED`.
 
 ## M4v — quest enders from the wiki (27 Sept)
 

@@ -635,7 +635,7 @@ final class QuestRun {
     func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
         func found(_ image: CGImage?) -> TipLine? {
             let read = upscaledLines(QuestHUD.townView, image)
-            let hit = read.first { sameUnit($0.text, name) || (likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3) }
+            let hit = read.first { townNameHit($0.text, name) }
             body.emit("town_search", ["name": name, "lines": read.count, "found": hit != nil])  // what each look read (live run 73)
             return hit
         }
