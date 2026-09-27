@@ -83,6 +83,18 @@ struct NavTests {
               "a quest icon's highlight beside the arrow is not taken for its tip")
         check(arrowFacing(arrow(0, icon: (1, 2))).map { abs(angleError(0, $0)) <= 15 } ?? false,
               "an icon highlight touching the arrow does not move its axis")
+        // Live run 36: a quest area's blue band, 4 px wide, passing 2 px beyond the tip of an arrow at 131°. The live tail
+        // is ringed by the cone's silver outline ("SNNNNS" across it on the run's frames), drawn here round the dot.
+        var band = arrow(131).pixels
+        for dy in -2...2 { for dx in -2...2 where max(abs(dx), abs(dy)) == 2 { set(&band, 2423 + dx, 197 + dy, 210, 210, 210) } }
+        for y in NavHUD.arrowY0 - 2..<NavHUD.arrowY1 + 2 {
+            for x in NavHUD.arrowX0 - 2..<NavHUD.arrowX1 + 2 where (2637...2640).contains(x + y) {
+                let i = (y * HUD.width + x) * 4
+                band[i] = 60; band[i + 1] = 80; band[i + 2] = 160
+            }
+        }
+        check(arrowFacing(RGBA(width: HUD.width, height: HUD.height, pixels: band)).map { abs(angleError(131, $0)) <= 15 } ?? false,
+              "a blue quest band beyond the arrow's tip is not its tail: the tail is the compact dot (it read 304° live)")
         check(arrowFacing(arrow(90, head: false)) == nil, "a navy dot without a silver head reads nothing")
         check(arrowFacing(blank()) == nil, "a black minimap reads nothing")
         check(arrowFacing(RGBA(width: 100, height: 100, pixels: [UInt8](repeating: 0, count: 40_000))) == nil,
@@ -101,6 +113,23 @@ struct NavTests {
         check(same(parseCoords("Player: 43.2, 23.8"), 43.2, 23.8), "coordinates inside the world map's player line")
         check(parseCoords("ITEn") == nil && parseCoords("") == nil, "noise reads no coordinates")
         check(parseCoords("144.8,28.1") == nil && parseCoords("44.8,28.15") == nil, "a digit on either side rejects the match")
+        check(parseCoords("44.9,23") == nil && parseCoords("4.9, 23") == nil && parseCoords("44, 23.5") == nil && parseCoords("44.9.2314") == nil,
+              "live runs 28-29: a reading that lost a decimal is no position (\"4.9, 23\" for 44.9, 23.4 put the player 40 units off)")
+        check(same(parseCoords("42,2,23.7"), 42.2, 23.7) && same(parseCoords("42,2, 23,7"), 42.2, 23.7) && parseCoords("42,23.7") == nil,
+              "live run 31: a decimal point read as a comma keeps its glyph and is a position")
+        check(same(parseCoords("42.G,24.3"), 42.6, 24.3) && same(parseCoords("42.G,24.З"), 42.6, 24.3) && parseCoords("42.G,24") == nil,
+              "live run 32: a \"6\" read as \"G\" and a \"3\" as a Cyrillic \"З\" are those digits; a lost decimal is still no position")
+        var track = PositionTrack()
+        let standing = [track.accept((43.3, 24), t: 0), track.accept((48.3, 24), t: 0.4), track.accept((3.3, 24), t: 0.8),
+                        track.accept((43.3, 24), t: 1.2), track.accept((43.4, 24.1), t: 3)]
+        check(standing == [true, false, false, true, true],
+              "live run 33: a reading 5 or 40 units from the last, a fraction of a second later, is no place; a step is")
+        var stalled = PositionTrack()
+        check(stalled.accept((43.3, 24), t: 0) && !stalled.accept((48.3, 24), t: 20),
+              "a 5-unit misread after a 20 s stall (Jev calls) is still no place: the allowance stops growing at 2 s")
+        _ = [track.accept((50, 30), t: 4), track.accept((50, 30), t: 4.4)]
+        check(track.accept((50.1, 30), t: 4.8) && track.last?.at.x == 50.1,
+              "three readings that agree are the place, far as it is from the last (a teleport, or a wrong last reading)")
         // 25 Sept, live: a quest giver's orange name across the box. Raw first; masks only when they agree.
         check(same(agreedCoords(raw: "42.5, 23.7", masked: ["12.5, 23.7", "12.5, 23.7"]), 42.5, 23.7), "a raw reading that parses is kept")
         check(same(agreedCoords(raw: "43.0.23к7 Eнн", masked: ["43.0,23.7", "43.0, 23.7"]), 43.0, 23.7), "masks that agree read through a name")
@@ -150,6 +179,25 @@ struct NavTests {
         let learned = try? RoadGraph.load(), way = learned.flatMap { route($0, from: (42.8, 23.5), to: (42.0, 44.4)) }
         check(way.map { $0.contains { $0.x < 40 } && same($0.last, 42.0, 44.4) } == true,
               "the committed roads route Thendal Village to Shen'dar Village round the ridge")
+        // Stands: two players come from the east to stand beside an NPC, one from the west; a lone trail makes none.
+        let fromEast: [MapPoint] = [(43, 24), (42.8, 23.9), (42.6, 23.8), (42.2, 23.5), (42.1, 23.5), (42.1, 23.5), (42.1, 23.5)]
+        let fromWest: [MapPoint] = [(41.2, 23.5), (41.6, 23.5), (42.2, 23.5), (42.2, 23.5), (42.2, 23.5)]
+        let learnt = learnStands([fromEast, fromEast, fromWest])
+        check(learnt.count == 1 && learnt[0][4] == 3 && abs(learnt[0][2] - 42.8) < 1e-9 && abs(learnt[0][3] - 23.9) < 1e-9 && learnStands([fromEast]).isEmpty,
+              "a stand is where trails stood still; its approach is from the side most came from, never an average of two sides")
+        let stood = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: learnt)
+        check(same(approach(to: (42.2, 23.2), in: stood), 42.8, 23.9) && approach(to: (45, 23.2), in: stood) == nil && approach(to: (42.2, 23.2), in: nil) == nil,
+              "before an NPC is clicked, the walk goes to where players came from to stand beside it; no stand near: the pin")
+        // Live run 30: Elatrell Featherlight stands beside Rorian on his platform, approached from Rorian's stand.
+        let platform = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: [[42.1, 23.5, 42.58, 23.55, 8], [41.7, 23.35, 42.1, 23.5, 3]])
+        let loop = RoadGraph(sources: [], subzones: [], places: [], ways: [], stands: [[1, 1, 2, 2, 2], [2, 2, 1, 1, 2]])
+        check(same(approach(to: (41.6, 23.2), in: platform), 42.58, 23.55) && approach(to: (1, 1), in: loop) != nil,
+              "an approach that is another NPC's stand is followed down to the ground players came from; a loop ends")
+        // Live run 18: Rorian's bridge. The committed stand beside his pin is approached from the east, as players did.
+        check(learned.flatMap { approach(to: (42.2, 23.2), in: $0) }.map { $0.x > 42.4 } == true,
+              "the committed roads approach Rorian the Dayseeker from the east, up his ramp, not from under his bridge")
+        check(learned.flatMap { approach(to: (41.5, 23.1), in: $0) }.map { $0.x > 42.4 } == true,
+              "live run 30: Elatrell Featherlight, beside Rorian on his platform, is approached up the same ramp")
         let broken = FileManager.default.temporaryDirectory.appendingPathComponent("roads-\(getpid()).json").path
         try? #"{"sources":[],"subzones":[],"places":[[1,2]],"ways":[[0,5,1]]}"#.write(toFile: broken, atomically: true, encoding: .utf8)
         func loads(_ path: String) -> String { do { return try RoadGraph.load(path) == nil ? "none" : "roads" } catch { return "error" } }
@@ -163,6 +211,12 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
+        check(huntStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
+              && !huntStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
+              "live run 35: a hunt walk stopped by a red name near its pin starts the hunt; far away, unseen, or another stop ends the step")
+        check(walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false) == .there
+              && walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false, arrive: RoadLimits.approachArrive) == .walk,
+              "live run 19: 0.45 from Rorian's approach counts as there at a walk's 0.5, not at the approach's 0.15")
     }
 
     /// walkLegs with a scripted clock and walk: legs in turn, the first stop ends the road, no leg after the deadline.

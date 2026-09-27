@@ -51,6 +51,31 @@ final class QuestRun {
     private var shadow: MarkReader?, shadowTried = false  // touched on shadowQueue only
     private let shadowLock = NSLock()
     private var shadowBusy = false  // a read still running: the next frame is skipped, never queued behind it
+    /// The learned reader's own instance for click targets (not the shadow's, which its queue owns): marks the rules
+    /// miss are clicked only once a hover confirms an NPC under them (live run 21: a near "?" the rules missed).
+    private lazy var clickReader: MarkReader? = try? MarkReader()
+    private var learnedOnly: [(x: Double, y: Double)] = []  // the click targets only the learned reader found
+    private var logTitles: [String] = []  // the last log read's quests: a greeting's "?" entry for one of them is a hand-in
+
+    /// The rules' marks, then the learned reader's that the rules did not find, as click targets.
+    /// `want`: only marks of that kind ("question" to hand in, "exclamation" to take), as the learned reader names them;
+    /// a mark it cannot name, or too small to name (kindMinHeight), stays. Live run 31, 27 Sept: a hand-in clicked a giver's "!".
+    func clickMarks(_ image: CGImage, _ pixels: RGBA, want: String? = nil) -> [QuestMark] {
+        var rules = questMarks(pixels, box: QuestHUD.world)
+        var learned = (try? clickReader?.marks(image, pixels)) ?? []
+        if let want, let reader = clickReader {
+            let before = rules.count
+            rules = rules.filter { m in
+                m.h < QuestLimits.kindMinHeight || ((try? reader.glyphKind(image, box: glyphBox(m))) ?? nil).map { $0.label == want } ?? true
+            }
+            learned = learned.filter { Double($0.box[3]) < QuestLimits.kindMinHeight || $0.kind == want }
+            if rules.count < before { body.emit("other_kind", ["want": want, "dropped": before - rules.count]) }
+        }
+        let extra = extraMarks(learned.map { learnedMark($0.box) }, beside: rules)
+        learnedOnly = extra.map { ($0.x, $0.y) }
+        if !extra.isEmpty { body.emit("learned_targets", ["count": extra.count, "marks": extra.prefix(3).map { [Int($0.x), Int($0.y), Int($0.h)] }]) }
+        return rules + extra
+    }
 
     init(body: LiveNavBody) throws {
         self.body = body
@@ -218,7 +243,13 @@ final class QuestRun {
     /// `missing`: names the minimap's "?" tooltips showed that the log read lacks; the plan must not be trusted.
     /// `givers`: the minimap's "!", quests to take, which the log cannot hold yet.
     func readQuests() async -> (quests: [PlannedQuest], player: MapPoint?, missing: [String], givers: [Giver]) {
-        let player = (await frame()).flatMap { readCoords($0).at }
+        // One frame's OCR can lose a glyph of the coordinates (live run 28: POSITION_UNREADABLE on "44.9.2314"), so up to
+        // five fresh frames are read, as a walk bears six unreadable ones.
+        var player = (await frame()).flatMap { readCoords($0).at }
+        for _ in 0..<4 where player == nil {
+            let asked = hostNow()
+            player = (await frame(after: asked + 0.2)).flatMap { readCoords($0).at }
+        }
         hover(1280, 60)  // off every pin: a tooltip left showing reads as yellow pins
         let parked = hostNow()
         await sleep(0.4)
@@ -279,8 +310,9 @@ final class QuestRun {
                 let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
                 let shown = await frame()
                 let read = lines(box, shown).map { nameKey($0.text) }
-                let at = shown.flatMap { mapCursor(upscaledText($0, QuestHUD.mapCursor)) }
-                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "read": read])
+                let cursorText = shown.map { upscaledText($0, QuestHUD.mapCursor) } ?? []
+                let at = mapCursor(cursorText)
+                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "cursor_text": cursorText, "read": read])
                 for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
                     quests[i].pin = at  // unread, no pin: the fixed transform held on one map only (review of #47)
                 }
@@ -291,11 +323,15 @@ final class QuestRun {
                 try? JSONEncoder().encode(LogMemory(key: key, quests: quests.map(LogMemory.Quest.init), readAt: now)).write(to: QuestHUD.logMemory)
             }
         }
+        // Park the pointer: a minimap icon's tooltip left showing covers the player's arrow, and the next walk's first
+        // look reads no facing (live run 16, 26 Sept: "Coming of Age" over the arrow, WALK_HUD_UNREADABLE).
+        hover(1280, 60)
         let missing = missingFromLog(tooltips, quests) + uiFault  // a map not known to be open or shut stops the run: LOG_INCOMPLETE
         body.emit("quest_log", ["player": orNull(player.map { [$0.x, $0.y] }), "missing": missing,
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
+        logTitles = quests.map(\.title)
         return (quests, player, missing, givers)
     }
 
@@ -346,43 +382,89 @@ final class QuestRun {
     }
 
     /// As a human does before clicking: rest the pointer on the NPC and read the game's unit tooltip (bottom
-    /// right) until it names the NPC whose green name is under the mark. nil: no point did, or the name was
-    /// unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
-    func onUnit(_ mark: QuestMark, in image: CGImage) async -> (x: Double, y: Double)? {
+    /// right) until it names the NPC whose green name is under the mark, or shows an NPC (npcTip). nil: no point did,
+    /// or the name was unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
+    /// `declined`: NPCs whose dialogue this search has opened and closed as someone else's; a mark over one is skipped
+    /// (`declined` true), never clicked blind (live run 40, 27 Sept: Windshaper Boro's "?", the only mark in view, opened
+    /// his panel instead of the hand-in's NPC).
+    func onUnit(_ mark: QuestMark, in image: CGImage, declined: [String] = []) async -> (point: (x: Double, y: Double)?, declined: Bool) {
         let bottom = mark.body - 2.4 * mark.h
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text else { return nil }
+        // An unread name leaves the NPC's own tooltip to confirm it (npcTip).
+        let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text ?? ""
+        let met = { (line: String) in declined.contains { sameUnit(line, $0) } }
+        if met(name) { return (nil, true) }
+        var metOne = false
         let start = hostNow()
         /// Whether the tooltip names the NPC once the pointer rests at `p`, on a frame captured after the move:
         /// a frame from before it must not answer for this point. Any line of the box may (the box can hold
         /// other text above the tooltip); only a line that is the name matches. nil: no fresh frame.
-        func shows(at p: (x: Double, y: Double), again: Bool = false) async -> Bool? {
+        func shows(at p: (x: Double, y: Double), again: Bool = false, clearing: Bool = false) async -> Bool? {
             hover(p.x, p.y)
             let moved = hostNow()
             await sleep(0.4)
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
-            return read.contains { sameUnit($0, name) }
+            switch unitCheck(read, name: name, declined: clearing ? [] : declined) {  // a fading tooltip is not this unit's
+            case .declined: metOne = true; return false
+            case .confirmed: return true
+            case .other: return false
+            }
         }
         /// Off every unit until the tooltip has gone: two fresh reads in a row without the name, at most ten
         /// (live run 5: Dalia's tooltip faded for about 2 s, four reads, after the pointer left her).
         func cleared() async -> Bool {
             var reads: [Bool?] = []
             for _ in 0..<10 {
-                reads.append(await shows(at: (1280, 60)))
+                reads.append(await shows(at: (1280, 60), clearing: true))
                 if tooltipGone(reads) { return true }
             }
             return false
         }
-        guard await cleared() else { return nil }
-        for point in hoverPoints(mark) where hostNow() - start < QuestLimits.hoverSeconds {
+        guard await cleared() else { return (nil, metOne) }
+        for point in hoverPoints(mark) where hostNow() - start < QuestLimits.hoverSeconds && !metOne {
             guard await shows(at: point) == true else { continue }
             // Confirmed only if it goes when the pointer leaves and comes back when it returns: this point's own,
             // not one still fading from the point before.
-            guard await cleared() else { return nil }
-            if await shows(at: point, again: true) == true { return point }
+            guard await cleared() else { return (nil, metOne) }
+            if await shows(at: point, again: true) == true { return (point, false) }
+        }
+        return (nil, metOne)
+    }
+
+    /// Turn to face `pin`, as a human turns to the NPC on arriving: a walk ends facing the way it went (live run 31, 27 Sept:
+    /// at the ramp's foot the hand-in's "?" was 90° left, out of view, and a giver's "!" ahead was clicked). A pulse turns at
+    /// most 105°, so up to three, each on a fresh reading.
+    func face(_ pin: MapPoint) async {
+        for _ in 0..<3 {
+            guard let o = body.look(), let pulse = turnPulse(angleError(bearing(from: o.point, to: pin), o.facing)) else { return }
+            body.emit("face", ["pin": [pin.x, pin.y], "at": [o.x, o.y], "facing": Int(o.facing.rounded())])
+            body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls (review of #53)
+            guard body.keys.press(pulse.code) else { return }
+            await sleep(Double(pulse.ms) / 1000)
+            body.keys.lift(pulse.code)
+            await sleep(0.4)
+        }
+    }
+
+    /// Turn in place in 45° steps, one turn at most, until a quest mark is in view, as a human looks round: after a
+    /// click-walk the camera can sit against a wall with the NPC beside or behind (live run 18, 26 Sept: Rorian's
+    /// tent, the camera behind the character's head, Rorian targeted and out of sight). nil: no mark in a whole turn.
+    func lookAround(want: String? = nil) async -> (CGImage, [QuestMark])? {
+        guard let pulse = turnPulse(45) else { return nil }
+        for _ in 0..<8 {
+            body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls (review of #53)
+            guard body.keys.press(pulse.code) else { return nil }
+            await sleep(Double(pulse.ms) / 1000)
+            body.keys.lift(pulse.code)
+            let turned = hostNow()
+            guard let seen = await frame(after: turned + 0.3) else { continue }
+            let pixels = rgba(seen), marks = clickMarks(seen, pixels, want: want)
+            shadowMarks(seen, pixels, at: "around")
+            body.emit("look_around", ["marks": marks.count])
+            if !marks.isEmpty { return (seen, marks) }
         }
         return nil
     }
@@ -391,25 +473,31 @@ final class QuestRun {
     /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
     /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
     /// only when a panel is open: Esc with nothing open is the Game Menu.
-    func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
+    func openAtMark(want: String? = nil, _ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
         guard var image = await frame() else { return (nil, "NO_FRESH_FRAME") }
         let pixels = rgba(image)
-        var marks = questMarks(pixels, box: QuestHUD.world)
+        var marks = clickMarks(image, pixels, want: want)
         shadowMarks(image, pixels, at: "open")
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
+        if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
         guard !marks.isEmpty else {
             write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
             return (nil, "NO_QUEST_MARK_IN_VIEW")
         }
         var blind: (x: Double, y: Double)? = nil  // the last click the tooltip did not confirm
+        var declined: [String] = []  // NPCs whose panel opened here and was someone else's: never clicked again in this search
         for _ in 0..<3 {
             guard let mark = marks.first else { break }
             clicks += 1
             write(image, to: body.directory.appendingPathComponent(String(format: "click%d.jpg", clicks)), type: .jpeg)  // what it was chosen on
             // Where the last unconfirmed click went, the hover already failed: no second sweep, no second click.
             if repeatsClick((mark.x, mark.body), blind, h: mark.h) { marks.removeFirst(); continue }
-            let confirmed = await onUnit(mark, in: image)
-            body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull()])
+            let unit = await onUnit(mark, in: image, declined: declined)
+            let confirmed = unit.point
+            body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull(), "declined": unit.declined])
+            if unit.declined { marks.removeFirst(); continue }
+            // A target only the learned reader found is clicked only where a hover confirmed an NPC, never blind.
+            if confirmed == nil, learnedOnly.contains(where: { $0.x == mark.x && $0.y == mark.y }) { marks.removeFirst(); continue }
             let point = confirmed ?? (mark.x, mark.body)
             if confirmed == nil { blind = point }
             guard click(point.x, point.y, right: true) else { return (nil, "CLICK_FAILED") }
@@ -421,10 +509,12 @@ final class QuestRun {
             case .other(let dialog): seen = dialog
             }
             body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": seen.prefix(4).map(\.text), "panel": panelOpen(seen)])
-            if panelOpen(seen) {  // someone else's: close it and try the next mark
+            if panelOpen(seen) {  // someone else's: close it and try the next mark, or look round for one (live run 40)
+                if let who = seen.first?.text { declined.append(who) }
                 await tap(QuestHUD.escape)
                 await sleep(0.8)
                 marks.removeFirst()
+                if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
             } else {  // nothing opened: Click-to-Move walked towards it; look again, over a few frames while the
                 // view settles (live run 12, 26 Sept: beside Ailee Farheart the first frame found no mark; a later one did)
                 for _ in 0..<3 {
@@ -432,12 +522,13 @@ final class QuestRun {
                     guard let again = await frame(after: looked + 0.3) else { continue }
                     image = again
                     let againPixels = rgba(again)
-                    marks = questMarks(againPixels, box: QuestHUD.world)
+                    marks = clickMarks(again, againPixels, want: want)
                     shadowMarks(again, againPixels, at: "again")
                     body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
                     if !marks.isEmpty { break }
                     await sleep(0.4)
                 }
+                if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
                 if marks.isEmpty { write(image, to: body.directory.appendingPathComponent("no-marks-after.png"), type: .png) }
             }
         }
@@ -445,7 +536,8 @@ final class QuestRun {
     }
 
     /// Take the quest a giver offers: its dialogue's "Accept" button (the owner: always accept quests).
-    /// A giver with several quests lists them; an entry is clicked only when the minimap's tooltip named it.
+    /// A giver that greets first lists its quests: the entry the minimap's tooltip named is clicked, else the first one
+    /// to take (offeredEntry; a mark in view has no tooltip).
     /// The chat's "accepted" line confirms it; the next log read is the proof.
     func accept(_ giver: Giver) async -> String {
         func listed(_ dialog: [TipLine]) -> TipLine? { dialog.first { l in giver.names.contains { nameKey($0) == nameKey(l.text) } } }
@@ -456,9 +548,9 @@ final class QuestRun {
             dialog = []
         }
         if acceptButton(dialog) == nil {
-            let opened = await openAtMark { page in
+            let opened = await openAtMark(want: "exclamation") { page in
                 var page = page
-                if acceptButton(page) == nil, let entry = listed(page) {
+                if acceptButton(page) == nil, let entry = namedEntry(page, names: giver.names) ?? offeredEntry(page, ours: self.logTitles) {
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
                     await self.sleep(1.5)
                     page = self.lines(QuestHUD.dialog, await self.frame())
@@ -491,7 +583,7 @@ final class QuestRun {
         }
         var dialog = await pastContinue(lines(QuestHUD.dialog, await frame()))
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
-            let opened = await openAtMark { page in
+            let opened = await openAtMark(want: "question") { page in
                 var page = page
                 if self.has(page, "Complete Quest") == nil, let entry = ours(page) {  // an NPC with several quests lists them
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
@@ -535,16 +627,29 @@ final class QuestRun {
         await sleep(2.0)
         let fresh = ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }
         body.emit("after_complete", ["chat": fresh])
-        let after = lines(QuestHUD.dialog, await frame())
+        var after = lines(QuestHUD.dialog, await frame())
         guard has(after, "Complete Quest") == nil else { return "STILL_OPEN_AFTER_COMPLETE" }
-        // The owner: always accept quests. A follow-up offered on completion shows an "Accept" button.
-        if let accept = acceptButton(after) {
+        // The owner: always accept quests. On completion the NPC shows a follow-up's offer ("Accept"), or its greeting again
+        // with the quests it now offers (live run 32, 27 Sept: "Elemental Unrest" and "Embracing the Elements" after Harmony
+        // in Balance, left open). Each is taken in turn, at most three; an entry whose page shows no Accept ends it.
+        for _ in 0..<3 {
+            if acceptButton(after) == nil, let entry = offeredEntry(after, ours: logTitles) {
+                guard click(entry.x + 40, entry.y + 7) else { break }
+                await sleep(1.5)
+                after = lines(QuestHUD.dialog, await frame())
+            }
+            guard let accept = acceptButton(after) else { break }
             body.emit("accept", ["controller": "RULE", "rule": "owner: always accept quests", "dialog": after.prefix(3).map(\.text)])
             let before = Set((await frame()).map(chatLines) ?? [])
-            if click(accept.x + 30, accept.y + 7) {
-                await sleep(1.5)
-                body.emit("accepted", ["chat": ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }])
-            }
+            guard click(accept.x + 30, accept.y + 7) else { break }
+            await sleep(1.5)
+            body.emit("accepted", ["chat": ((await frame()).map(chatLines) ?? []).filter { !before.contains($0) }])
+            after = lines(QuestHUD.dialog, await frame())
+        }
+        // The character pane is read where the dialogue stands (run 32: the greeting's lines were read as the slot's tooltip).
+        if panelOpen(after) {
+            await tap(QuestHUD.escape)
+            await sleep(0.8)
         }
         guard let equip else { return "COMPLETED" }
 
@@ -570,6 +675,7 @@ final class LiveQuestHost: QuestHost {
     let huntGraph: URL?  // each hunt's own session of the hunt graph; nil: the legacy flat hunt
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
+    var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
@@ -621,9 +727,9 @@ final class LiveQuestHost: QuestHost {
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
     /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
-    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false) async -> String? {
+    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
         let at = quester.body.look().map { (x: $0.x, y: $0.y) }
-        switch walkStart(at: at, to: pin, road: road) {
+        switch walkStart(at: at, to: pin, road: road, arrive: arrive) {
         case .refused(let outcome): return outcome
         case .there: return nil
         case .walk: break
@@ -638,13 +744,16 @@ final class LiveQuestHost: QuestHost {
         let legs = newWalker(folder)
         walker = legs
         let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: 0.5))
+                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive))
         guard !legs.holding else { return "WALK_KEYS_HELD" }
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        // No pin: the map hid it under the player's arrow, so its NPC may stand here, perhaps above or below.
+        let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
+        if let pin, let stop = await walkBeside(pin, label: quest.title) { return stop }
+        if let pin = quest.pin { await quester.face(pin) }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
@@ -659,6 +768,14 @@ final class LiveQuestHost: QuestHost {
         }
     }
 
+    /// Walk to where players came from to stand beside the NPC at `pin` (approach), to within approachArrive, else to
+    /// the pin. A straight Click-to-Move from that side climbs to a platform's NPC instead of ending under it.
+    func walkBeside(_ pin: MapPoint, label: String) async -> String? {
+        guard let from = approach(to: pin, in: roads) else { return await walk(to: pin, label: label) }
+        emit("approach", ["pin": [pin.x, pin.y], "from": [from.x, from.y]])
+        return await walk(to: from, label: label, arrive: RoadLimits.approachArrive)
+    }
+
     /// Back to where the last walk began, which that walk had just passed: the owner, survive first.
     func retreat() async -> String {
         guard let back = walkedFrom else { return "NO_WAY_BACK" }
@@ -667,7 +784,8 @@ final class LiveQuestHost: QuestHost {
     }
 
     func accept(_ giver: Giver) async -> String {
-        if let stop = await walk(to: giver.pin, label: "quest giver") { return stop }
+        if let stop = await (giver.inView ? walk(to: giver.pin, label: "quest giver") : walkBeside(giver.pin, label: "quest giver")) { return stop }
+        if !giver.inView { await quester.face(giver.pin) }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
         forgetLog(outcome)
@@ -678,7 +796,11 @@ final class LiveQuestHost: QuestHost {
     /// it, in its own folder, with what is left to the deadline after the walk (review of #47: a walk of up to
     /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) {
+            let here = quester.body.look().map(\.point)
+            guard huntStartsNear(stop, at: here, pin: pin) else { return stop }
+            emit("hunt_near", ["stop": stop, "pin": [pin.x, pin.y], "at": orNull(here.map { [$0.x, $0.y] })])
+        }
         let seconds = min(HuntLimits.maxSeconds, deadline - hostNow())
         guard seconds > 0 else { return "HUNT_TIME_LIMIT" }
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
@@ -747,6 +869,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                              newHunter: { LiveHuntHost(session: session, feed: feed, sink: sink, directory: $0, log: log, fightJev: LiveJev(key: key),
                                                        fightTactics: tactics) },
                              huntGraph: hunting, tactics: tactics)
+    host.roads = roads
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },

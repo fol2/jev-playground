@@ -13,6 +13,7 @@
 //   m5-perceive --trails        frame paths on stdin; the zone coordinates under the minimap read from each, resumable
 //   m5-perceive --roads         the roads of every source's trails to learning/knowledge/zephras-roads.json, and each
 //                               source held out against the roads of the others
+//   m5-perceive --kinds FRAME...  each rule mark of the frames with the kind the learned reader names (live run 31)
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -307,7 +308,9 @@ func roads() throws -> Int32 {
     }
     let kept = oneMap(cut, subzone: \.subzone), pieces = sourced(kept)
     let names = Dictionary(grouping: kept.joined().compactMap(\.subzone), by: { $0 }).filter { $0.value.count >= 20 }.map(\.key)
-    let whole = buildRoads(pieces, subzones: names), all = pruned(whole)
+    let whole = buildRoads(pieces, subzones: names)
+    var all = pruned(whole)
+    all.stands = learnStands(pieces.map(\.points))  // where players stood beside an NPC, and where they came from
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     try (encoder.encode(all) + Data("\n".utf8)).write(to: URL(fileURLWithPath: RoadGraph.file))
@@ -315,7 +318,7 @@ func roads() throws -> Int32 {
     print("\(readings.count) frames, coordinates in \(readings.filter { $0.x != nil }.count); \(cut.count) trails, \(cut.count - kept.count) "
           + "(\(cut.joined().count - kept.joined().count) readings) off this map (\(left.joined(separator: ", "))); \(pieces.count) trails "
           + "of \(all.sources.count) sources: \(all.places.count) places (\(whole.places.count - all.places.count) in small parts pruned), "
-          + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one) to \(RoadGraph.file)")
+          + "\(all.ways.count) ways (\(all.ways.filter { $0[2] > 1 }.count) walked by more than one), \(all.stands?.count ?? 0) stands to \(RoadGraph.file)")
     // Each source held out: the others' roads are made as the committed ones, with which trails lie on this map decided
     // without it too, so nothing of it reaches them. Its own trails are those kept on all.
     for held in all.sources {
@@ -323,6 +326,22 @@ func roads() throws -> Int32 {
         let h = heldOutRoads(pieces.filter { $0.source == held }.map(\.points), roads: others)
         print("  \(held) held out: \(h.covered) of \(h.readings) readings within a place of the others' roads; "
               + "\(h.routed) of \(h.walks) walks longer than \(Int(QuestLimits.maxLeg)) units routed by them")
+    }
+    return 0
+}
+
+/// `--kinds FRAME...`: each rule mark of a saved frame with the kind the learned reader names for it, as a hand-in ("question")
+/// or a quest taken ("exclamation") filters its click targets (live run 31). One line a mark: frame, x, y, height, kind.
+func kinds(_ paths: [String]) throws -> Int32 {
+    let reader = try MarkReader()
+    for path in paths {
+        guard let image = loadImage(URL(fileURLWithPath: path)) else { print(path, "unreadable"); continue }
+        let marks = questMarks(pixels(image), box: MarkLabels.world(height: image.height))
+        if marks.isEmpty { print(path, "no rule mark") }
+        for m in marks {
+            let k = try reader.glyphKind(image, box: glyphBox(m))
+            print(path, Int(m.x), Int(m.y), Int(m.h), k?.label ?? "none", k.map { String(format: "%.2f", $0.confidence) } ?? "-")
+        }
     }
     return 0
 }
@@ -343,6 +362,7 @@ struct PerceiveTool {
             case ("--trails", 1): exit(try trails())
             case ("--roads", 1): exit(try roads())
             case ("--audit", 2): exit(try audit(args[1]))
+            case ("--kinds", let n) where n >= 2: exit(try kinds(Array(args.dropFirst())))
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n, wholeFrames: true))
@@ -355,7 +375,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME...\n", stderr)
         exit(64)
     }
 }

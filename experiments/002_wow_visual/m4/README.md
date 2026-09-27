@@ -115,6 +115,17 @@ All boxes are capture pixels of the 2560×1320 window.
   - The rule now counts only silver connected to the navy dot. The facing is the ray from the
     dot along which that silver runs longest, which is the cone's axis. An icon adds a short
     blob, never an 8–10 px run.
+  - Where the navy beside silver falls in several parts and two or more are dot-sized (within
+    7 × 7 px, 9 px at least), the tail is the part silver rings on most sides. Live run 36
+    (27 Sept): a quest area's blue band crossed the arrow's tip, its pixels beside the tip pulled
+    the "dot" there, the facing read 258–344° for 131°, and the walk turned on the spot until
+    `NO_PROGRESS`. Otherwise every part counts, as before: over water the dot joins the water's navy.
+    - On that run's frames the rule reads 113–124°. A synthetic band is a check.
+    - On the regression set, 107 of 2,453 facings moved. 64 moved 10° or less. Of the 25 that
+      moved more than 30°, the author checked 7 by the arrow's pixels (m2 turns, a water frame,
+      two walks), and in each the new reading lies along the cone and the old one did not.
+    - A first rule, the largest compact part of all the box's navy, moved 846 facings: over water it
+      picked a stray fleck, and it was not kept.
   - On eight lossless (PNG) captures turning in place beside three quest icons, it was within
     12° of the author's labels. Successive readings stepped 46–59° per 300 ms Q press.
   - Saved JPEGs do not replay the live frames faithfully. The same frame decoded two ways
@@ -691,6 +702,127 @@ Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 RE
   `--quests` run that offers a road is its qualification.
 - No map check: the run envelope is Zephras Isle, where the roads were learned. The subzone names are in
   the file for the check a run beyond it will need.
+
+## M4l — take the quest an NPC's greeting lists (live run 14, 26 Sept)
+
+- **Live run 14** (26 Sept, about 23:17, main 548f98c): the level-1 character at Thendal Village.
+  - Jev chose `ACCEPT_1` on the "!" in view. The hover confirmed Ailee Farheart, and Click-to-Move opened
+    her panel.
+  - It was her greeting, "Hello, shaman." above "! Coming of Age", not the quest's offer. No Accept button
+    was read, so the panel was closed as someone else's.
+  - The step ended `DIALOGUE_NOT_OPEN`, and the run `NOTHING_TO_HAND_IN_OR_TAKE`: one step, no fight, about
+    25 s.
+- **The fix** (`offeredEntry`). A greeting lists an NPC's quests, each after an icon. OCR reads the yellow "!"
+  of a quest to take as a leading "!". `accept` clicks the entry the minimap's tooltip named, else the first
+  such entry, then looks for Accept as before. A mark in view has no tooltip, so run 14 had nothing to click.
+- **M5 in shadow, first seen live** (#50). The learned reader loaded in 110 ms. At each of three looks (in
+  view, at the click, and in view after), it read the one "!" the rules read, and it changed no action.
+- Offline: one nav check, on run 14's lines.
+
+### Live runs 15-33, unattended (26-27 Sept)
+
+The owner authorised unattended runs; each was announced, recorded (the screen, beside the engine, by ffmpeg) and
+studied frame by frame before the next. Recordings are private and kept off the repository. Every row is live.
+
+| Run | What went wrong | The fix |
+|---|---|---|
+| 15 | A "Speak with" objective was planned as `USE_AT` | "speak with" and "talk with" are travel (`questKind`) |
+| 16 | A minimap tooltip left over the arrow: no facing, `WALK_HUD_UNREADABLE` | the pointer is parked after the log read |
+| 17 | A garbled green name was never confirmed by the hover | a tooltip with a level line and no "(Player)" is an NPC (`npcTip`) |
+| 18-19 | The walk to a platform's NPC ended under it (the owner: "you walked under the bridge") | stands learned from the video trails: walk first to where players came from (`walkBeside`, `approach`) |
+| 20 | A log read with a quest unpinned was remembered | a log is remembered only with every pin; a pinless hand-in is offered at the player's place |
+| 21 | A logged quest's icon was taken for a giver; the rules missed a near "?" | givers whose tooltip names a logged quest are dropped; the learned reader adds click targets, hover-confirmed |
+| 22 | The first unattended hand-in: "Experience gained: 40", and the follow-up accepted | then "[1]" before the tracker's title (`parseTracker`) |
+| 23 | Jev wandered between ENTER and BACK to `GRAPH_callLimit` | a decision's last call offers every offered skill flat, so it commits |
+| 24-26 | Plate flicker, a misread target name, and the target cue changing ended fights | sightings merged at revalidation, `mostlyIn`, `targetCue` |
+| 27-28 | FIGHT_TARGET hidden at the root; Jev walked to the area instead of fighting | a retained subgoal's path offers its ancestors' skills; the goal allows counting creatures anywhere; `targetInRange` |
+| 28-29 | Whole-number coordinates read ("4.9, 23"): 40 units off | both decimals required again; the position read retries five frames |
+| 30 | All eight Juvenile Vuldren killed, three hunts, seven fights, no death; Elatrell's stand missed | the earliest in-range approach reading, stand chains, a stand within 0.7 |
+| 31 | The hand-in clicked a giver's "!" ahead (the "?" was 90° left); a greeting's "!" read as "?"; one unread position ended the hunt | see below |
+
+Run 31 (27 Sept, about 01:00) took Infestation Investigation from Elatrell Featherlight, then:
+- **Hand-in.** The approach walk ended facing the way it went, and Ventaari Brightwish's "!" was the only mark in
+  view. Now the character turns to face the pin on arriving (`face`), and a hand-in clicks only "?" marks, a quest
+  taken only "!" marks, as the learned reader names each rule mark's kind (`glyphKind`, `clickMarks(want:)`).
+  - On saved frames the kind was right for 20 of 20 marks of 6 px and more. Far marks of 3-5 px were not: one "!"
+    read as "?" at confidence 1.00. A mark under 6 px keeps its place (`kindMinHeight`). `m5-perceive --kinds`
+    prints the kinds.
+- **Greeting.** OCR read Ventaari's "! The Gift of Skysight" as "? ...". A "?" entry hands in a quest of the log,
+  so one whose quest is not in the last log read is an offer (`offeredEntry(_:ours:)`); its page must still show Accept.
+- **Hunt.** "42,2,23.7" did not parse, and after LOOK_AROUND nothing was admissible without a position; the empty
+  request ended the hunt `HUD_UNREADABLE`. `parseCoords` takes a decimal comma, and such a survey is read again
+  (the sim check fails without the fix).
+
+Run 32 (27 Sept, about 01:25) turned to the pin and handed in Harmony in Balance: `COMPLETED`, 80 XP, Vuldren Hide
+Bracers chosen as the larger upgrade (+15 against +7).
+- The NPC's greeting then listed two new quests and stayed open; the character pane was read under it, so the equip
+  was `UNCONFIRMED`. Now the offers a completion shows are taken in turn, and the panel is closed first.
+- A "!" tooltip names NPCs, and the panel's title is the NPC's name: Ventaari's title was clicked, not his offer.
+  `namedEntry` takes only a quest entry.
+- "42.G,24.3" on every frame for 3 s stopped a walk: "G" and a Cyrillic "З" read as 6 and 3.
+
+Run 33 (27 Sept, about 01:30) accepted Embracing the Elements, The Gift of Skysight and Harvesting Windstones.
+- Rorian's "!" read as "g": an entry is one icon character and a capitalised title (`questEntry`), and one whose
+  quest is not in the log is an offer.
+- While standing, 43.3 read as 48.3 and as 3.3 on single frames, and a hunt walk "moved 59.55". `PositionTrack`
+  drops a reading further from the last than a character can move; three that agree are the place.
+- The world map drew Infestation Investigation as "..." on a dark disc, which `mapPins` did not find: no pin, no
+  area, and twelve hunt decisions found no Cirrusfly. The dots are now found as a flat row and hovered.
+
+Run 34 (27 Sept, about 01:47) found the "..." pins and read their tooltips, but no cursor line parsed, so again no pin
+and `HUNT_NO_TARGET_FOUND`. OCR of the run's recording gave "Cursor: 45.8. 27.1" and "42.G. 22.9": `mapCursor` now takes a
+dot between numbers of one decimal each, and "G" for 6. `map_pin` events log the cursor's text.
+
+Run 35 (27 Sept, about 01:57) read every pin, the hunt's at 45.8, 27.1. The walk there stopped `DANGER_AHEAD` 1.9 from
+it: two level-1 Juvenile Vuldren, one's red-brown body read as a red name. Only RETREAT was offered, and the run ended.
+Near a kill quest's pin red names are most likely its creatures, so a hunt's walk stopped by one within 3 units starts
+the hunt there (`huntStartsNear`): the hunt reads each plate's name, fights only what counts, and fights back.
+
+Run 36 (27 Sept, about 02:04) walked to 2.8 from the hunt's pin. There the quest area's blue band crossed the minimap
+arrow's tip, the facing read 258-344° for 131°, and the walk turned on the spot until `NO_PROGRESS`. The arrow's tail
+is now its compact navy dot (see Perception above).
+
+Run 37 (27 Sept, about 02:15) hunted Pesky Cirrusfly where run 36 had stopped, and three fights started, each against
+a Cirrusfly selected in front of the character. None landed a blow.
+- The fight's revalidation cue was the target frame's raw name, whose OCR tail changes every frame ("Pesky Cirrusfly
+  AOРAU", "Pesky Cirrusfly 4845"). FACE_TARGET was chosen 26 times and each was refused `target_cue_changed`; Jev
+  then chose STOP. A hunt's fights now take the hunt's cue (`targetCue`): every reading of a creature that counts is its
+  objective. A fight back on a walk keeps the raw name.
+- After 24 walks, LOOK_AROUND left nothing admissible on a readable frame, and the empty request ended the hunt
+  `HUD_UNREADABLE`. It now ends `MOVE_LIMIT` (or `NO_ADMISSIBLE_SKILL`), which fails the step, not the run.
+
+Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
+slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as
+failed: the last tracker read "12] Infestation Investigation", so the quest's name changed and its kills counted for
+nothing. `parseTracker` now drops a marker ("** ", "› ") and a level tag whose bracket read as "1".
+
+Run 39 (27 Sept, about 02:31) killed the eighth Cirrusfly: Infestation Investigation read "Ready for turn-in".
+- The hunt still ended `NO_TARGET_FOUND`: its tracker read "3 12] Infestation Investigation", a finished quest's "?"
+  icon as "3". The tracker now drops leading icons of one or two characters on title lines, never on a count line.
+- The hunt's failure was remembered by the quest's title, which was also its hand-in's key, so the hand-in was never
+  offered. A hunt now fails by its own key (`stepKey`).
+- Jev was offered only a hunt for Harvesting Windstones, whose 15 Windstone Clusters are objects on the ground. The
+  hunt cannot take objects, and found nothing. Taking objects is not built yet.
+
+Run 40 (27 Sept, about 02:42) turned to the hand-in's pin and clicked the only "?" in view: Windshaper Boro's, which
+is another quest's. His panel was closed, no mark was left, and the step ended `DIALOGUE_NOT_OPEN`. A search now
+remembers each NPC whose panel it closed as someone else's, skips a mark over one (never clicking it blind), and looks
+round when no mark is left.
+
+Run 41 (27 Sept, about 02:48) turned to the pin and handed in Infestation Investigation: `COMPLETED`, "Experience
+gained: 170", 35 copper, and its follow-up, The Cirrusfly Queen, accepted on completion. The Queen's walk stopped at a
+red name 3.6 units short of her pin, and Jev chose RETREAT.
+
+**Where runs 14-41 leave the character** (live, unattended, from the runs' chat lines):
+- **Handed in:** Ancient Heirloom (run 22), Harmony in Balance (run 32) and Infestation Investigation (run 41).
+- **Taken:** Coming of Age, Harmony in Balance, Infestation Investigation, Embracing the Elements, The Gift of Skysight,
+  Harvesting Windstones and The Cirrusfly Queen.
+- **Killed:** 8 Juvenile Vuldren and 8 Pesky Cirrusflies, with no death.
+- **Left in the log:**
+  - The Cirrusfly Queen: one stronger creature.
+  - Harvesting Windstones: objects on the ground.
+  - The Gift of Skysight and Embracing the Elements: use an item or ability at a place.
+  - None of the last three has a skill yet.
 
 ## Limits
 

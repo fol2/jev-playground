@@ -14,6 +14,9 @@ enum RoadLimits {
     static let reach = 3.0  // a route starts and ends at places within this of the player and of the goal
     static let bend = 0.3  // a waypoint is kept where the road leaves the straight line by more than this
     static let minPart = 10  // places a part of the roads needs; a smaller one is an OCR slip's island (pruned)
+    // A stand's approach is walked to within this: at 0.5, a walk to Rorian's ramp ended 0.45 north of it, and the
+    // straight click from there ran under his bridge again (live run 19, 26 Sept).
+    static let approachArrive = 0.15
 }
 
 /// The learned roads. A place is the mean of the readings in its square; a way joins the places of two readings
@@ -23,6 +26,10 @@ struct RoadGraph: Codable, Equatable {
     var subzones: [String]  // the names read above the minimap on them: where the coordinates hold
     var places: [[Double]]  // x, y
     var ways: [[Int]]  // from, to, how many sources walked it
+    // Where players stood still beside something (an NPC to talk to) and where they came from: x, y, from x, from y,
+    // trails. A platform's NPC stands over ground with the same map coordinates, and a straight Click-to-Move from
+    // the wrong side ends under it (live run 18, 26 Sept: under Rorian's bridge); from where players came it climbs.
+    var stands: [[Double]]? = nil
 
     static let file = "experiments/002_wow_visual/learning/knowledge/zephras-roads.json"
 
@@ -33,7 +40,8 @@ struct RoadGraph: Codable, Equatable {
     static func load(_ path: String = file) throws -> RoadGraph? {
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         let g = try JSONDecoder().decode(RoadGraph.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-        guard g.places.allSatisfy({ $0.count == 2 }), g.ways.allSatisfy({ $0.count == 3 && g.places.indices.contains($0[0]) && g.places.indices.contains($0[1]) }) else {
+        guard g.places.allSatisfy({ $0.count == 2 }), g.ways.allSatisfy({ $0.count == 3 && g.places.indices.contains($0[0]) && g.places.indices.contains($0[1]) }),
+              (g.stands ?? []).allSatisfy({ $0.count == 5 }) else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path])
         }
         return g
@@ -155,4 +163,54 @@ func heldOutRoads(_ trails: [[MapPoint]], roads g: RoadGraph, near: Double = Roa
     let covered = points.filter { p in g.places.indices.contains { distance(p, g.point($0)) <= near } }.count
     let long = trails.filter { distance($0.first!, $0.last!) > longer }
     return (points.count, covered, long.count, long.filter { route(g, from: $0.first!, to: $0.last!) != nil }.count)
+}
+
+/// Where players stood still, and where they came from. A stand is `minStay` readings in a row within `still` of the
+/// first; its approach is the earliest of the four readings before it that lies `from` away: Rorian's ramp foot, 0.9
+/// away, not its top, 0.3 away; and an NPC beside another on one platform is approached from that one's stand. Stands within
+/// `merge` of each other are one, and one needs `minTrails` trails. Its approach is the mean of those that came from
+/// the compass sector (of eight) most trails came from, so two ways in are never averaged into a wall.
+/// Rows: x, y, from x, from y, trails.
+func learnStands(_ trails: [[MapPoint]], minStay: Int = 3, still: Double = 0.15, from: ClosedRange<Double> = 0.3...1.2,
+                 merge: Double = 0.3, minTrails: Int = 2) -> [[Double]] {
+    var seen: [(at: MapPoint, from: MapPoint)] = []
+    for t in trails {
+        var i = 0
+        while i < t.count {
+            var j = i
+            while j + 1 < t.count && distance(t[i], t[j + 1]) <= still { j += 1 }
+            if j - i + 1 >= minStay, let k = (max(0, i - 4)..<i).first(where: { from.contains(distance(t[$0], t[i])) }) {
+                seen.append((t[i], t[k]))
+            }
+            i = j + 1
+        }
+    }
+    var groups: [[(at: MapPoint, from: MapPoint)]] = []
+    for s in seen {
+        if let g = groups.firstIndex(where: { distance($0[0].at, s.at) <= merge }) { groups[g].append(s) } else { groups.append([s]) }
+    }
+    func mean(_ v: [Double]) -> Double { roundTo(v.reduce(0, +) / Double(v.count), 100) }
+    return groups.filter { $0.count >= minTrails }.compactMap { g in
+        let sectors = Dictionary(grouping: g) { Int((bearing(from: $0.at, to: $0.from) + 22.5) / 45) % 8 }
+        guard let best = sectors.values.max(by: { ($0.count, $1.first!.from.x) < ($1.count, $0.first!.from.x) }) else { return nil }
+        return [mean(g.map(\.at.x)), mean(g.map(\.at.y)), mean(best.map(\.from.x)), mean(best.map(\.from.y)), Double(g.count)]
+    }
+}
+
+/// Where to walk before clicking an NPC whose pin is `pin`: the approach of the stand nearest it, within `near` (a map
+/// pin is off by up to 0.5: Elatrell Featherlight's read 41.5, 23.1 for her stand at 41.75, 23.45, live run 30). An
+/// approach that is itself another stand (an NPC beside another on one platform: Elatrell Featherlight beside Rorian,
+/// live run 30, 26 Sept) is followed to that stand's approach, at most three times, so the walk ends on the ground
+/// players came from. nil: no stand there, and the walk goes to the pin as before.
+func approach(to pin: MapPoint, in g: RoadGraph?, near: Double = 0.7) -> MapPoint? {
+    let stands = g?.stands ?? []
+    func nearest(_ p: MapPoint, within: Double) -> [Double]? {
+        stands.filter { distance(($0[0], $0[1]), p) <= within }.min { distance(($0[0], $0[1]), p) < distance(($1[0], $1[1]), p) }
+    }
+    guard var stand = nearest(pin, within: near) else { return nil }
+    for _ in 0..<3 {
+        guard let next = nearest((stand[2], stand[3]), within: 0.2), next != stand else { break }
+        stand = next
+    }
+    return (stand[2], stand[3])
 }

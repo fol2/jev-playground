@@ -7,13 +7,13 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 218  // the current count: removing a check must lower this on purpose
-let minNavChecks = 321  // the current count: removing a check must lower this on purpose
+let minNavChecks = 357  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 29  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
 let perceptionFile = navDir + "perception.jsonl"  // the accepted readings of the perception regression set
-let minPerceptionFrames = 2453  // the current count: dropping frames from the set must lower this on purpose
+let minPerceptionFrames = 5714  // the current count: dropping frames from the set must lower this on purpose
 
 /// Exactly one "NAME checks passed: N" line, with N at least `minimum`.
 func counted(_ output: String, _ name: String = "motor", _ minimum: Int = minChecks, label: String = "checks passed") throws -> Int {
@@ -348,14 +348,33 @@ func navTrap() throws {
         || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {
         throw GateError("F10 and F11 are not released by every key set that can press them")
     }
+    // A turn key is granted before it goes down, so the watchdog lifts it if the task stalls (review of #53).
+    for (file, text) in [("Nav.swift", navCore), ("Hunt.swift", huntCore), ("QuestProbe.swift", quest)] {
+        let lines = text.components(separatedBy: "\n")
+        for (i, line) in lines.enumerated() {
+            for key in ["pulse.code", "FightLimits.turnRight"] where line.contains(".press(\(key))") {
+                guard i > 0, lines[i - 1].contains(".grant(\(key),") else {
+                    throw GateError("\(file): a turn key is pressed without a watchdog grant for that key on the line before")
+                }
+            }
+        }
+    }
     // M5's learned reader in shadow is never waited for: the busy check returns at once, and every read, the model
     // load included, runs in the queue's closure (review, #50: a synchronous read delayed clicks and retries).
     let shadowCall = after("func shadowMarks", quest).components(separatedBy: "\n    }\n")[0]
     let (beforeQueue, inQueue) = (shadowCall.components(separatedBy: "shadowQueue.async")[0], shadowCall.components(separatedBy: "shadowQueue.async").dropFirst().joined())
     if !beforeQueue.contains("if busy {") || beforeQueue.contains("MarkReader") || beforeQueue.contains(".marks(")
         || !inQueue.contains("try MarkReader()") || !inQueue.contains("try shadow.marks(image, pixels)")
-        || quest.components(separatedBy: "MarkReader").count != 3 {
+        || quest.components(separatedBy: "MarkReader").count != 5 {
         throw GateError("the learned reader's shadow can hold the quest run: its load or read is not on its own queue")
+    }
+    // The learned reader also acts, through a click reader of its own (live runs 21 and 31: targets the rules miss, each
+    // hover-confirmed, and each rule mark's kind). It is declared once, lazily, and read only where click targets are
+    // chosen, never per frame; the two uses of MarkReader beyond the shadow's are its declaration.
+    let clickTargets = after("func clickMarks", quest).components(separatedBy: "\n    }\n")[0]
+    if !quest.contains("private lazy var clickReader: MarkReader? = try? MarkReader()")
+        || quest.components(separatedBy: "clickReader").count - 1 != 1 + clickTargets.components(separatedBy: "clickReader").count - 1 {
+        throw GateError("the learned click reader is read outside clickMarks, or declared other than once and lazily")
     }
     if !quest.contains("if walker?.holding == true { return \"WALK_KEYS_HELD\" }")
         || !quest.contains("guard !legs.holding else { return \"WALK_KEYS_HELD\" }") {
@@ -432,7 +451,7 @@ func motorProof(update: Bool) throws -> String {
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)
-    let graphChecks = try suite(graphTests, "decision graph", 56)
+    let graphChecks = try suite(graphTests, "decision graph", 59)
     let checks = try suite(tests, "motor", minChecks)
     try refuses(probe, [["--bogus"], ["--execute"], ["--execute", "--keys", "arrows"], ["--execute", "turn-left:100"],
                         ["--execute", "--keys", "arrows", "turn-left:300"], ["--release"], ["--preflight", "extra"]])

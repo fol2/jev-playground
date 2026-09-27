@@ -114,6 +114,36 @@ func arrowFacing(_ image: RGBA) -> Double? {
         return false
     }
     navy = navy.filter { nearSilver($0.0, $0.1) }  // the lavender quest-area outline is not beside silver
+    // Where that navy falls in several parts and two or more are dot-sized (within 7 x 7, 9 px at least), the tail is the
+    // one silver rings on most sides: a quest area's blue band beyond the tip is beside silver on one side (live run 36,
+    // 27 Sept: its pixels pulled the "dot" towards the tip, the facing read 258-344° for 131°, and the walk turned on the
+    // spot until NO_PROGRESS). Otherwise every part counts, as before: over water the dot joins the water's navy.
+    var parts: [[(Int, Int)]] = [], left = navy
+    while let seed = left.popLast() {
+        var part = [seed], i = 0
+        while i < part.count {
+            let (px, py) = part[i]
+            i += 1
+            let near = left.indices.filter { abs(left[$0].0 - px) <= 1 && abs(left[$0].1 - py) <= 1 }
+            part += near.map { left[$0] }
+            for k in near.reversed() { left.remove(at: k) }
+        }
+        parts.append(part)
+    }
+    let dots = parts.filter { p in p.count >= 9 && p.map(\.0).max()! - p.map(\.0).min()! < 7 && p.map(\.1).max()! - p.map(\.1).min()! < 7 }
+    func ringed(_ p: [(Int, Int)]) -> Int {  // quadrants round the part's centre holding silver within 3 px of it
+        let cx = Double(p.map(\.0).reduce(0, +)) / Double(p.count), cy = Double(p.map(\.1).reduce(0, +)) / Double(p.count)
+        var sides = Set<Int>()
+        for (x, y) in p {
+            for dy in -3...3 {
+                for dx in -3...3 where silver.contains((y + dy) * w + x + dx) {
+                    sides.insert((Double(x + dx) >= cx ? 1 : 0) + (Double(y + dy) >= cy ? 2 : 0))
+                }
+            }
+        }
+        return sides.count
+    }
+    if parts.count > 1 && dots.count > 1 { navy = dots.max { (ringed($0), $0.count) < (ringed($1), $1.count) }! }
     guard navy.count >= 3 else { return nil }
     let nx = Double(navy.map(\.0).reduce(0, +)) / Double(navy.count)
     let ny = Double(navy.map(\.1).reduce(0, +)) / Double(navy.count)
@@ -151,11 +181,40 @@ func arrowFacing(_ image: RGBA) -> Double? {
 /// "44.8,28.1", "44.8, 28.1" or "44.7.27.9" (OCR reads the comma as a dot). A digit on either side
 /// rejects the match, so "144.8,28.1" is not read as 44.8.
 func parseCoords(_ text: String) -> MapPoint? {
-    let pattern = #"(?<!\d)(\d{1,2})\.(\d)\s*[.,]\s*(\d{1,2})\.(\d)(?!\d)"#
+    let pattern = #"(?<!\d)(\d{1,2})[.,](\d)\s*[.,]\s*(\d{1,2})[.,](\d)(?!\d)"#
+    // Both numbers keep their decimal: a reading that lost one lost a glyph, and a glyph lost elsewhere reads a wrong
+    // place (live runs 28-29, 26 Sept: "44.9, 23.4" read as "44.9, 23", and then as "4.9, 23", 40 units off).
+    // A decimal point may read as a comma, a glyph kept (live run 31, 27 Sept: "42,2,23.7" twice, and the hunt stopped).
+    // Letters OCR has put for a digit of the same shape, live (run 32, 27 Sept: "42.G,24.3" on every frame for 3 s, with
+    // "24.З", a Cyrillic Ze, and the walk stopped); the pattern still asks for every digit.
+    let text = String(text.map { ["G": "6", "З": "3"][$0] ?? $0 })
     guard let match = text.range(of: pattern, options: .regularExpression) else { return nil }
     let n = text[match].split { !$0.isNumber }.compactMap { Int($0) }
     guard n.count == 4 else { return nil }
     return (Double(n[0]) + Double(n[1]) / 10, Double(n[2]) + Double(n[3]) / 10)
+}
+
+/// Readings of the zone coordinates in time. One that moved further than a character can since the last is a misread
+/// glyph, not a place (live run 33, 27 Sept: 43.3 read as 48.3 and as 3.3 on single frames while standing, and a hunt walk
+/// "moved 59.55"). Three in a row that agree with each other are the place, whatever the last one was.
+struct PositionTrack {
+    static let speed = 0.5, slack = 0.5, agree = 3  // y units a second; walking is about 0.16 (live run 3)
+    /// The time the allowance grows for: Jev calls can stall reading for seconds, and 9 s would pass run 33's 5-unit misread
+    /// (review of #53). A longer real move is taken once three readings agree.
+    static let maxGap = 2.0
+    private(set) var last: (at: MapPoint, t: Double)?
+    private var doubted: [MapPoint] = []
+
+    mutating func accept(_ at: MapPoint, t: Double) -> Bool {
+        if let last, distance(at, last.at) > PositionTrack.slack + PositionTrack.speed * min(PositionTrack.maxGap, max(0, t - last.t)) {
+            doubted.append(at)
+            let recent = doubted.suffix(PositionTrack.agree)
+            guard recent.count == PositionTrack.agree, recent.allSatisfy({ distance($0, at) <= 0.3 }) else { return false }
+        }
+        doubted = []
+        last = (at, t)
+        return true
+    }
 }
 
 /// Zone-map coordinates are percent of a 3:2 map, so one x unit is 1.5 y units of ground.
@@ -363,6 +422,8 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
                 if body.keys.isDown(forward) {
                     body.keys.grant(forward, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 }
+                // A turn key held too: the watchdog lifts it if this task stalls (review of #53).
+                body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 body.keys.press(pulse.code)
                 await body.sleep(Double(pulse.ms) / 1000)
                 body.keys.lift(pulse.code)

@@ -31,6 +31,8 @@ enum HuntLimits {
     static let viewDegrees = 90.0
     static let nearRow = 0.35  // a plate lower in view than this fraction of its height is near (roughly 25 yards)
     static let panoramaFor = 0.6  // map units: a LOOK_AROUND is stale once the character is this far from it
+    /// A hunt's walk that stopped at a red name this near its quest's pin (y units) starts the hunt there: see huntStartsNear.
+    static let startNear = 3.0
     static let sameCreature = 20.0  // degrees: sightings of one name closer than this are one creature
     static let escape: UInt16 = 53
     static var releaseCodes: [UInt16] { [53, 48, 12, 13, 14, drink, eat, FightLimits.zoomOut, FightLimits.zoomIn] }
@@ -56,7 +58,16 @@ func parseTracker(_ lines: [String]) -> [Objective] {
     let count = try! NSRegularExpression(pattern: #"^\W*(\d{1,3})\s*/\s*(\d{1,3})\s+(\S.*)$"#)
     var quest = "", underTitle = false, out: [Objective] = []
     for raw in lines {
-        let line = raw.trimmingCharacters(in: .whitespaces)
+        // A title may carry its quest's level, "[1] Harmony in Balance" (live run 22, 26 Sept: the hunt read no objective),
+        // and OCR reads its brackets as "1" and leads it with a marker (live run 38, 27 Sept: "12] Infestation Investigation",
+        // "[41 Harvesting Windstones", "** [2] ...", "› [4] ..."; the hunt's quest changed its name, and its 3 kills to 7
+        // counted for nothing). A finished quest's "?" icon reads as "3" or "?" (run 39: "3 12] Infestation Investigation").
+        // Icons of one or two characters and the tag go; a count line is left as read.
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let counted = count.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
+        let line = counted ? trimmed : trimmed
+            .replacingOccurrences(of: #"^(?:[^\p{L}\s]{1,2}\s+)+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^[\[(1lI|]?\d{1,2}[\])1lI|]\s+"#, with: "", options: .regularExpression)
         if let m = count.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
            let done = Int(line[Range(m.range(at: 1), in: line)!]), let need = Int(line[Range(m.range(at: 2), in: line)!]) {
             if !quest.isEmpty && need > 0 {
@@ -89,11 +100,29 @@ func nameKey(_ text: String) -> String {
 
 /// The unfinished objective a creature counts for: its name starts the objective's text, as
 /// "Roiling Wind" starts "Roiling Winds destroyed". A partial-word match would let
-/// "Yala Windwatcher" count for Roiling Winds.
-// ponytail: prefix match; irregular plurals ("Wolf" for "Wolves slain") never count.
+/// "Yala Windwatcher" count for Roiling Winds; a target frame's misread name counts when most of it is there (mostlyIn).
+// ponytail: irregular plurals ("Wolf" for "Wolves slain") never count.
 func objective(for name: String?, in objectives: [Objective]) -> Objective? {
     guard let name, nameKey(name).count >= 4 else { return nil }
-    return objectives.first { $0.unfinished && nameKey($0.text).hasPrefix(nameKey(name)) }
+    return objectives.first { $0.unfinished && (nameKey($0.text).hasPrefix(nameKey(name)) || mostlyIn(name, $0.text)) }
+}
+
+/// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
+/// OCR reads one Juvenile Vuldren three ways ("Juvenile Vuldren 30s40", "luvenile Vuldren ЛОРAУ"), and each change
+/// rejected the decision taken on it (live run 26, 26 Sept: target_cue_changed four times, no fight).
+func targetCue(_ name: String?, _ objectives: [Objective]) -> String? {
+    name.map { objective(for: $0, in: objectives)?.text ?? nameKey($0) }
+}
+
+/// Whether most of a target frame's name is in an objective: at least 60% of its four-letter runs. The frame's font
+/// loses a first letter and adds a stray tail (live run 25, 26 Sept: "luvenile Vuldren ЛОРAУ" and "Tuvenile Vuldren"
+/// for Juvenile Vuldren, both taken for creatures that count for nothing), while another creature of one family
+/// shares only its family word ("Vuldren Matriarch": 4 of 13 runs).
+func mostlyIn(_ name: String, _ text: String) -> Bool {
+    let n = Array(nameKey(name)), t = nameKey(text)
+    guard n.count >= 6 else { return false }
+    let runs = (0...(n.count - 4)).map { String(n[$0..<$0 + 4]) }
+    return Double(runs.filter { t.contains($0) }.count) >= 0.6 * Double(runs.count)
 }
 
 /// The objectives in `wanted` not yet seen finished in `now`: finished is its own line read at done >= need,
@@ -342,6 +371,7 @@ struct HuntObs: Equatable {
     var combat = false
     var target: String? = nil  // the target frame's name; nil when nothing is selected
     var targetAlive = false
+    var targetInRange: Bool? = nil  // Lightning Bolt's key digit not red: the selected creature is within 30 yards; nil: unread
     var gameMenu = false
     var facing: Double? = nil  // the minimap arrow
     var area: QuestArea? = nil
@@ -423,6 +453,13 @@ func questCreature(_ o: HuntObs) -> Seen? {
 /// headings, the real Jev backed away from a ridge instead of following it. Inside, the walks are
 /// compass headings and the way to a creature that counts. NEXT_TARGET right after a walk or a look
 /// would select the same creature: both end with a Tab.
+/// What ends a hunt with a position read and nothing admissible: its walks spent, else nothing to do here. Live run 37,
+/// 27 Sept: after 24 walks and three fights LOOK_AROUND was the last step, the empty request was refused, and the hunt
+/// ended HUD_UNREADABLE on a readable frame.
+func emptyHuntEnd(_ steps: [HuntStep]) -> String {
+    steps.filter { $0.action.isWalk }.count >= HuntLimits.maxMoves ? "MOVE_LIMIT" : "NO_ADMISSIBLE_SKILL"
+}
+
 func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []) -> [HuntAction] {
     // Attacked with nothing alive selected: the attacker may be behind, where Tab never reaches (live hunt
     // 9 died to a Roiling Wind at the edge of the view), so LOOK_AROUND turns and Tabs; FIGHT can heal.
@@ -512,6 +549,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         target["name"] = name
         target["alive"] = o.targetAlive
         target["counts_for_objective"] = objective(for: name, in: o.objectives)?.text ?? "none"
+        if let inRange = o.targetInRange { target["in_lightning_bolt_range"] = inRange }
     }
     var area: [String: Any] = ["on_minimap": o.area != nil]
     if let a = o.area {
@@ -524,7 +562,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
     if let facing = o.facing { character["facing_deg"] = Int(facing.rounded()) }
     if let here = o.here { character["position"] = ["x": here.x, "y": here.y] }
     return [
-        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts, and those creatures are found inside the selected quest's area on the minimap. Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
+        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts. Such creatures are mostly inside the selected quest's area on the minimap, but one that counts may be fought wherever it is: a selected creature that counts and is in Lightning Bolt range can be fought from here (live run 28, 26 Sept: six such targets were walked past towards the area). Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
         "objectives": o.objectives.filter(\.unfinished).map {
             ["quest": $0.quest, "objective": $0.text, "progress": "\($0.done)/\($0.need)"]
         },
@@ -626,6 +664,7 @@ func lookAround(_ host: HuntHost) async -> (result: String, seen: [Seen]) {
             let tabbed = await selectNearest(host)
             if host.survey()?.targetAlive == true { return ("attacked; turned \(step * 90)° and " + tabbed, seen) }
         }
+        host.keys.grant(FightLimits.turnRight, seconds: HuntLimits.lookSeconds + NavLimits.forwardWatchdog)  // lifted if this stalls
         guard host.keys.press(FightLimits.turnRight) else { return ("keys released", seen) }
         await host.sleep(HuntLimits.lookSeconds)
         host.keys.lift(FightLimits.turnRight)
@@ -719,6 +758,14 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             await host.sleep(HuntLimits.settle)
             continue
         }
+        // Nothing to offer without a position after LOOK_AROUND (no walk, no second look): read again, as a survey that did
+        // not read (live run 31, 27 Sept: the empty request ended the hunt as HUD_UNREADABLE on one unread position).
+        if o.here == nil && huntAdmissible(o, steps: r.steps).isEmpty {
+            misses += 1
+            if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            await host.sleep(HuntLimits.settle)
+            continue
+        }
         misses = 0
         lastStamp = o.stamp
         r.end = o.objectives
@@ -733,6 +780,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         if !o.combat && sinceFight >= HuntLimits.searchLimit { return finish("NO_TARGET_FOUND") }
 
         let allowed = huntAdmissible(o, steps: r.steps, blocked: blocked)
+        if allowed.isEmpty { return finish(emptyHuntEnd(r.steps)) }  // an empty request is no decision (live run 37)
         var state = huntStatePacket(o, recent: r.steps, fights: r.fights.map(\.outcome), blocked: blocked)
         let experienceFrame = huntExperienceFrame(o, blocked: blocked)
         let experienceContext = experienceFrame?.context ?? [:]
@@ -804,7 +852,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             host.emit("acted", ["action": action.rawValue, "result": result])
             continue
         }
-        let latest = host.readSurvey().value
+        // Sightings are memory, as at the decision: a creature seen seconds ago has not gone because this frame's plate
+        // OCR missed its name (live run 24, 26 Sept: ten GO_TO_QUEST_CREATURE in a row rejected, and no fight).
+        let latest = host.readSurvey().value.map { l -> HuntObs in var l = l; l.seen = merged(o.seen, l.seen); return l }
         let latestAllowed = latest.map { huntAdmissible($0, steps: r.steps, blocked: blocked).map(\.rawValue) } ?? []
         if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),
                 current: latest?.stamp, candidates: latestAllowed, now: host.now(), maximumAge: FightLimits.maxFrameAge,
@@ -872,6 +922,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
 /// The selected quest's area is a circle, on the minimap within 5 units. A fight is not simulated: it
 /// kills the selected creature and costs health and mana, or ends as `fightOutcome` says.
 final class SimHunt: HuntHost {
+    var platesMissed: [Bool] = []  // per survey, in order: true reads no plate (live run 24)
     struct Mob {
         var name: String
         var x: Double
@@ -979,6 +1030,7 @@ final class SimHunt: HuntHost {
         o.seen = mobs.filter { inView($0, within: 1.2) }.map {
             Seen(name: $0.name, hostile: $0.hostile, bearing: bearing(from: here, to: $0.point), near: distance(here, $0.point) <= 0.7)
         }
+        if !platesMissed.isEmpty, platesMissed.removeFirst() { o.seen = [] }  // a frame whose plates OCR did not read
         return o
     }
 

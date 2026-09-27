@@ -43,6 +43,7 @@ final class LiveHuntHost: HuntHost {
     private var walkNo = 0
     private var fights = 0
     private var lastTarget: String?
+    private var lastObjectives: [Objective] = []  // the last survey's, for a fight's target cue
     let fightJev: JevClient  // M3's 4 s timeout, whatever the hunt's own decisions wait
     let fightTactics: FightTactics?  // M3b's chains for each fight; nil: the legacy flat policy
 
@@ -130,8 +131,10 @@ final class LiveHuntHost: HuntHost {
         o.objectives = parseTracker(lines)
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
-        o.stamp?.target = o.target
-        o.targetAlive = !name.isEmpty && observe(pixels, plates: false).target > 0.005
+        o.stamp?.target = targetCue(o.target, o.objectives)  // one creature, however its name reads
+        let hud = observe(pixels, plates: false)
+        o.targetAlive = !name.isEmpty && hud.target > 0.005
+        o.targetInRange = o.targetAlive ? !hud.rangeRed : nil  // the bolt key's digit, as M3 reads it
         o.gameMenu = upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")
         if let at = readCoords(image).at, let facing = o.facing {
             o.here = NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: o.combat, player: o.player)
@@ -143,6 +146,7 @@ final class LiveHuntHost: HuntHost {
             }
         }
         lastTarget = o.target
+        lastObjectives = o.objectives
         emit("look", ["frame": frameNo - 1, "tracker": lines, "target": orNull(o.target), "alive": o.targetAlive,
                       "health": Int(o.player * 100), "mana": Int(o.mana * 100), "combat": o.combat, "game_menu": o.gameMenu,
                       "facing": orNull(o.facing.map { Int($0.rounded()) }), "x": orNull(o.here?.x), "y": orNull(o.here?.y),
@@ -164,6 +168,8 @@ final class LiveHuntHost: HuntHost {
         }
         let host = LiveHost(session: session, feed: feed, sink: sink, directory: folder, log: log, input: childKeys)
         if let name = lastTarget { host.corpseNames.append(name.lowercased()) }
+        let objectives = lastObjectives
+        host.cue = { targetCue($0, objectives) ?? $0 }
         lock.withLock { fighting = host }
         defer { lock.withLock { fighting = nil } }
         emit("fight_start", ["fight": fights, "target": orNull(lastTarget), "in_combat": inCombat])

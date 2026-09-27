@@ -26,6 +26,17 @@ extension NavTests {
               "the tracker's OCR lines parse into quests and objective counts")
         check(parseTracker(["Agitators", "Oyo Roiling Winds destroyed"]).isEmpty, "a misread count is not an objective")
         check(parseTracker(["- 0/6 Roiling Winds destroyed"]).isEmpty, "an objective with no quest title above is dropped")
+        check(parseTracker(["[1] Harmony in Balance", "- 0/8 Juvenile Vuldren slain"]) == [Objective(quest: "Harmony in Balance", done: 0, need: 8, text: "Juvenile Vuldren slain")]
+              && parseTracker(["(12] Agitators", "- 0/6 Roiling Winds destroyed"]).first?.quest == "Agitators",
+              "live run 22: a title led by its quest's level (\"[1] \") is still a title")
+        let titles = ["12] Infestation Investigation", "[41 Harvesting Windstones", "** [2] Infestation Investigation", "› [4] The Gift of Skysight",
+                      "3 12] Infestation Investigation", "? 12] Infestation Investigation", "3 [2] Infestation Investigation"]
+        check(titles.map { parseTracker([$0, "- 7/8 Pesky Cirrusfly slain"]).first?.quest }
+              == ["Infestation Investigation", "Harvesting Windstones", "Infestation Investigation", "The Gift of Skysight",
+                  "Infestation Investigation", "Infestation Investigation", "Infestation Investigation"]
+              && parseTracker(["3 12] Infestation Investigation", "Reaay for turn-in"]) == [Objective(quest: "Infestation Investigation", done: 1, need: 1, text: Objective.ready)]
+              && parseTracker(["Agitators", "- 12/15 Windstone Cluster"]).first.map { $0.done == 12 && $0.need == 15 } == true,
+              "live run 38: a level tag with a bracket read as \"1\", or a marker before it, still leaves the title; counts keep their digits")
         check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
         // The owner's demo tracker (23 Sept): finished quests show "Ready for turn-in" instead of objectives.
         let demo = parseTracker(["Quests", "Aggressive Encroachment", "Ready for turn-in", "Harvesting Windstones",
@@ -140,6 +151,13 @@ extension NavTests {
         var done = objectives
         done[1].done = 6
         check(objective(for: "Roiling Wind", in: done) == nil, "a finished objective no longer counts")
+        let vuldren = [Objective(quest: "Harmony in Balance", done: 0, need: 8, text: "Juvenile Vuldren slain")]
+        check(objective(for: "luvenile Vuldren ЛОРAУ", in: vuldren) != nil && objective(for: "Tuvenile Vuldren", in: vuldren) != nil
+              && objective(for: "Vuldren Matriarch", in: vuldren) == nil && objective(for: "Pesky Cirrusfly", in: vuldren) == nil,
+              "live run 25: a target name that lost its first letter or gained a tail still counts; one family word does not")
+        check(targetCue("luvenile Vuldren ЛОРAУ", vuldren) == "Juvenile Vuldren slain" && targetCue("Juvenile Vuldren 30s40", vuldren) == "Juvenile Vuldren slain"
+              && targetCue("Pesky Cirrusfly", vuldren) == "peskycl rrusfly".filter(\.isLetter) && targetCue(nil, vuldren) == nil,
+              "live run 26: one creature is one cue however its name reads; another is another")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]
@@ -186,6 +204,12 @@ extension NavTests {
               "one compass walk at most four times in a row")
         check(!huntAdmissible(wind, steps: Array(repeating: step(.toArea), count: HuntLimits.maxMoves)).contains { $0.isWalk },
               "at most 24 walks per hunt")
+        let spent = Array(repeating: step(.toArea), count: HuntLimits.maxMoves) + [step(.lookAround)]
+        let alone = HuntObs(objectives: objectives, facing: 0, here: here)  // nothing selected, nothing counting in view
+        check(huntAdmissible(alone, steps: spent).isEmpty && emptyHuntEnd(spent) == "MOVE_LIMIT"
+              && emptyHuntEnd([step(.lookAround)]) == "NO_ADMISSIBLE_SKILL"
+              && huntOutcome("MOVE_LIMIT", start: [], end: []) == "HUNT_MOVE_LIMIT" && QuestLimits.huntFails.contains("HUNT_MOVE_LIMIT"),
+              "live run 37: walks spent and a look just taken leave nothing to offer; the hunt ends MOVE_LIMIT, not HUD_UNREADABLE")
         var drained = wind
         drained.mana = 0.5
         drained.mana = 0.2
@@ -227,6 +251,13 @@ extension NavTests {
               && creatures.first?["counts_for_objective"] as? String == "Roiling Winds destroyed"
               && state["hostile_creatures_near"] as? Int == 1 && state["blocked_headings_near_here"] as? [Int] == [0],
               "the state gives the area, the creatures in view with what they count for, hostiles near and blocked headings")
+        var aimed = away
+        aimed.target = "Roiling Winds"; aimed.targetAlive = true; aimed.targetInRange = true
+        let aimedState = huntStatePacket(aimed, recent: [], fights: [], blocked: [])
+        check((aimedState["target"] as? [String: Any])?["in_lightning_bolt_range"] as? Bool == true
+              && (huntStatePacket(away, recent: [], fights: [], blocked: [])["target"] as? [String: Any])?["in_lightning_bolt_range"] == nil
+              && (aimedState["goal"] as? String ?? "").contains("fought wherever it is"),
+              "live run 28: the state says whether the target is in bolt range, and a counting creature may be fought outside the area")
         let question = actionQuestion(huntAdmissible(away), instructions: huntInstructions)
         check(Set((question["criteria"] as? [String: Any] ?? [:]).keys) == Set(huntAdmissible(away).map(\.rawValue)),
               "the question offers only the admissible actions")
@@ -318,6 +349,20 @@ extension NavTests {
         let hunt = await runHunt(host: plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)]), jev: huntScripted([.fight, .lookAround]))
         check(hunt.fights.count >= 1 && hunt.steps.first?.action == .lookAround && hunt.outcome != "DEAD",
               "a hunt attacked from behind finds the attacker and fights it (\(hunt.outcome))")
+        // Live run 24: the plate of a creature that counts is not read on every frame. Seen at the decision, it is still
+        // there when the action is revalidated on a frame that missed it (surveys: the start, the decision, the check).
+        let flicker = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])
+        flicker.platesMissed = [false, false, true]
+        let chased = await runHunt(host: flicker, jev: huntScripted([.toCreature, .lookAround]))
+        check(chased.steps.first?.action == .toCreature && chased.steps.first?.result.hasPrefix("not done") == false,
+              "a creature seen at the decision and missed by the next frame's plates is still walked to")
+        // Live run 31: after LOOK_AROUND a survey read no coordinates, so nothing was admissible (no walk without a position,
+        // no second look) and the empty request ended the hunt as HUD_UNREADABLE. Such a survey is read again.
+        let patchy = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 27)])
+        patchy.world.missEvery = 2
+        let searched = await runHunt(host: patchy, jev: huntScripted([.fight, .toCreature, .lookAround] + HuntAction.compass))
+        check(searched.outcome != "HUD_UNREADABLE" && searched.steps.contains { $0.action.isWalk },
+              "a survey without a position after LOOK_AROUND is read again, and the hunt walks on (\(searched.outcome))")
     }
 
     static func huntScripted(_ preference: [HuntAction]) -> ScriptedJev<HuntAction> {
@@ -498,6 +543,21 @@ extension NavTests {
         check(!sameUnit("Dalia", "Dalia the Collector") && !sameUnit("Collector", "Dalia the Collector")
               && !sameUnit("Dalia the Collector", "Dalia the Collectors Apprentice"),
               "a part of the name, or a longer name holding it, is someone else")
+        // Live run 17, 26 Sept: under Rorian's "?", his tooltip and players' (names changed here).
+        // Review of #53, on live hovers: the green names read for Rorian are like his tooltip's; Boro's over a firefly's is not.
+        let rorian = ["Rorian the Dayseeker", "Level 20", "Press F6 to submit an issue for this Creature"]
+        let garbled = ["Roriee", "Lorian the Dry", "Roxiar", "Root", "coen ce badeeke", "Veios Rapu, Npoten the Digiseefer"]
+        check(garbled.allSatisfy { unitCheck(rorian, name: $0, declined: []) == .confirmed }
+              && unitCheck(["Fireflies", "Level 1", "Press F6 to submit an issue for this Creature"], name: "Windshaper Boro", declined: []) == .other
+              && unitCheck(["Juvenile Vuldren", "Level 1 Beast"], name: "Elatrell Featherlight", declined: []) == .other
+              && unitCheck(["Windshaper Boro", "Shaman Trainer", "Level 5"], name: "", declined: ["Windshaper Boro"]) == .declined
+              && unitCheck(["Level 20"], name: "", declined: ["Windshaper Boro"]) == .other
+              && unitCheck(["Ventaari Brightwish", "Windshapers", "Level 5"], name: "", declined: []) == .confirmed
+              && unitCheck(rorian, name: "Befeshgar h a depafeke", declined: []) == .other,
+              "a hover confirms by the name, or an NPC's tooltip like the green name (any NPC's when none read); never a declined one")
+        check(npcTip(["Rorian the Dayseeker", "Level 20", "Press F6 to submit an issue for this Creature"]) && npcTip(["Ailee Farheart", "Level 1"])
+              && !npcTip(["A Player", "Level 2 Windshaper Skyborne (Player)", "Druid"]) && !npcTip([]) && !npcTip(["Rorian the Dayseeker"]),
+              "an NPC's tooltip has a level line and no \"(Player)\"; a player's, an empty one or a bare name is not")
         let row = tip([("Strogruid Noc", 1905, 224), ("Dalia the Collector", 1858, 225), ("Jolee Brightmeadows", 1700, 223),
                        ("<Cloth & Leather Armor>", 1870, 238)])
         check(nameLine(row, nameX: 1901, nameTop: 224)?.text == "Dalia the Collector" && nameLine(row, nameX: 1850, nameTop: 224)?.text == "Jolee Brightmeadows"
@@ -581,6 +641,13 @@ extension NavTests {
         check(icons.count == 2 && icons[0].offer && !icons[1].offer, "a minimap \"!\" (a quest to take) is told from a \"?\" by its width")
         check(markYellow(239, 236, 116) && markYellow(184, 155, 39) && !markYellow(135, 111, 74) && !markYellow(144, 115, 59),
               "yellow by hue: the live minimap \"?\" and a dim NPC \"?\", not parchment or tan land")
+        // Live run 33: an in-progress pin's "..." is three dots of 2 x 3 px, 3 px apart (rgb 220 192 110), on a dark disc.
+        var map = [UInt8](repeating: 60, count: 800 * 720 * 4)
+        for x0 in [375, 380, 385] { for dy in 0..<3 { for dx in 0..<2 {
+            let k = ((324 + dy) * 800 + x0 + dx) * 4; map[k] = 220; map[k + 1] = 192; map[k + 2] = 110 } } }
+        let pins = mapPins(RGBA(width: 800, height: 720, pixels: map))
+        check(pins.count == 1 && abs(pins[0].x - 380.5) < 1 && abs(pins[0].y - 325) < 1,
+              "a world map \"...\" pin (a quest in progress) is a flat row of three yellow dots, found as one pin")
 
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")
@@ -592,6 +659,27 @@ extension NavTests {
         let offered = tip([("Accept the Windstones from Boros", 30, 200), ("Accept", 40, 690), ("Decline", 280, 690)])
         check(acceptButton(offered)?.y == 690 && acceptButton(tip([("Accept the Windstones", 30, 200), ("Goodbye", 40, 690)])) == nil,
               "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
+        // Live run 14, 26 Sept: Ailee Farheart greets before her quest, which is listed after a yellow "!".
+        let greeting = tip([("Ailee Farheart", 30, 200), ("Hello, shaman.", 30, 260), ("! Coming of Age", 30, 400), ("Goodbye", 40, 690)])
+        let ours = ["Harvesting Windstones", "Harmony in Balance"]
+        check(offeredEntry(greeting, ours: ours)?.y == 400 && offeredEntry(tip([("Hello, shaman.", 30, 260), ("! ", 30, 400)]), ours: ours) == nil
+              && offeredEntry(tip([("? Harvesting Windstones", 30, 400)]), ours: ours) == nil && offeredEntry(offered, ours: ours) == nil,
+              "a greeting's quest to take is the entry after its \"!\"; a bare icon, a \"?\" to hand in, or an open offer is none")
+        // Live run 31, 27 Sept: Ventaari Brightwish's "! The Gift of Skysight" read as "? ...", and the offer was left.
+        let skysight = tip([("Ventaari Brightwish", 30, 200), ("What may I do for you, fellow", 30, 260), ("? Harmony in Balance", 30, 330),
+                            ("? The Gift of Skysight", 30, 400), ("Goodbye", 40, 690)])
+        check(offeredEntry(skysight, ours: ours)?.y == 400,
+              "a \"?\" entry whose quest is not in the log is one to take (OCR read its \"!\" as \"?\"); the log's own is not")
+        // Live run 33: Rorian's "!" read as "g"; his greeting's own lines are no entries.
+        let unrest = tip([("Rorian the Dayseeker", 30, 200), ("What do you need of me, child of", 30, 260), ("Lephras?", 30, 290),
+                          ("A fine day for it.", 30, 320), ("g Elemental Unrest", 30, 400), ("Goodbye", 40, 690)])
+        check(offeredEntry(unrest, ours: ours)?.y == 400 && questEntry("g Elemental Unrest") == "Elemental Unrest"
+              && questEntry("A fine day for it.") == nil && questEntry("Lephras?") == nil,
+              "a quest entry is one icon character and a capitalised title, whatever the icon read as")
+        // Live run 32: the "!" tooltip named "Rorian the Dayseeker" and "Ventaari Brightwish"; Ventaari's title was clicked.
+        check(namedEntry(skysight, names: ["Rorian the Dayseeker", "Ventaari Brightwish"]) == nil
+              && namedEntry(greeting, names: ["Coming of Age"])?.y == 400,
+              "the entry a tooltip named has a quest icon: the panel's title, the NPC's name, is not an entry")
         // Live, 25 Sept: with nothing open, a vendor's name in the world beside the box was read as her dialogue.
         check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
               && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),
@@ -620,6 +708,21 @@ extension NavTests {
 
     static func plans() {
         check(log24Sept.map(questKind) == [.useAt, .collect, .useAt, .travel, .travel], "objective text to quest kind")
+        check(questKind(PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: (42.2, 23.2))) == .travel,
+              "live run 15: \"Speak with\" someone is a delivery to them, not a use-at")
+        let hidden = questOffers(QuestRead(quests: [PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: nil)],
+                                           player: (42.1, 23.5), missing: []), failed: [])
+        check(hidden.map(\.skill) == ["HAND_IN_1"] && hidden[0].criterion.contains("no pin"),
+              "live runs 19-20: a delivery whose pin hid under the player's arrow is offered from here, and says so")
+        let misread = questOffers(QuestRead(quests: [PlannedQuest(title: "Coming of Age", level: 1, ready: false, objective: "- Speak with Rorian the Dayseeker in Thendal Grove.", pin: (42.1, 22.7))],
+                                            player: (42.5, 23.1), missing: [], givers: [Giver(names: ["Coming of Age"], pin: (42.13, 23.3))]), failed: [])
+        check(misread.map(\.skill) == ["HAND_IN_1"], "live run 21: a minimap icon naming a quest in the log is its \"?\", not a \"!\" to accept")
+        // Live run 21: the learned reader read Rorian's near "?" at (1260, 482, 21 x 46), which the rules missed.
+        let near = learnedMark([1260, 482, 21, 46]), rule: QuestMark = (1270, 500, 20, 700, 1270, 540)
+        check(near.x == 1270 && near.y == 504.5 && near.body > near.nameTop && near.nameTop > near.y
+              && extraMarks([near], beside: [rule]).isEmpty && extraMarks([near], beside: []).count == 1
+              && extraMarks([learnedMark([400, 300, 8, 16])], beside: [rule]).count == 1,
+              "a learned mark is a click target placed as the rules place one; one the rules also found is not added twice")
         check(questKind(PlannedQuest(title: "The Cirrusfly Queen", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)) == .handIn
               && questKind(PlannedQuest(title: "Q", level: 3, ready: false, objective: "- 0/1 Cirrusfly Queen slain", pin: nil)) == .kill,
               "a finished quest is a hand-in; a slain count is a kill")
@@ -702,9 +805,9 @@ extension NavTests {
               && trackerShows([], ["All Objectives"]),
               "a log is remembered only when the tracker shows each of its quests: not collapsed, filtered or cut off by the box")
         // The live log of run 5 against its upscaled tracker (x 2200, y 400): what may be remembered.
-        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: nil),
-                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: nil),
-                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: nil)]
+        let log5Full = [PlannedQuest(title: "The Next Step", level: 5, ready: false, objective: "Report to Constable Aonda in Shen' dar Village.", pin: (46.1, 45.2)),
+                        PlannedQuest(title: "Harvesting Windstones", level: 4, ready: true, objective: "- Ready for turn-in", pin: (43.4, 23.9)),
+                        PlannedQuest(title: "The Adventurer", level: 6, ready: false, objective: "- Speak to Raan Wildwind near Shen' dar Village.", pin: (42.0, 44.4))]
         let tracker5 = Array(tracked5.dropFirst(2))  // the box starts below "All Objectives" and "Quests"
         check(rememberLog(log5Full, tracker: tracker5, key: key5, missing: []),
               "a complete read, agreeing with the tracker both ways, is remembered")
@@ -712,6 +815,10 @@ extension NavTests {
               && !rememberLog(log5Full, tracker: tracker5, key: key5, missing: ["Call of Earth"]) && !rememberLog(log5Full, tracker: tracker5, key: "", missing: [])
               && !rememberLog(log5Full, tracker: [], key: key5, missing: []),
               "one quest parsed of three, an empty parse, a quest the minimap named but the log lacks, no key or no tracker: not remembered (review of #46)")
+        var pinless = log5Full
+        pinless[2].pin = nil
+        check(!rememberLog(pinless, tracker: tracker5, key: key5, missing: []),
+              "live runs 19-20: a read with a quest whose pin hid under the player's arrow is not remembered, so the next run reads the map")
         let back = zonePoint(mapPixel((46.1, 45.2)).x, mapPixel((46.1, 45.2)).y)
         check(abs(back.x - 46.1) < 1e-9 && abs(back.y - 45.2) < 1e-9 && abs(mapPixel((44.2, 25.6)).x - 348) < 1,
               "map pixels and zone coordinates round-trip; the player arrow at 44.2, 25.6 sat at x 348")
@@ -733,6 +840,10 @@ extension NavTests {
               "live, 26 Sept: the map's own cursor line gives a pin's zone coordinates on any map; the player's line is not the cursor")
         check(mapCursor(["Cursor: 100.0, 7.25"]).map { $0 == (100, 7.25) } == true && mapCursor(["Cursor: 142.0, 7.0"]) == nil,
               "review of #47: the whole 0-100 range and any decimals parse; a number off the map does not")
+        check(mapCursor(["Cursor: 45.8. 27.1", "Plaver: 43.0.23.3"]).map { $0 == (45.8, 27.1) } == true
+              && mapCursor(["Cursor: 42.G. 22.9"]).map { $0 == (42.6, 22.9) } == true && mapCursor(["Cursor: 45.8.27.1"]).map { $0 == (45.8, 27.1) } == true
+              && mapCursor(["Cursor: 45.8.2"]) == nil,
+              "live run 34: the cursor line as OCR read it, a dot for the comma and \"G\" for 6; never the player's line")
     }
 
     /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed; every hunt completes unless listed).
@@ -913,9 +1024,14 @@ extension NavTests {
         check(offered.map(\.skill).filter { $0.hasPrefix("HAND_IN") } == ["HAND_IN_1"]
               && (Set(hunted) == ["HUNT_1 Agitators", "HUNT_2 Wind Shards"] || Set(hunted) == ["HUNT_1 Wind Shards", "HUNT_2 Agitators"]),
               "a kill and a collect quest are hunted; one 20 units away is not, nor the ready quest")
+        // Live run 39: the hunt that killed the last Cirrusfly ended NO_TARGET_FOUND; its failure must not hide the hand-in.
+        let infested = PlannedQuest(title: "Infestation Investigation", level: 2, ready: true, objective: "Ready for turn-in", pin: (43.7, 24.9))
+        let afterHunt = questOffers(QuestRead(quests: [infested], player: (45.1, 27), missing: []), failed: [QuestStep.hunt(infested).key])
+        check(afterHunt.first?.skill == "HAND_IN_1" && QuestStep.hunt(infested).key != QuestStep.handIn(infested).key,
+              "a failed hunt is remembered apart from its quest's hand-in, which is offered once the quest is ready")
         check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
               && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
-              && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: ["Agitators"]).isEmpty,
+              && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: [QuestStep.hunt(winds).key]).isEmpty,
               "a hunt's criterion says where it starts; a failed hunt is not offered again")
         let start = [Objective(quest: "Agitators", done: 0, need: 6, text: "Roiling Winds destroyed")]
         let four = [Objective(quest: "Agitators", done: 4, need: 6, text: "Roiling Winds destroyed")]

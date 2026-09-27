@@ -116,9 +116,15 @@ func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13,
 
 /// Quest pins' glyphs on the open world map ("?", "..."), as capture pixels. Pins sit 17 px apart
 /// (Call of Earth and The Gift of Skysight, 24 Sept), and the map's corner buttons are outside the box.
+/// A quest in progress has "..." on a dark disc: three yellow dots of 2-3 px, 3 px apart, which join only with a wider gap,
+/// as a flat row 11-15 px wide (live run 33, 27 Sept: Infestation Investigation's pin and two others were not found, so
+/// the hunt had no area and found no Cirrusfly). Each spot is hovered, and only a tooltip naming a quest pins it.
 func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> [(x: Double, y: Double)] {
-    yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }
-        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+    let centre = { (b: Blob) in (x: Double(b.sx) / Double(b.n), y: Double(b.sy) / Double(b.n)) }
+    let glyphs = yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }.map(centre)
+    let dots = yellowBlobs(image, box: box, gap: 4).filter { b in b.n >= 6 && (9...16).contains(b.x1 - b.x0 + 1) && b.y1 - b.y0 + 1 <= 5 }
+        .map(centre).filter { d in !glyphs.contains { hypot($0.x - d.x, $0.y - d.y) < 12 } }
+    return glyphs + dots
 }
 
 /// A "?"'s dot joins its hook: a small round blob under a blob, overlapping it across, no further below than
@@ -195,6 +201,27 @@ func questMarks(_ image: RGBA, box: (Int, Int, Int, Int), minPixels: Int = 5) ->
      .sorted { hypot($0.x - cx, $0.y - cy) < hypot($1.x - cx, $1.y - cy) }
 }
 
+/// A mark the learned reader (M5) found, as a click target: its glyph box (x, y, width, height) with the NPC's name
+/// and body placed below it as questMarks places them for a mark of that height (the name about one height under
+/// the glyph, the body 4 heights). The rules miss a near mark (live run 21, 26 Sept: Rorian's 21 x 46 px "?" beside
+/// him, which the learned reader read), so the learned reader adds click targets; a hover must confirm each one.
+func learnedMark(_ box: [Int]) -> QuestMark {
+    let h = Double(box[3]), x = Double(box[0]) + Double(box[2] - 1) / 2, y = Double(box[1]) + (h - 1) / 2
+    return (x, y, h, y + 4 * h, x, y + 0.9 * h)
+}
+
+/// A rule mark's glyph as a box (x, y, width, height) for the learned reader's shape crop: square, its height each way,
+/// since that crop's side follows the longer of the two, and a mark is never wider than tall.
+func glyphBox(_ m: QuestMark) -> [Int] {
+    let h = Int(m.h.rounded())
+    return [Int((m.x - m.h / 2).rounded()), Int((m.y - m.h / 2).rounded()), h, h]
+}
+
+/// The learned marks the rules did not find: none within a mark's height of a rule mark.
+func extraMarks(_ learned: [QuestMark], beside rules: [QuestMark]) -> [QuestMark] {
+    learned.filter { l in !rules.contains { hypot($0.x - l.x, $0.y - l.y) <= max(12, max($0.h, l.h)) } }
+}
+
 // MARK: - The quest plan (M4d)
 
 /// What a quest's objective asks for, read from the quest log's text.
@@ -257,11 +284,13 @@ func trackerShows(_ quests: [PlannedQuest], _ tracker: [String]) -> Bool {
 /// log lacks; and the tracker and the log agree both ways (each quest in the tracker, and each tracker line in
 /// a title or an objective). A read that parsed one quest of four passed a one-way test and would have been
 /// kept for the hour, with `LOG_INCOMPLETE` every run (review, 26 Sept). OCR noise only costs a full read.
+/// A quest with no pin is not kept either: standing on its NPC, the pin hides under the player's arrow, and a kept
+/// read without it offered nothing for the hour (live runs 19-20, 26 Sept).
 func rememberLog(_ quests: [PlannedQuest], tracker: [String], key: String, missing: [String]) -> Bool {
     let log = nameKey(quests.map { $0.title + " " + $0.objective }.joined(separator: " "))
     let lines = tracker.map(nameKey).filter { !$0.isEmpty }
     return !key.isEmpty && !quests.isEmpty && missing.isEmpty && !lines.isEmpty && trackerShows(quests, tracker)
-        && lines.allSatisfy { log.contains($0) }
+        && lines.allSatisfy { log.contains($0) } && quests.allSatisfy { $0.pin != nil }
 }
 
 /// The remembered quests when the key is the same and the memory under an hour old; otherwise nil (read the map).
@@ -276,7 +305,8 @@ func questKind(_ q: PlannedQuest) -> QuestKind {
     if text.contains(" slain") { return .kill }
     if text.range(of: #"\d+/\d+"#, options: .regularExpression) != nil { return .collect }
     if text.hasPrefix("use ") || text.contains(" use ") || text.contains("drink ") { return .useAt }
-    if ["report to", "speak to", "talk to", "return to", "bring "].contains(where: text.hasPrefix) {
+    // Live run 15, 26 Sept: "Speak with Rorian the Dayseeker in Thendal Grove." (Coming of Age) was taken for a use-at.
+    if ["report to", "speak to", "speak with", "talk to", "talk with", "return to", "bring "].contains(where: text.hasPrefix) {
         return .travel
     }
     return q.ready ? .handIn : .useAt
@@ -328,6 +358,29 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
     dialog.first { $0.text.trimmingCharacters(in: .whitespaces) == "Accept" }
 }
 
+/// A greeting's quest entry: its icon, then a title (capitalised, three letters at least). OCR reads the yellow icon as one
+/// character, not always the same: "!" (live run 14, 26 Sept: "! Coming of Age" below "Hello, shaman."), "?" (run 31:
+/// "? The Gift of Skysight") and "g" (run 33: "g Elemental Unrest"). The title, or nil for another line: the NPC's name,
+/// the greeting's text, a bare icon.
+func questEntry(_ text: String) -> String? {
+    let parts = text.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2, parts[0].count == 1, let first = parts[1].first, first.isUppercase,
+          parts[1].filter(\.isLetter).count >= 3 else { return nil }
+    return String(parts[1])
+}
+
+/// The greeting's entry the minimap's tooltip named. The panel's title is the NPC's name, which a "!" tooltip names too
+/// (live run 32, 27 Sept: Ventaari Brightwish's title was clicked and his offer left), so only a quest entry is it.
+func namedEntry(_ dialog: [TipLine], names: [String]) -> TipLine? {
+    dialog.first { l in questEntry(l.text).map { t in names.contains { nameKey($0) == nameKey(t) } } ?? false }
+}
+
+/// The quest an NPC's greeting offers to take: the first entry whose quest is not in the log (`ours`). An entry of the
+/// log's is one to hand in, whatever its icon read as; the page must still show Accept.
+func offeredEntry(_ dialog: [TipLine], ours: [String]) -> TipLine? {
+    dialog.first { l in questEntry(l.text).map { t in !ours.contains { sameTitle(t, $0) } } ?? false }
+}
+
 /// A panel is open when the box holds one of a panel's own buttons, a whole line. The world shows through
 /// the box when nothing is open (live, 25 Sept: a vendor's green name and title, after Click-to-Move had
 /// turned the camera, were taken for her dialogue, and Esc was pressed; Esc with nothing open is the Game Menu).
@@ -355,6 +408,46 @@ func sameUnit(_ tooltip: String, _ name: String) -> Bool {
     let (short, long) = a.count <= b.count ? (a, b) : (b, a)
     guard short.count >= 5, long.count - short.count <= 2 else { return false }
     return long.contains(short)
+}
+
+/// Whether the unit tooltip is an NPC's: a level line that is not a player's. Only NPCs carry quest marks, so an NPC's
+/// tooltip under a mark is its giver even when the green name was misread (live run 17, 26 Sept: Rorian the Dayseeker's
+/// name read "Befeshgar h a depafeke" among four players, and his own tooltip, "Level 20", was not taken).
+func npcTip(_ tooltip: [String]) -> Bool {
+    let lines = tooltip.map { $0.lowercased() }
+    return lines.contains { $0.hasPrefix("level ") } && !lines.contains { $0.contains("(player)") }
+}
+
+/// Whether a misread green name is still this unit's name: most of the shorter name's letters appear in order in the
+/// longer (a longest common subsequence), 60% at least. On live hovers Rorian the Dayseeker's misread names scored 0.62-1.00
+/// ("coen ce badeeke", "Lorian the Dry", "Roriee") and names over other units 0.15-0.56 ("Windshaper Boro" over "Fireflies": 0.22).
+/// Rorian's worst reads ("Befeshgar h a depafeke" 0.39, "Recian de Deyrestar Ved" 0.50) do not confirm; the click goes to the mark.
+func likeName(_ a: String, _ b: String) -> Bool {
+    let x = Array(nameKey(a)), y = Array(nameKey(b))
+    guard min(x.count, y.count) >= 3 else { return false }
+    var row = [Int](repeating: 0, count: y.count + 1)
+    for c in x {
+        var diagonal = 0
+        for j in y.indices {
+            let up = row[j + 1]
+            row[j + 1] = c == y[j] ? diagonal + 1 : max(row[j + 1], row[j])
+            diagonal = up
+        }
+    }
+    return Double(row[y.count]) >= 0.6 * Double(min(x.count, y.count))
+}
+
+enum UnitCheck: Equatable { case confirmed, declined, other }
+
+/// What a hover's unit tooltip says of the NPC under a quest mark, whose green name read `name`. A declined NPC (its panel
+/// was opened and closed as someone else's) is never confirmed. The tooltip confirms by a line that is the name, or by an
+/// NPC's tooltip (npcTip) whose name line is like the green name, or any NPC's when no name was read. Review of #53: an
+/// NPC tooltip alone confirmed any unit with a level line (live: "Fireflies", Level 1, under Windshaper Boro's mark).
+func unitCheck(_ tooltip: [String], name: String, declined: [String]) -> UnitCheck {
+    if tooltip.contains(where: { line in declined.contains { sameUnit(line, $0) } }) { return .declined }
+    if tooltip.contains(where: { sameUnit($0, name) }) { return .confirmed }
+    guard npcTip(tooltip), let unit = tooltip.first, !unit.lowercased().hasPrefix("level") else { return .other }
+    return nameKey(name).count < 3 || likeName(unit, name) ? .confirmed : .other
 }
 
 /// Whether a line read in the quest dialogue is the quest's title. The title is drawn in a decorative
@@ -488,11 +581,19 @@ func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * ma
 
 /// The map's own "Cursor: 42.3, 22.9" line, in zone coordinates whatever map it shows (live, 26 Sept: a new
 /// character's map opened on Thendal Village, not Zephras Isle, so the fixed transform above did not hold).
+/// OCR reads a "6" as "G" and the comma as a dot (live run 34, 27 Sept: "Cursor: 42.G. 22.9" and "45.8. 27.1", so no pin
+/// was placed and the hunt had no area). A dot between the numbers needs one decimal on each side, so it reads one way.
 func mapCursor(_ lines: [String]) -> MapPoint? {
-    let text = lines.joined(separator: " ")
-    guard let m = text.range(of: #"Cursor:?\s*\d{1,3}(\.\d+)?\s*,\s*\d{1,3}(\.\d+)?"#, options: .regularExpression) else { return nil }
-    let numbers = text[m].split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
-    return numbers.count == 2 && numbers.allSatisfy { (0...100).contains($0) } ? (numbers[0], numbers[1]) : nil
+    let text = String(lines.joined(separator: " ").map { ["G": "6", "З": "3"][$0] ?? $0 })
+    let patterns = [#"Cursor:?\s*(\d{1,3}(?:\.\d+)?)\s*,\s*(\d{1,3}(?:\.\d+)?)"#, #"Cursor:?\s*(\d{1,3}\.\d)\s*\.\s*(\d{1,3}\.\d)(?!\d)"#]
+    for pattern in patterns {
+        let range = NSRange(text.startIndex..., in: text)
+        guard let m = try? NSRegularExpression(pattern: pattern).firstMatch(in: text, range: range),
+              let a = Range(m.range(at: 1), in: text).flatMap({ Double(text[$0]) }),
+              let b = Range(m.range(at: 2), in: text).flatMap({ Double(text[$0]) }) else { continue }
+        return (0...100).contains(a) && (0...100).contains(b) ? (a, b) : nil
+    }
+    return nil
 }
 
 /// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
@@ -575,7 +676,8 @@ enum QuestLimits {
     // A hunt that ends at one of its limits with no count risen fails its step; any other code that is
     // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
     static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
-                                         "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE"]
+                                         "HUNT_NO_TARGET_FOUND", "HUNT_NO_UNFINISHED_OBJECTIVE", "HUNT_MOVE_LIMIT",
+                                         "HUNT_NO_ADMISSIBLE_SKILL"]
     static let maxLeg = 12.0  // a hub is smaller: a longer walk is zone travel, by the learned roads (Roads.swift)
     static let decisionSeconds = 20.0  // chosen standing in a hub, with up to four graph calls
     // After a right-click on an NPC, Click-to-Move walks there: the box is read every `clickPoll` s until a
@@ -586,6 +688,9 @@ enum QuestLimits {
     // One hover sweep over an NPC's points (QuestRun.onUnit) stops starting points after 12 s: a read takes
     // 0.7 s, or up to 2.9 s when a background move stalls the capture.
     static let hoverSeconds = 12.0
+    /// The learned reader names a mark's kind reliably from this height (px) up: 20 of 20 on saved frames, 27 Sept. Below
+    /// it, far marks of 3-5 px, it named a "!" as "?" at confidence 1.00, so a small mark keeps its place whatever it reads.
+    static let kindMinHeight = 6.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
@@ -610,7 +715,10 @@ enum QuestStep {
     }
     var key: String {  // what a failure is remembered by
         switch self {
-        case .handIn(let q), .hunt(let q): return q.title
+        case .handIn(let q): return q.title
+        // Its own key: a hunt that fails once its quest is done must not block the hand-in (live run 39, 27 Sept: the last
+        // Cirrusfly was killed, the hunt ended NO_TARGET_FOUND, and "Ready for turn-in" was never offered).
+        case .hunt(let q): return "HUNT " + q.title
         case .accept(let g): return "!" + g.key
         case .road(let q, _): return "ROAD " + q.title
         case .retreat: return "RETREAT"
@@ -618,13 +726,26 @@ enum QuestStep {
     }
 }
 
+/// The key a quest's step here fails by: its hunt's while it has creatures or objects to take, else its hand-in's.
+func stepKey(_ q: PlannedQuest) -> String {
+    [.kill, .collect].contains(questKind(q)) ? QuestStep.hunt(q).key : QuestStep.handIn(q).key
+}
+
+/// Whether a hunt starts where its walk stopped. A walk stops at a red name ahead, and near a kill quest's pin red names are
+/// most likely its creatures (live run 35, 27 Sept: 1.9 from the pin, two level-1 Juvenile Vuldren, one's red-brown body read
+/// as a red name; the run retreated and ended). Within startNear the hunt starts: it reads each plate's name, fights only what
+/// counts and fights back. Any other stop, or further away, ends the step as before.
+func huntStartsNear(_ stop: String, at: MapPoint?, pin: MapPoint) -> Bool {
+    stop == "WALK_DANGER_AHEAD" && at.map { distance($0, pin) <= HuntLimits.startNear } == true
+}
+
 /// Whether a quest walk from `at` to `pin` starts. No position: WALK_HUD_UNREADABLE (never "arrived" unseen). Within
-/// 0.5: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
+/// `arrive`: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
 /// nowhere on it); the walk's own stops (danger, combat, the owner, the HUD, no progress, its limits) hold either way.
 enum WalkStart: Equatable { case walk, there, refused(String) }
-func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool) -> WalkStart {
+func walkStart(at: MapPoint?, to pin: MapPoint, road: Bool, arrive: Double = 0.5) -> WalkStart {
     guard let at else { return .refused("WALK_HUD_UNREADABLE") }
-    guard distance(at, pin) > 0.5 else { return .there }
+    guard distance(at, pin) > arrive else { return .there }
     return road || distance(at, pin) <= QuestLimits.maxLeg ? .walk : .refused("TOO_FAR_NEEDS_ROADS")
 }
 
@@ -661,14 +782,20 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
         [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
-            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } == true
+            && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false  // no pin: its NPC may stand here
     }
     let handIns = open.prefix(QuestLimits.slots).enumerated().map { i, q in
-        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away(q.pin!)) units away) "
+        ("HAND_IN_\(i + 1)", QuestStep.handIn(q), (q.pin.map { "Walk to the quest giver of \"\(q.title)\" (level \(q.level), \(away($0)) units away) " }
+            ?? "Find the quest giver of \"\(q.title)\" (level \(q.level)) near here: the map showed no pin, which hides under the "
+                + "player's arrow when its NPC stands here, ")
             + "and hand it in. The log reads: \(q.objective.isEmpty ? "(no objective line)" : q.objective)")
     }
     // A mark in view is offered only with no hand-in here: beside a quest to hand in, it is most likely that "?" (review of #47).
-    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg && (!$0.inView || handIns.isEmpty) }
+    // A "!" offers a quest not yet taken: an icon whose tooltip names a quest in the log is that quest's "?", misread
+    // by its width (live run 21, 26 Sept: Rorian's "Coming of Age" offered as ACCEPT_1 beside its own hand-in).
+    let logged = Set(read.quests.map { nameKey($0.title) })
+    let givers = read.givers.filter { !failed.contains("!" + $0.key) && distance(read.player, $0.pin) <= QuestLimits.maxLeg && (!$0.inView || handIns.isEmpty)
+        && !$0.names.contains { logged.contains(nameKey($0)) } }
         .sorted { distance(read.player, $0.pin) < distance(read.player, $1.pin) }
     let accepts = givers.prefix(QuestLimits.giverSlots).enumerated().map { i, g in
         ("ACCEPT_\(i + 1)", QuestStep.accept(g), g.inView
@@ -678,7 +805,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
                 + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
     }
     let hunted = questPlan(read.quests, from: read.player).filter { q in
-        [.kill, .collect].contains(questKind(q)) && !failed.contains(q.title)
+        [.kill, .collect].contains(questKind(q)) && !failed.contains(stepKey(q))
             && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false
     }
     let hunts = hunted.prefix(QuestLimits.huntSlots).enumerated().map { i, q in
@@ -694,7 +821,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
     // ponytail: no map check; the run envelope is Zephras Isle, where the roads were learned. Compare the zone's
     // name above the minimap with roads.subzones before runs leave it.
     let far = questPlan(read.quests, from: read.player).filter { q in
-        [.handIn, .travel, .kill, .collect].contains(questKind(q)) && !failed.contains(q.title) && !failed.contains("ROAD " + q.title)
+        [.handIn, .travel, .kill, .collect].contains(questKind(q)) && !failed.contains(stepKey(q)) && !failed.contains("ROAD " + q.title)
             && q.pin.map { distance(read.player, $0) > QuestLimits.maxLeg } == true
     }
     let routed = far.lazy.compactMap { q in route(roads, from: read.player, to: q.pin!).map { (q, $0) } }.prefix(QuestLimits.roadSlots)
@@ -755,7 +882,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads)
         if offers.isEmpty {
-            let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains($0.title) }
+            let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
         let decision: GraphDecision
