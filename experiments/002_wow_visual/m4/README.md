@@ -1050,6 +1050,53 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - `NavTests` covers a walk to safety past a red name, at low health, and within its seconds.
   - Live: not yet run.
 
+## M4s — death recovery at the Spirit Healer (27 Sept)
+
+The character died twice on 27 Sept: once between runs 56 and 57, and once after run 65. The owner, the same day, made
+recovery part of the envelope: resurrect at the Spirit Healer, automatically. Below level 10 it costs nothing. Each
+death is still reported.
+
+- **`reviveIfDead`** (LiveQuestHost) is SAFETY's. It runs twice in a quest run:
+  - at the start: dead there, the run starts only once the character is resurrected;
+  - at the end, after `leaveDanger`: death in the run or on the way to safety.
+- **Clicks** (`deathStep`, `revive`), each found by its text:
+  1. "Release Spirit" in the top popup;
+  2. "Return me to life." in the Spirit Healer's gossip. After run 65 it opened by itself about 6 s after the release.
+     After run 66 it did not, so when the gossip is not open and a "Spirit Healer" name is in view, the healer is
+     right-clicked seven name heights below its name (TALK). Only the dead see a Spirit Healer, so that name also finds a
+     ghost at the start of a run. The whole line must be its name (a chat bubble that mentions one is no ghost), and the
+     click stays in the view above the bars;
+  3. "Accept", only on the popup that says "resurrect", beside Cancel, and only after step 2. The button's whole line must
+     read "Accept". Another popup's Accept is never taken: a party invite, a summons, or another player's offer to
+     resurrect (Accept and Decline).
+- **Checks.**
+  - Every read is on a frame captured after the last click. A frame that does not come is no read.
+  - Text is read in Latin letters: Vision read that Accept with a Cyrillic A.
+  - No click while any of the run's keys is held (walk, fight or hunt).
+- **Limits.**
+  - A step still shown is clicked again, at most six clicks in all.
+  - `REVIVED` needs two fresh frames in a row with nothing left to click after Accept (`deathSeen`). A quiet capture, or
+    a single read, is `DEATH_AFTER_ACCEPT`, not a resurrection (review of #73).
+  - Anything else stops where it stands (`DEATH_AFTER_…`). A ghost is not attacked.
+  - The owner's takeover stops it.
+- **Time.** One clock from the run's start: the quest steps get what setup and a revive at the start left of their 20
+  minutes, and the way to safety (M4r) ends 90 s early for the revive at the end. Six clicks, each waiting at most
+  12.5 s, take at most 78 s.
+- **Not in this slice:** a corpse run, and the hunt mode's deaths.
+- **Evidence.**
+  - Sim: `HuntTests` covers:
+    - the steps on the OCR lines of the live frames;
+    - the other popups;
+    - the post-click reads (`deathSeen`);
+    - the loop's ends;
+    - the clock.
+  - Replay: the live frames of 27 Sept, through the crop OCR, gave Release at (1209, 221), then TALK at (1281, 411) on the
+    healer's robe on the frame before its gossip opened, Return at (101, 307) and Accept at (1212, 249). The frames after
+    Accept gave none.
+  - Live, by hand after run 66: Release Spirit; no gossip; a right-click on the healer 7 name heights below its name
+    opened it; Return; Accept; resurrected with no penalty.
+  - Engine live: not yet run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

@@ -7,6 +7,9 @@ import Vision
 
 enum QuestHUD {
     static let dialog = CGRect(x: 0, y: 140, width: 400, height: 580)  // the quest dialogue, left edge
+    // A popup at top centre (27 Sept: "Release Spirit" at x 1153-1265, y 216-227; the Spirit Healer's Accept at y 242-257).
+    static let popup = CGRect(x: 900, y: 120, width: 760, height: 260)
+    static let healer = CGRect(x: 512, y: 60, width: 1536, height: 640)  // the view's upper middle: a Spirit Healer's name over it
     // The unit under the pointer: the game's tooltip, bottom right, growing upwards (25 Sept: a player's four
     // lines at x 2278-2545, y 1150-1248).
     static let unitTip = unitTooltipBox
@@ -985,7 +988,8 @@ final class LiveQuestHost: QuestHost {
               let safe = safePlace(from: at) else { return }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
-        let envelopeEnd = runDeadline - QuestLimits.runSeconds + QuestLimits.envelopeSeconds
+        // Its end leaves death recovery its time (M4s).
+        let envelopeEnd = runDeadline - QuestLimits.runSeconds + QuestLimits.envelopeSeconds - QuestLimits.reviveSeconds
         let end = await leaveDangerRounds(QuestLimits.safeWalks, until: envelopeEnd, now: now,
                                           inCombat: { self.combatNow() != false }, fightBack: { await self.fightBack() }) { seconds in
             guard !self.ownerTookFocus(), self.walker?.holding != true else { return "OWNER_OR_KEYS" }
@@ -1000,6 +1004,41 @@ final class LiveQuestHost: QuestHost {
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])
+    }
+
+    /// M4s: resurrect at the Spirit Healer when the screen shows death (SAFETY's; nil when it does not). Each read is on a
+    /// frame captured after the last click. After Release Spirit it waits up to 10 s for the gossip, which opened by itself
+    /// after run 65 but not after run 66: then the Spirit Healer is right-clicked (TALK).
+    func reviveIfDead() async -> String? {
+        func texts(_ box: CGRect, _ image: CGImage) -> [ScreenText] {
+            guard let crop = image.cropping(to: box) else { return [] }
+            return ocr(crop).map { ($0.0, box.minX + $0.1.midX * box.width, box.minY + (1 - $0.1.midY) * box.height) }
+        }
+        func names(_ box: CGRect, _ image: CGImage) -> [WorldName] {
+            guard let crop = image.cropping(to: box) else { return [] }
+            return ocr(crop).map { ($0.0, box.minX + $0.1.midX * box.width, box.minY + (1 - $0.1.minY) * box.height, $0.1.height * box.height) }
+        }
+        func shown(_ image: CGImage?, _ last: DeathStep?) -> DeathClick? {
+            image.flatMap { deathStep(popup: texts(QuestHUD.popup, $0), dialog: texts(QuestHUD.dialog, $0), world: names(QuestHUD.healer, $0), last: last) }
+        }
+        // No click while any of the run's keys is held (review of #73: a hunt that ended with keys held).
+        guard !ownerTookFocus(), !holding, let first = shown(await quester.frame(after: hostNow()), nil) else { return nil }
+        emit("death", ["controller": "SAFETY", "shown": first.step.rawValue])
+        let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { c in
+            guard !self.ownerTookFocus() else { return false }
+            self.emit("revive_click", ["controller": "SAFETY", "step": c.step.rawValue, "at": [Int(c.x), Int(c.y)]])
+            return c.step == .talk ? self.quester.click(c.x, c.y, right: true) : self.quester.click(c.x, c.y)
+        }) { step in
+            let start = hostNow(), wait = step == .release ? QuestLimits.reviveWait : QuestLimits.reviveWait / 2
+            var reads: [DeathClick?] = []
+            while true {
+                if let seen = deathSeen(after: step, reads, timedOut: hostNow() - start >= wait) { return seen }
+                guard let image = await self.quester.frame(after: hostNow() + 0.3) else { continue }  // no frame: no read
+                reads.append(shown(image, step))
+            }
+        }
+        emit("revive_end", ["controller": "SAFETY", "outcome": end ?? ""])
+        return end
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {
@@ -1137,14 +1176,22 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                               holding: { body.holding || host.holding })
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
-    let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads)
+    // Dead at the start (live, 27 Sept: it died between runs 56 and 57): resurrected first, or the run does not start.
+    let revivedFirst = await host.reviveIfDead()
+    var result = QuestResult()
+    if let revivedFirst, revivedFirst != "REVIVED" { result.outcome = revivedFirst }
+    else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
+                                    seconds: host.runDeadline - hostNow()) }  // what setup and a revive left of the window
     await host.leaveDanger(after: result.outcome)
+    let revived = await host.reviveIfDead()  // died in the run or on the way to safety
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },
-                          "graph_requests": result.graphRecords.count, "run_directory": run.url.path])
+                          "graph_requests": result.graphRecords.count, "run_directory": run.url.path,
+                          "revived": [revivedFirst, revived].compactMap { $0 }])
     for s in result.steps { print("\(s.quest): \(s.outcome)") }
     print("run: \(result.outcome)")
+    for end in [revivedFirst, revived].compactMap({ $0 }) { print("death: \(end)") }
     return body.holding || host.holding ? 3 : 0
 }
 

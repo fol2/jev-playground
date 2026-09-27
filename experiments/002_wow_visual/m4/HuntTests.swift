@@ -1023,6 +1023,10 @@ extension NavTests {
         let overtime = await runQuests(host: longWay, jev: CannedGraph(["DO:ROAD_1", "DO:ROAD_1"]), graph: graph()!, roads: southRoad)
         check(overtime.outcome == "TIME_LIMIT" && longWay.handed == ["ROAD The Adventurer"],
               "a road that ran out of the run's time ends the run at its time limit, with no further step")
+        let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])
+        let spent = await runQuests(host: lateRun, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad, seconds: 0)
+        check(spent.outcome == "TIME_LIMIT" && spent.steps.isEmpty && lateRun.handed.isEmpty,
+              "review of #73: the run's steps get only what setup and a revive at the start left of its window: one clock")
 
         let blind = FakeQuests([QuestRead(quests: [log24Sept[4]], player: thendal, missing: ["Harvesting Windstones", "The Gift of Skysight"])])
         let unasked = CannedGraph([])
@@ -1217,8 +1221,81 @@ extension NavTests {
         let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
         check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
               "review of #72: all of it ends inside the run envelope: no fight without its whole time left, and a walk gets only what is left")
-        check(QuestLimits.runSeconds + NavLimits.maxSeconds + 2 * FightLimits.maxSeconds <= QuestLimits.envelopeSeconds,
-              "review of #72: a walk started just before the run's 20 minutes, its fight back and one fight on the way to safety end inside 30")
+        check(QuestLimits.runSeconds + NavLimits.maxSeconds + 2 * FightLimits.maxSeconds + QuestLimits.reviveSeconds <= QuestLimits.envelopeSeconds
+              && 2.5 + Double(QuestLimits.reviveClicks) * (QuestLimits.reviveWait + 2.5) <= QuestLimits.reviveSeconds,
+              "a walk started just before the run's 20 minutes, its fight back, one fight on the way to safety and death recovery end inside 30")
+        // M4s on the OCR lines of the live frames of 27 Sept (after run 65), in capture pixels.
+        let dying: [ScreenText] = [("4 Minutes unti release", 1276, 197), ("Release Spirit", 1209, 221), ("Recan", 1349, 222)]
+        let gossip: [ScreenText] = [("It is not yet your time. I shall aid your", 167, 241), ("* Return me to life.", 100, 306), ("Goodbye", 333, 669)]
+        let confirm: [ScreenText] = [("You can find your corpse and resurrect at that", 1279, 197), ("location. Players that are below level 10 can", 1278, 210),
+                                     ("resurrect here with no penalty.", 1279, 223), ("\u{410}ccept", 1212, 249), ("Cancel", 1347, 247)]  // a Cyrillic A, as read
+        let invite: [ScreenText] = [("Someone invites you to a group.", 1280, 212), ("Accept", 1211, 249), ("Decline", 1347, 248)]
+        let summons: [ScreenText] = [("Someone wants to summon you.", 1280, 212), ("Accept", 1211, 249), ("Cancel", 1347, 248)]
+        check(deathStep(popup: dying, dialog: [], last: nil).map { $0.step == .release && $0.x == 1209 && $0.y == 221 } == true
+              && deathStep(popup: [], dialog: gossip, last: .release)?.step == .returnToLife
+              && deathStep(popup: confirm, dialog: gossip, last: .returnToLife).map { $0.step == .accept && $0.x == 1212 } == true
+              && deathStep(popup: [], dialog: [], last: .release) == nil,
+              "M4s: Release Spirit, then Return me to life., then Accept, each at its text's middle")
+        check(deathStep(popup: confirm, dialog: [], last: nil) == nil && deathStep(popup: invite, dialog: [], last: .returnToLife) == nil
+              && deathStep(popup: summons, dialog: [], last: .returnToLife) == nil
+              && deathStep(popup: [("Accept", 1211, 249)], dialog: [], last: .returnToLife) == nil,
+              "M4s: an Accept is taken only on the popup that says resurrect, beside Cancel, after Return me to life.: an invite's or a summons' never")
+        let offer: [ScreenText] = [("Someone wants to resurrect you.", 1280, 212), ("Accept", 1211, 249), ("Decline", 1347, 248)]
+        let accepted: [ScreenText] = [("You can find your corpse and resurrect at that", 1279, 197), ("Accepted", 1212, 249), ("Cancel", 1347, 247)]
+        check(deathStep(popup: offer, dialog: [], last: .returnToLife) == nil && deathStep(popup: accepted, dialog: [], last: .returnToLife) == nil,
+              "review of #73: another player's offer to resurrect (Accept and Decline) is not the Spirit Healer's; the button's whole line is Accept")
+        let healer: [WorldName] = [("Spirit Healer", 1235, 209, 38)]
+        check(deathStep(popup: [], dialog: [], world: healer, last: .release).map { $0.step == .talk && $0.x == 1235 && $0.y == 209 + 7 * 38 } == true
+              && deathStep(popup: [], dialog: [], world: healer, last: nil)?.step == .talk
+              && deathStep(popup: [], dialog: gossip, world: healer, last: .talk)?.step == .returnToLife
+              && deathStep(popup: dying, dialog: [], world: healer, last: nil)?.step == .release,
+              "live, after run 66: no gossip opened after the release, so the Spirit Healer, seen only by the dead, is right-clicked below its name")
+        check(deathStep(popup: [], dialog: [], world: [("Go to the Spirit Healer", 1235, 209, 38)], last: nil) == nil
+              && deathStep(popup: [], dialog: [], world: [("Spirit Healers", 1235, 209, 38)], last: nil) == nil
+              && deathStep(popup: [], dialog: [], world: [("Spirit Healer", 1235, 800, 38)], last: .release).map { $0.y == 1000 } == true,
+              "review of #73: a line that only mentions a Spirit Healer is no ghost; the click stays in the view")
+        let release: DeathClick = (.release, 1209, 221), back: DeathClick = (.returnToLife, 100, 306), yes: DeathClick = (.accept, 1211, 249)
+        let talk: DeathClick = (.talk, 1235, 475)
+        /// The live `seen` over scripted frames (nil: a frame with nothing to click), then the time out.
+        func seenAfter(_ step: DeathStep, _ frames: [DeathClick?]) -> DeathSeen {
+            var reads: [DeathClick?] = []
+            for frame in frames {
+                if let seen = deathSeen(after: step, reads, timedOut: false) { return seen }
+                reads.append(frame)
+            }
+            return deathSeen(after: step, reads, timedOut: false) ?? deathSeen(after: step, reads, timedOut: true)!
+        }
+        func step(_ seen: DeathSeen) -> String {
+            switch seen { case .shown(let c): return c.step.rawValue; case .cleared: return "cleared"; case .unknown: return "unknown" }
+        }
+        check(step(seenAfter(.accept, [nil, nil])) == "cleared" && step(seenAfter(.accept, [nil])) == "unknown"
+              && step(seenAfter(.accept, [])) == "unknown" && step(seenAfter(.accept, [nil, yes, nil])) == "unknown"
+              && step(seenAfter(.accept, [yes])) == "ACCEPT" && step(seenAfter(.release, [release, talk])) == "TALK_TO_SPIRIT_HEALER"
+              && step(seenAfter(.release, [nil, nil, nil])) == "unknown",
+              "review of #73: only two fresh frames in a row with nothing to click after Accept are cleared; a quiet capture or one read is unknown")
+        func deathRun(_ first: DeathClick?, _ screens: [DeathSeen], clickOK: Bool = true) async -> (String?, [DeathStep]) {
+            var screens = screens, clicked: [DeathStep] = []
+            let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { clicked.append($0.step); return clickOK },
+                                   seen: { _ in screens.isEmpty ? .unknown : screens.removeFirst() })
+            return (end, clicked)
+        }
+        let (alive, none) = await deathRun(nil, [])
+        let (revivedEnd, revivedSteps) = await deathRun(release, [.shown(back), .shown(yes), .cleared])
+        let (retried, retriedSteps) = await deathRun(release, [.shown(release), .shown(back), .shown(yes), .cleared])
+        let (talked, talkedSteps) = await deathRun(release, [.shown(talk), .shown(back), .shown(yes), .cleared])
+        check(alive == nil && none.isEmpty && revivedEnd == "REVIVED" && revivedSteps == [.release, .returnToLife, .accept]
+              && retried == "REVIVED" && retriedSteps == [.release, .release, .returnToLife, .accept]
+              && talked == "REVIVED" && talkedSteps == [.release, .talk, .returnToLife, .accept],
+              "M4s: nothing when no death shows; revived by its clicks; a click that did not take is clicked again; the healer is talked to")
+        let (ghost, _) = await deathRun(release, [.unknown])
+        let (stuckRelease, stuckSteps) = await deathRun(release, Array(repeating: .shown(release), count: 10))
+        let (failed, _) = await deathRun(release, [], clickOK: false)
+        let (reopened, _) = await deathRun(back, [.shown(yes), .shown(back)])
+        let (quiet, _) = await deathRun(yes, [.unknown])
+        check(ghost == "DEATH_AFTER_RELEASE_SPIRIT" && stuckRelease == "DEATH_CLICK_LIMIT" && stuckSteps.count == QuestLimits.reviveClicks
+              && failed == "DEATH_CLICK_FAILED" && reopened == "DEATH_AFTER_ACCEPT" && quiet == "DEATH_AFTER_ACCEPT"
+              && !leavesDanger("DEATH_AFTER_RELEASE_SPIRIT"),
+              "M4s: a ghost with no gossip, a button that never takes, a failed click or a gossip back after Accept stops it where it stands")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
               && same(safePlace(from: (44, 40)), 43.4, 44.8),
               "the nearest village within one walk; none when already there or too far")
