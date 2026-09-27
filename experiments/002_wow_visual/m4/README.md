@@ -1016,6 +1016,22 @@ the ridge M4d's straight walk stopped at, but a quest walk inside one leg (12 un
   - a memory of blocked cells shared by a step's legs;
   - one jump when blocked (Space, once the owner confirms it);
   - a learned "ground ends ahead" reader.
+## M4r — a run's end leaves the danger zone (27 Sept)
+
+Between live runs 56 and 57 the character stood idle among level 2-3 hostiles by the Elemental Convergence and was
+killed. The owner, 27 Sept: "error exit should still try best to leave danger zone".
+
+- **`leaveDanger`** (LiveQuestHost). Before a quest run exits, the character walks to the nearest safe place within
+  one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
+  Shen'dar, Valanaar), by their NPCs' places in the town research.
+- **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
+  - the owner's takeover;
+  - keys held;
+  - a failed input handoff;
+  - death.
+- **How.** One walk, at most 180 s, inside the envelope's 30 minutes. Its moves are a fixed preference: straight,
+  then the detours. It makes no model call, so a run that ended on a failed Jev call still walks.
+- **Evidence.** Sim only: `HuntTests` covers which ends walk and the nearest village. Live: not yet run.
 
 ## Limits
 

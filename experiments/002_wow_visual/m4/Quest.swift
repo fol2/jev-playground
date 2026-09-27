@@ -677,6 +677,13 @@ enum QuestLimits {
     static let useSlots = 1  // USE_1 (M4m)
     static let roadSlots = 2  // ROAD_1 and ROAD_2
     static let roadGapSeconds = 600.0  // a walk round a gap by road: its legs, each bounded by its own walk
+    // Where a run's end walks to (the owner, 27 Sept: "error exit should still try best to leave danger zone"; between
+    // runs 56 and 57 the character stood idle among level 2-3 hostiles and was killed): the Zephras villages, by their
+    // NPCs' places in the town research (learning/research/zephras_services_route.md).
+    static let safePlaces: [(name: String, at: MapPoint)] = [("Thendal Village", (43.2, 24.0)), ("Shen'dar Village", (43.4, 44.8)),
+                                                            ("Valanaar", (58.2, 78.4))]
+    static let safeArrive = 1.0
+    static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
     static let maxSteps = 12
     // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
     // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
@@ -831,6 +838,18 @@ func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now
         await walk(i, leg, i == legs.count - 1 ? arrive : RoadLimits.gapArrive)
     }
     return outcome == "BY_ROAD" ? nil : outcome
+}
+
+/// Whether a quest run that ended so walks to a safe place before it exits: every end but the owner's takeover, keys
+/// held, a failed input handoff and death.
+func leavesDanger(_ outcome: String) -> Bool {
+    !(outcome == "OWNER_TOOK_FOCUS" || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
+}
+
+/// The nearest safe place within one walk of `at`, unless the character is already at one.
+func safePlace(from at: MapPoint) -> MapPoint? {
+    if QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) { return nil }
+    return QuestLimits.safePlaces.map(\.at).filter { distance(at, $0) <= QuestLimits.safeReach }.min { distance(at, $0) < distance(at, $1) }
 }
 
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after

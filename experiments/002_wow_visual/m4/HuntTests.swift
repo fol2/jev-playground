@@ -1182,6 +1182,13 @@ extension NavTests {
         let (backWin, backWinJev, _) = await stoppedHunt("BACK_KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(backStop.outcome == "FIGHT_JEV_STOP" && backWin.handed.count == 3 && backWinJev.offered[2].contains("DO:HUNT_1"),
               "review of #66: a fight in combat (attacked since the stop, or after a JEV_STOP) ends the run unless it kills, as a fight back does")
+        // The owner, 27 Sept: an error exit should still leave the danger zone.
+        check(["WALK_HUD_UNREADABLE", "WALK_JEV_FAILED", "NOTHING_TO_HAND_IN_OR_TAKE", "TIME_LIMIT", "WALK_LOW_HEALTH"].allSatisfy(leavesDanger)
+              && !["OWNER_TOOK_FOCUS", "WALK_KEYS_HELD", "HUNT_KEYS_HELD", "INPUT_HANDOFF_FAILED", "FIGHT_PLAYER_DEAD"].contains(where: leavesDanger),
+              "every run end walks to safety but the owner's takeover, held keys, a failed handoff and death")
+        check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
+              && same(safePlace(from: (44, 40)), 43.4, 44.8),
+              "the nearest village within one walk; none when already there or too far")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])

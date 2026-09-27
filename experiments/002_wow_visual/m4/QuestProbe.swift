@@ -977,6 +977,24 @@ final class LiveQuestHost: QuestHost {
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
+    /// At a run's end, a walk to the nearest safe place (safePlace), SAFETY's: its moves are a fixed preference (straight,
+    /// then detours), with no model call, so a run that ended on a failed Jev call walks too. At most one walk (180 s),
+    /// inside the run envelope's 30 minutes (the run stops new steps at 25).
+    func leaveDanger(after outcome: String) async {
+        guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),
+              let safe = safePlace(from: at) else { return }
+        emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
+        walks += 1
+        let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let legs = newWalker(folder)
+        walker = legs
+        let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
+        let walked = await runNav(body: legs, jev: ScriptedJev(preference: preference),
+                                  destination: NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive))
+        emit("leave_danger_end", ["controller": "SAFETY", "outcome": walked.outcome])
+    }
+
     func handIn(_ quest: PlannedQuest) async -> String {
         // No pin: the map hid it under the player's arrow, so its NPC may stand here, perhaps above or below.
         let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
@@ -1113,6 +1131,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
     body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
     let result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads)
+    await host.leaveDanger(after: result.outcome)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },
