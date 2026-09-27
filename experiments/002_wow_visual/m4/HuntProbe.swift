@@ -57,6 +57,8 @@ final class LiveHuntHost: HuntHost {
         self.directory = directory
         self.log = log
         log.emit("object_reader", ["loaded": LiveHuntHost.objectReader != nil, "t": hostNow()])
+        let began = hostNow(), facing = facingReader  // compiled here, not in a survey's frame (review of #63)
+        log.emit("facing_reader", ["loaded": facing != nil, "ms": Int((hostNow() - began) * 1000), "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: HuntLimits.releaseCodes, clock: hostNow) { event, fields in
             var row = fields
             row["t"] = hostNow()

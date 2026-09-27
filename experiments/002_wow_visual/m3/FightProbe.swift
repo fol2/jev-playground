@@ -428,8 +428,9 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
         for i in SkillHUD.names.indices where !readNow.keys.contains(i) { readNow[i] = try await read(i) }
     }
     var bar: [Skill?] = SkillHUD.names.indices.map { i in readNow.keys.contains(i) ? readNow[i]! : remembered?.skills[i] ?? nil }
-    if rereadsBar(assignRoles(bar, required: required).problems) {
-        log.emit("skill_bar_reread", ["settle_s": 1.5, "t": hostNow()])
+    if rereadsBar(bar, assignRoles(bar, required: required).problems) {
+        log.emit("skill_bar_reread", ["settle_s": 1.5, "empty": bar.allSatisfy { $0 == nil }, "t": hostNow()])
+        if bar.allSatisfy({ $0 == nil }) { try? await Task.sleep(nanoseconds: 5_000_000_000) }  // the world's UI still loading
         for i in SkillHUD.names.indices { readNow[i] = try await read(i, settle: 1.5) }
         bar = SkillHUD.names.indices.map { readNow[$0] ?? nil }
     }
