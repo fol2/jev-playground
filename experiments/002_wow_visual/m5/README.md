@@ -71,7 +71,7 @@ Rebuild and run from the repository root:
 ```sh
 V=experiments/002_wow_visual
 swiftc -O -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift \
-  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift $V/m5/RedNames.swift \
+  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift $V/m5/RedNames.swift $V/m5/Objects.swift \
   $V/m5/PerceiveTool.swift $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
   $V/runtime/Experience.swift -o /tmp/m5-perceive
 DEVELOPER_DIR=/Applications/Xcode-27.0.0-beta.5.app/Contents/Developer xcrun swiftc -O -parse-as-library $V/m5/Teacher.swift -o /tmp/m5-teach
@@ -322,7 +322,7 @@ walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNa
 
 | File | Role | Proof |
 |---|---|---|
-| `Marks.swift` | `RedRow`, the crop (`redCrop`), the drop rule (`redDrops`), the audit grammar (`redAuditLabels`), the scores (`RedScore`, `RedFrames`) | `MarksTests.swift` |
+| `Marks.swift` | `BoxRow`, the crop (`redCrop`), the drop rule (`redDrops`), the audit grammar (`redAuditLabels`), the scores (`RedScore`, `RedFrames`) | `MarksTests.swift` |
 | `RedNames.swift` | `m5-perceive --red-*`: candidates, contact sheets, audit, Create ML training, the per-split score | argument refusal in `tools/MotorProof.swift` |
 | `Reader.swift` | `RedNameReader`: one candidate read through Core ML and Vision | built into `m4-nav`; scored by `--red-baseline` |
 | `../m4/NavProbe.swift` | `redDanger`: the walk's danger decision, shared by the live look and `--replay`; `red_read`, `red_dropped`, `red_ms` and `red_filter` in each look's log | built; replayed on saved walk frames |
@@ -364,6 +364,59 @@ walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNa
   replay), and no saved frame of the 6,350 had more than 5 candidates: at most about 60 ms against the forward key's
   1.5 s grant. The model loads once, with the first walk body, before any key goes down.
 - **Without the model the rule alone decides**, as before (`red_filter: rule` in the log). The model is private.
+
+## Objects on the ground (27 Sept)
+
+Harvesting Windstones asks for 15 Windstone Clusters: small pale cyan crystals on the ground, not creatures. The hunt
+never picked one up (live runs 46 and 48: `HUNT_NO_TARGET_FOUND`). The owner's line holds here too (27 Sept, "visual
+we agreed not using machine/pixel decode instead of ml"). So the engine sees objects through a learned detector. A
+colour test only proposes boxes for the auditor, offline, and is never the engine's eye.
+
+```text
+saved frames -> m5-perceive --obj-propose (a colour hint, for the auditor only) -> --obj-sheet N [RUN] -> --obj-audit FILE
+    -> --obj-train (design) / --obj-train final -> models/objects.mlmodel (private) -> --obj-baseline (score)
+hunt: frame -> ObjectReader (256 px tiles over the ground in view, merged) -> objects in view -> PICK_UP_OBJECT, Jev's choice
+```
+
+| File | Role | Proof |
+|---|---|---|
+| `Marks.swift` | `ObjectTiles` (the tiles), `mergeDetections`, `ObjectScore`; `BoxRow` and the audit grammar shared with red names | `MarksTests.swift` |
+| `Objects.swift` | `m5-perceive --obj-*`: the hint (`objectHints`), sheets of whole frames, audit, Create ML `MLObjectDetector` training, the per-split score | argument refusal in `tools/MotorProof.swift` |
+| `Reader.swift` | `ObjectReader`: the detector over the tiles of a frame, through Core ML and Vision | built into `m4-nav`; scored by `--obj-baseline` |
+
+- **Labels by eye.** 600 hints from one frame in four of the quest runs' saved frames (whole frames, so a scored
+  frame has every hint audited): 145 objects, 455 not (the character's portrait, lanterns, roofs, waterfalls, glowing
+  wisps, lightning, zone names).
+- **A crystal is small.** The median box is 8 x 11 px. In 512 px tiles the detector learnt almost nothing; 256 px
+  tiles show it 1.6 times larger. Create ML fails on an annotation file that opens with an empty tile, so tiles with
+  objects come first.
+- **Near objects are what a pick-up needs.** The character walks to what it picks up, and a near crystal is large.
+  Design model (training runs only, transfer learning on object prints, 1000 iterations), `--obj-baseline` (sim, offline):
+
+| Split | All objects: found / missed / false | 16 px high or more: found / missed / false |
+|---|---|---|
+| Training | 34 / 76 / 7 | 22 / 3 / 5 |
+| Validation | 7 / 20 / 0 | 5 / 2 / 0 |
+| Test, held out | 3 / 5 / 0 | 2 / 0 / 0 |
+
+- **The final model** (`--obj-train final`, training and validation runs together, 456 tiles; the one the engine
+  loads) against the same boxes. Its training and validation rows are fitted data, not held-out evidence:
+
+| Split | All objects: found / missed / false | 16 px high or more: found / missed / false |
+|---|---|---|
+| Training (fitted) | 30 / 80 / 5 | 22 / 3 / 4 |
+| Validation (fitted) | 7 / 20 / 1 | 5 / 2 / 1 |
+| Test, held out | 1 / 7 / 0 | 0 / 2 / 0 |
+
+- **Not qualified.** On the held-out runs the final model found 1 of 8 crystals and neither near one, where the design
+  model found both near ones: two boxes cannot tell the models apart, and the test was not used to choose. The
+  detector's recall is a candidate; the live run that offers PICK_UP_OBJECT is the evidence, and its frames are the
+  next labels.
+- **A frame takes 0.24 to 0.38 s** (50 tiles; 0.63 s at most), read at each hunt decision while an objective is open.
+- **The hint misses what it does not propose**, so a detection on an unproposed crystal would count as false, and the
+  held-out evidence is small (8 objects, 2 of them near).
+- **Which object it is, the detector does not say.** PICK_UP_OBJECT hovers it, and only a tooltip that names an open
+  objective is right-clicked (m4/README.md, M4n).
 
 ## Next
 

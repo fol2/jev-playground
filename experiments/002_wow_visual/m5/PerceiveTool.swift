@@ -371,6 +371,14 @@ struct PerceiveTool {
             case ("--red-train", 1): exit(try redTrain())
             case ("--red-train", 2) where args[1] == "final": exit(try redTrain(final: true))
             case ("--red-baseline", 1): exit(try redBaseline())
+            case ("--obj-propose", 1): exit(try objPropose())
+            case ("--obj-sheet", 2), ("--obj-sheet", 3):
+                guard let n = Int(args[1]), (1...600).contains(n) else { break }
+                exit(try objSheet(limit: n, run: args.count == 3 ? args[2] : ""))
+            case ("--obj-audit", 2): exit(try objAudit(args[1]))
+            case ("--obj-train", 1): exit(try objTrain())
+            case ("--obj-train", 2) where args[1] == "final": exit(try objTrain(final: true))
+            case ("--obj-baseline", 1): exit(try objBaseline())
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n, wholeFrames: true))
@@ -383,7 +391,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME... | --red-propose | --red-sheet N | --red-audit FILE | --red-train [final] | --red-baseline\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME... | --red-propose | --red-sheet N | --red-audit FILE | --red-train [final] | --red-baseline | --obj-propose | --obj-sheet N [RUN] | --obj-audit FILE | --obj-train [final] | --obj-baseline\n", stderr)
         exit(64)
     }
 }

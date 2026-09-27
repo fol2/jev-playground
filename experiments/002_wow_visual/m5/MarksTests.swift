@@ -19,7 +19,40 @@ struct MarksTests {
         scores()
         audits()
         redNameLabels()
+        objectTiles()
         print("perception checks passed: \(checks)")
+    }
+
+    static func objectTiles() {
+        let live = ObjectTiles.origins(width: 2560, height: 1320), video = ObjectTiles.origins(width: 2560, height: 1080)
+        func covered(_ tiles: [(x: Int, y: Int)], _ x: Int, _ y: Int) -> Bool {
+            tiles.contains { x >= $0.x && x < $0.x + ObjectTiles.side && y >= $0.y && y < $0.y + ObjectTiles.side }
+        }
+        let corners = [(30, 80), (2149, 80), (30, 1149), (2149, 1149), (1100, 600)]
+        check(live.count == 50 && live.allSatisfy { $0.x + ObjectTiles.side <= 2150 && $0.y + ObjectTiles.side <= 1150 }
+              && corners.allSatisfy { covered(live, $0.0, $0.1) } && covered(video, 30, 65) && covered(video, 2149, 939)
+              && !video.contains { $0.y + ObjectTiles.side > 1080 },
+              "object tiles cover the ground in view, every corner, inside the frame, at the game's height and a video's")
+        let box = [1790, 213, 1816, 243], t = ObjectTiles.around(box, seed: 12345, width: 2560, height: 1320)
+        let edge = ObjectTiles.around([2540, 1300, 2559, 1319], seed: 99, width: 2560, height: 1320)
+        check(t.x <= box[0] && t.x + ObjectTiles.side > box[2] && t.y <= box[1] && t.y + ObjectTiles.side > box[3] && edge == (2304, 1064),
+              "a training tile holds its box whole, inside the frame")
+        let merged = mergeDetections([([100, 100, 130, 130], 0.6), ([104, 102, 134, 132], 0.9), ([400, 400, 430, 430], 0.7)])
+        check(merged.count == 2 && merged[0].confidence == 0.9 && merged[1].box == [400, 400, 430, 430],
+              "of two overlapping detections the more confident stays; one apart stays too")
+        var s = ObjectScore()
+        s.add(found: [[1800, 220, 1830, 250], [600, 600, 630, 630]],
+              labelled: [BoxRow(frame: "f", box: box, label: "yes"), BoxRow(frame: "f", box: [50, 50, 80, 80], label: "yes"),
+                         BoxRow(frame: "f", box: [600, 600, 630, 630], label: "no")])
+        check(s == ObjectScore(hits: 1, missed: 1, falseFound: 1),
+              "a detection on a yes box is a hit, on a no box or nothing is false; a yes box no detection found is missed")
+        var near = ObjectScore()
+        near.add(found: [[50, 50, 80, 80], [900, 900, 910, 910]],
+                 labelled: [BoxRow(frame: "f", box: [50, 50, 80, 80], label: "small"), BoxRow(frame: "f", box: box, label: "yes")])
+        check(near == ObjectScore(hits: 0, missed: 1, falseFound: 1), "a detection on a box left out of the score counts for nothing")
+        check(redAuditLabels("yes 1\nno *", count: 3, kinds: ["yes", "no"]) == [0: "no", 1: "yes", 2: "no"]
+              && redAuditLabels("name 1\nno *", count: 3, kinds: ["yes", "no"]) == nil,
+              "an object audit takes yes and no, and no other word")
     }
 
     static func redNameLabels() {

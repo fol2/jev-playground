@@ -14,7 +14,51 @@ extension NavTests {
         await targeting()
         await attackedFromBehind()
         await huntEpisodes()
+        await pickUps()
         await questGraph()
+    }
+
+    /// M5's objects on the ground as a Jev choice (PICK_UP_OBJECT): offered only with an object in view and an open
+    /// objective, never in combat, and not after two that picked nothing up; a pick-up that counts is progress.
+    static func pickUps() async {
+        let windstones = [Objective(quest: "Harvesting Windstones", done: 0, need: 2, text: "Windstone Cluster")]
+        let ground = plain([], objectives: windstones)
+        ground.objects = [SimHunt.Mob(name: "Windstone Cluster", x: 40, y: 29.5), SimHunt.Mob(name: "Windstone Cluster", x: 40.1, y: 29)]
+        let seen = ground.survey()!
+        check(seen.objects.count == 2 && huntAdmissible(seen).contains(.pickUp), "an object in view and an open objective: PICK_UP_OBJECT is offered")
+        let bare = plain([], objectives: windstones)
+        check(!huntAdmissible(bare.survey()!).contains(.pickUp), "no object in view: not offered")
+        var fought = seen
+        fought.combat = true
+        check(!huntAdmissible(fought).contains(.pickUp), "in combat: only fighting back")
+        let failed = [HuntStep(action: .pickUp, result: "the tooltip read \"Rock\", which names no unfinished objective; not clicked"),
+                      HuntStep(action: .pickUp, result: "no object in view")]
+        check(!huntAdmissible(seen, steps: failed).contains(.pickUp) && huntAdmissible(seen, steps: [failed[0]]).contains(.pickUp),
+              "not after two in a row that picked nothing up; after one it is offered again")
+        let done = await runHunt(host: ground, jev: huntScripted([.fight, .pickUp, .nextTarget, .lookAround]))
+        check(done.outcome == "OBJECTIVES_COMPLETE" && done.steps.filter { $0.action == .pickUp }.count == 2
+              && done.steps.allSatisfy { $0.action != .pickUp || $0.result.hasPrefix("picked up") } && ground.fightsRun == 0,
+              "two Windstone Clusters in view: two pick-ups and the objective is complete, no fight (\(done.outcome))")
+        let decoy = plain([], objectives: windstones)
+        decoy.objects = [SimHunt.Mob(name: "Glowing Lantern", x: 40, y: 29.5)]
+        let skipped = await runHunt(host: decoy, jev: huntScripted([.pickUp, .nextTarget, .lookAround, .east, .west]))
+        check(skipped.steps.first?.action == .pickUp && skipped.steps.first!.result.contains("names no unfinished objective")
+              && decoy.objects[0].alive && decoy.objectives[0].done == 0,
+              "an object whose tooltip names no objective is not clicked, and the hunt goes on (\(skipped.outcome))")
+        check(skipped.steps.prefix { !$0.action.isWalk }.filter { $0.action == .pickUp }.count == 2,
+              "review of #59: two empty pick-ups and no more until a walk; a Tab or a look around does not offer it again")
+        let kill = [Objective(quest: "Infestation Investigation", done: 3, need: 8, text: "Pesky Cirrusfly slain")]
+        check(objectTipObjective(["Windstone Cluster"], in: windstones) != nil && objectTipObjective(["Windstone Cluster", "Level 3"], in: windstones) == nil
+              && objectTipObjective(["Pesky Cirrusfly"], in: kill) == nil && !huntAdmissible({ var k = seen; k.objectives = kill; return k }()).contains(.pickUp),
+              "review of #59: a unit's tooltip (a Level line) is never an object, and a kill objective is not picked up")
+        check(confirmedObject([["Windstone Cluster"], ["Windstone Cluster"]], in: windstones) != nil && confirmedObject([["Windstone Cluster"]], in: windstones) == nil
+              && confirmedObject([["Windstone Cluster"], ["Juvenile Vuldren", "LeveI 1"]], in: windstones) == nil
+              && confirmedObject([["Windstone Cluster"], []], in: windstones) == nil,
+              "review of #59: a hover is confirmed by two reads naming the objective; one, a unit's second read (\"LeveI\" too) or a gone one is not")
+        let packet = huntStatePacket(seen, recent: [], fights: [], blocked: [])
+        check((packet["objects_on_the_ground_in_view"] as? [[String: Any]])?.count == 2 && (packet["goal"] as? String)?.contains("PICK_UP_OBJECT") == true
+              && huntInstructions.contains("objects_on_the_ground_in_view"),
+              "review of #59: Jev's state names the objects in view, and its goal says what picking one up does")
     }
 
     static func tracker() {
