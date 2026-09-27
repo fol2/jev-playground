@@ -791,13 +791,10 @@ enum QuestLimits {
     static let reviveWait = 10.0  // after Release Spirit, for the gossip (live: about 6 s); after the others, half
     static let reviveSeconds = 90.0  // kept from the way to safety for death recovery: its clicks and their waits
     static let maxSteps = 12
-<<<<<<< HEAD
     // M4ab: a walk this long or longer reads the log again, as the minimap's givers, read with it, change with the place.
     // ponytail: the givers and the log are one read; split them if short walks keep paying for the map.
     static let rereadMove = 3.0
-=======
     static let steerRoadFrom = 2.0  // M4ac: a walk farther than this goes by the learned roads when they lead there
->>>>>>> c028b95 (M4ac: the steering walk for quest walks and the way to safety, by the learned roads; impassable at 0.8 and a walled view turns in place (live walk 1))
     // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
     // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
     // one fight at least (review of #72: 25 min left a fight back after the last walk running past 30).
