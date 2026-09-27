@@ -1359,7 +1359,9 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
   the goal. The bump memory, the side rules and the dilation above follow from it. Live walk 4 (the same route, the bump
   memory holding walk 3's six): arrived at Yala in about 50 s by the road south-east round the stones, one bump in its first
   second (where walk 3 had stopped), net turn -39 degrees, no model call. Live walk 5 (Yala back to the village, the way a
-  straight walk used to go into the village's tower and circle in it): arrived in about 32 s by the north, no bump.
+  straight walk used to go into the village's tower and circle in it): arrived in about 32 s by the north, no bump. Live run
+  84 (a quest run): three steering walks; one stopped for a hostile on the south road (DANGER_AHEAD), one arrived at the
+  vendor with one bump; no model call per move, no death.
 
 ## Limits
 
