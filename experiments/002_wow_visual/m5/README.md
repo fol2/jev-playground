@@ -503,4 +503,3 @@ The owner, 27 Sept: Apple's models that understand the 3D world from 2D pictures
   by 20 columns of the same ratio (`depthColumns`), read once a tick.
 - Evidence: offline as above (a side tool in the scratchpad; the frames are private). Sim: `NavTests` on synthetic grids and
   the state packet. Live: the next run.
-
