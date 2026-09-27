@@ -184,8 +184,8 @@ func seenFacing(_ image: CGImage, _ pixels: RGBA) -> (bearing: Double?, fields: 
     let learned = try? reader.facing(image)
     liveFacing.rule = rule
     liveFacing.learned = learned?.bearing
-    if let rule, let learned, abs(angleError(rule, learned.bearing)) <= 30 { liveFacing.trust = nil }  // agreed again
-    return (fusedFacing(rule: rule, learned: learned, trust: liveFacing.trust),
+    let trust = currentTrust(liveFacing, rule: rule, learned: learned?.bearing, now: hostNow())
+    return (fusedFacing(rule: rule, learned: learned, trust: trust),
             ["facing_rule": orNull(rule.map { Int($0.rounded()) }), "facing_learned": orNull(learned.map { Int($0.bearing.rounded()) }),
              "facing_confidence": orNull(learned.map { roundTo($0.confidence) }), "facing_trust": orNull(liveFacing.trust?.rawValue)])
 }

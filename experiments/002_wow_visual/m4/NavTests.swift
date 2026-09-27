@@ -222,6 +222,14 @@ struct NavTests {
         check(fusedFacing(rule: 222, learned: (150, 0.93), trust: .rule) == 222 && fusedFacing(rule: 222, learned: (150, 0.93), trust: .learned) == 150
               && fusedFacing(rule: 222, learned: (150, 0.5), trust: .learned) == nil && fusedFacing(rule: 222, learned: (150, 0.93)) == nil,
               "a disagreement follows the reader a turn test trusted; with none, no bearing")
+        check(turnTest(before: (350, 200), after: (15, 200), turned: 25) == .rule && turnTest(before: (20, 355), after: (21, 20), turned: 25) == .learned,
+              "a turn across north counts as the 25 degrees it is")
+        let trusted = FacingState()
+        (trusted.trust, trusted.trustUntil) = (.rule, 10)
+        check(currentTrust(trusted, rule: 222, learned: 150, now: 5) == .rule && currentTrust(trusted, rule: 222, learned: 150, now: 10) == nil
+              && trusted.trust == nil, "review of #67: a trust lapses after its time, and the disagreement has no bearing until tested again")
+        (trusted.trust, trusted.trustUntil) = (.rule, 10)
+        check(currentTrust(trusted, rule: 100, learned: 110, now: 5) == nil && trusted.trust == nil, "readings that agree again clear the trust")
         check(stepStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
               && !stepStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
               "live runs 35 and 48: a walk stopped by a red name near its pin may start its step from there; far away, unseen, or another stop may not")

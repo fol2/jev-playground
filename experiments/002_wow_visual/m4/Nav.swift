@@ -66,6 +66,7 @@ enum NavLimits {
     static let unreadableLimit = 6
     static let unstickTurn = 0.15  // s of E: about 25 degrees (a 300 ms press stepped 46-59 degrees)
     static let unstickDegrees = 25.0
+    static let trustSeconds = 10.0  // a turn test's trust, then the two readings must agree or be tested again
     static let recentMoves = 6
     static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
@@ -105,6 +106,15 @@ enum FacingSource: String { case rule, learned }
 final class FacingState {
     var rule: Double?, learned: Double?
     var trust: FacingSource?
+    var trustUntil = 0.0  // a trust lapses (review of #67): a reader right once may be wrong later
+}
+
+/// The trust a disagreement may follow now: none once the two readings agree again or the trust has lapsed, and both
+/// clear it.
+func currentTrust(_ s: FacingState, rule: Double?, learned: Double?, now: Double) -> FacingSource? {
+    if let rule, let learned, abs(angleError(rule, learned)) <= 30 { s.trust = nil }
+    if now >= s.trustUntil { s.trust = nil }
+    return s.trust
 }
 
 /// Which reader followed a turn of `turned` degrees clockwise (within 20 degrees) while the other did not; nil when both,
@@ -128,7 +138,7 @@ func turnTest(before: (rule: Double?, learned: Double?), after: (rule: Double?, 
 /// live facing state and a fresh look after the turn, it is also a turn test (turnTest): the reader whose bearing
 /// followed the turn is trusted where the two disagree (live run 58).
 func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, emit: (String, [String: Any]) -> Void,
-                 facing: FacingState? = nil, reread: (() async -> Void)? = nil) async {
+                 facing: FacingState? = nil, reread: (() async -> Void)? = nil, now: (() -> Double)? = nil) async {
     let before = facing.map { (rule: $0.rule, learned: $0.learned) }
     keys.lift(FightLimits.forward)
     emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
@@ -140,8 +150,12 @@ func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, e
     await sleep(0.3)  // the turn's last frames settle
     await reread()
     let after = (rule: facing.rule, learned: facing.learned)
-    guard let source = turnTest(before: before, after: after, turned: NavLimits.unstickDegrees) else { return }
+    guard let source = turnTest(before: before, after: after, turned: NavLimits.unstickDegrees) else {
+        facing.trust = nil  // no verdict: an older trust is not carried past a new test
+        return
+    }
     facing.trust = source
+    facing.trustUntil = (now?() ?? 0) + NavLimits.trustSeconds
     emit("facing_turn_test", ["trust": source.rawValue, "before": [orNull(before.rule), orNull(before.learned)],
                               "after": [orNull(after.rule), orNull(after.learned)]])
 }
@@ -584,7 +598,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             if misses == NavLimits.unreadableLimit / 2 {
                 await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit,
-                                  facing: body.facingState, reread: { _ = body.look() })
+                                  facing: body.facingState, reread: { _ = body.look() }, now: body.now)
             }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
             continue
