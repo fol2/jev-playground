@@ -1088,6 +1088,25 @@ extension NavTests {
         let enderOffer = questOffers(QuestRead(quests: [named[0]], player: thendal, missing: []), failed: [])
         check(enderOffer.first?.skill == "HAND_IN_1" && enderOffer.first?.criterion.contains("Yala Windwatcher") == true,
               "M4v: the hand-in is offered at its ender's place, by name")
+        // Heal before a walk (the owner, 27 Sept; live run 70): out of combat, until 60%, three casts at most.
+        var aims = 0, clears = 0
+        func healed(_ healths: [Double], combat: Bool = false, mana: Double = 1, owner: Int = 99) async -> (String, Int) {
+            var reads = healths, casts = 0
+            let end = await recover(read: { reads.isEmpty ? nil : Obs(player: reads.removeFirst(), mana: mana, combat: combat) },
+                                    aim: { aims += 1 }, cast: { guard casts < owner else { return false }; casts += 1; return true }, clear: { clears += 1 })
+            return (end, casts)
+        }
+        let (hurt, hurtCasts) = await healed([0.25, 0.5, 0.7])
+        let (fine, fineCasts) = await healed([0.9])
+        let (fighting, fightingCasts) = await healed([0.2], combat: true)
+        let (dryHeal, dryCasts) = await healed([0.2], mana: 0.1)
+        let (stubborn, stubbornCasts) = await healed([0.2, 0.3, 0.4, 0.5])
+        check(hurt == "HEALED" && hurtCasts == 2 && fine == "NOT_HURT" && fineCasts == 0 && fighting == "IN_COMBAT" && fightingCasts == 0
+              && dryHeal == "NO_MANA" && dryCasts == 0 && stubborn == "STILL_HURT" && stubbornCasts == 3,
+              "live run 70: out of combat and hurt, heal before walking, until 60%, three casts at most; never in combat or dry")
+        let (taken, takenCasts) = await healed([0.2, 0.3, 0.4], owner: 1)
+        check(aims == 3 && clears == 3 && taken == "OWNER" && takenCasts == 1,
+              "review of #79: the character is selected before the first cast and the selection dropped after; the owner stops the casts")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])
         let spent = await runQuests(host: lateRun, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad, seconds: 0)
         check(spent.outcome == "TIME_LIMIT" && spent.steps.isEmpty && lateRun.handed.isEmpty,

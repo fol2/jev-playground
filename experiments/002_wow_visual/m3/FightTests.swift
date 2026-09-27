@@ -794,13 +794,23 @@ struct FightTests {
         check(saved.jevRecords.contains { ($0["asked_because"] as? String)?.contains("healing comes first") == true
                   && $0["offers"] as? [String] == ["HEAL"] }, "below 30% in combat only HEAL is offered, whatever the chain")
 
+        let buffed = world()
+        buffed.buff = true
+        _ = await runFight(host: buffed, jev: ReplyJev(choice: "DO:NOT_OFFERED"), tactics: tactics)
+        check(buffed.performed.isEmpty, "the owner, 27 Sept: an enchant already active is not cast again at the start")
+        let hurt = world()
+        hurt.combat = true; hurt.player = 0.2; hurt.targetHP = 0.8; hurt.selected = true
+        _ = await runFight(host: hurt, jev: ReplyJev(choice: "DO:NOT_OFFERED"), startHealth: 0, tactics: tactics)
+        check(!hurt.performed.contains(.buffWeapon),
+              "review of #79: attacked at 20% health, the fight back spends no cast on the enchant; healing comes first")
         let nonsense = world()
         let invalid = await runFight(host: nonsense, jev: ReplyJev(choice: "DO:NOT_OFFERED"), tactics: tactics)
-        check(invalid.outcome == "JEV_STOP" && nonsense.performed.isEmpty && !invalid.holdingKeys,
-              "a reply naming nothing offered is JEV_STOP, and nothing is done")
+        check(invalid.outcome == "JEV_STOP" && nonsense.performed == [.buffWeapon] && !invalid.holdingKeys,
+              "a reply naming nothing offered is JEV_STOP, and nothing Jev chose is done (only the start's RULE enchant)")
         let down = world()
         let err = await runFight(host: down, jev: ThrowingJev(), tactics: tactics)
-        check(err.outcome == "JEV_ERROR" && down.performed.isEmpty, "a throwing client is JEV_ERROR in a chain fight too")
+        check(err.outcome == "JEV_ERROR" && down.performed == [.buffWeapon],
+              "a throwing client is JEV_ERROR in a chain fight too; only the start's RULE enchant was cast")
     }
 
     static func watchdog() async {

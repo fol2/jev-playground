@@ -240,6 +240,11 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
     - Every key the live fight host presses is granted to the watchdog first, the turn round's E included, and the motor
       proof checks it (review of #76). The turns round are kept apart from the approach's turn budget.
   - Evidence: sim only (`FightTests`: the search behind, a whole turn at most, one Tab out of combat); live: the next run.
+- **Buff when needed, live run 72 (27 Sept).** The owner: buff and heal "are not in the skills chain but they are needed
+  when needed". Rockbiter Weapon, trained that day, was offered as BUFF_WEAPON in every decision of run 72 and never chosen
+  (13 bolts, no enchant). Now a chain fight casts the bar's weapon enchant first, as a rule (`reflex`, controller RULE),
+  when the HUD shows it not active; once a fight, and it stays Jev's offer after. The enchant reader was checked live: the
+  Rockbiter icon (60 min) read `buff` false before the cast and true after it. Evidence: sim (`FightTests`); live: the next run.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

@@ -1352,3 +1352,35 @@ func withEnders(_ quests: [PlannedQuest], _ enders: [QuestEnder]) -> [PlannedQue
         return named
     }
 }
+
+// MARK: Heal before a walk (the owner, 27 Sept: "buff/heal ... are needed when needed")
+
+enum RecoverLimits {
+    static let until = 0.6  // out of combat, a walk starts at 60% health or more: healed first
+    static let casts = 3
+    static let castSeconds = 2.5  // Healing Wave's 1.5 s cast and the rest of the global cooldown
+    static let manaFloor = 0.2  // below it no cast is tried (Healing Wave: 25 mana of 148 at level 3)
+}
+
+/// Heal before walking on, as a human does out of combat (live run 70, 27 Sept: a hunt ended out of combat under 30% health,
+/// the way to safety set off at once, got stuck on the ground, and the character died there). `read` gives a fresh HUD (nil:
+/// none). Before the first cast `aim` selects the character itself: a heal goes to the selected unit, which after a talk is a
+/// friendly NPC (review of #79); after the last, `clear` drops that selection. `cast` presses the heal and waits for it, false
+/// when the owner took over. NOT_HURT, HEALED, IN_COMBAT (the fight's to answer), NO_MANA, UNREAD, OWNER or STILL_HURT after
+/// `RecoverLimits.casts` casts.
+func recover(read: () async -> Obs?, aim: () async -> Void, cast: () async -> Bool, clear: () async -> Void) async -> String {
+    var casts = 0
+    var end = "STILL_HURT"
+    for n in 0...RecoverLimits.casts {
+        guard let o = await read() else { end = "UNREAD"; break }
+        if o.combat { end = "IN_COMBAT"; break }
+        if o.player >= RecoverLimits.until { end = n == 0 ? "NOT_HURT" : "HEALED"; break }
+        if o.mana < RecoverLimits.manaFloor { end = "NO_MANA"; break }
+        if n == RecoverLimits.casts { break }
+        if casts == 0 { await aim() }
+        guard await cast() else { end = "OWNER"; break }
+        casts += 1
+    }
+    if casts > 0 { await clear() }
+    return end
+}
