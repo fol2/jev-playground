@@ -788,6 +788,7 @@ final class LiveQuestHost: QuestHost {
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
+    var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
@@ -837,11 +838,22 @@ final class LiveQuestHost: QuestHost {
         // The bags are read only when a use-at quest might name an item in them (M4m).
         let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []
         if !items.isEmpty { emit("bags", ["items": items]) }
-        return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items)
+        return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys))
     }
 
+    /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then
+    /// its key, and time for its cast. A bag item is right-clicked where the character stands (QuestRun.useItem).
     func useItem(_ quest: PlannedQuest, item: String) async -> String {
-        let outcome = await quester.useItem(item)
+        let outcome: String
+        if let key = abilities[item] {
+            if usesNear(quest), let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+            emit("use_ability", ["ability": item, "key": Int(key), "controller": "RULE"])
+            await quester.tap(key)
+            await quester.sleep(2.5)  // its cast (0.5 s for Skysight) and the blessing that follows
+            outcome = "USED"
+        } else {
+            outcome = await quester.useItem(item)
+        }
         emit("item_used", ["quest": quest.title, "item": item, "outcome": outcome])
         forgetLog(outcome)
         return outcome
@@ -1001,6 +1013,9 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                                                        fightTactics: tactics) },
                              huntGraph: hunting, tactics: tactics)
     host.roads = roads
+    // The bar's other skills ("Skysight", from a quest) are abilities a use-at quest may name (M4m).
+    host.abilities = Dictionary(bar.slots.compactMap { slot, skill in
+        role(skill) == nil ? SkillHUD.names.firstIndex(of: slot).map { (skill.name, SkillHUD.keys[$0]) } : nil }, uniquingKeysWith: { a, _ in a })
     defer { body.releaseAll(); host.releaseAll() }
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },

@@ -1057,6 +1057,12 @@ extension NavTests {
               && questOffers(withBag, failed: [QuestStep.use(embracing, item: "").key]).isEmpty
               && questOffers(QuestRead(quests: [embracing], player: (42.6, 23.9), missing: []), failed: []).isEmpty,
               "USE_1 is offered for the item a use-at quest names in the bags; not once used or failed, nor with the bags unread")
+        // Live run 43's bar: key 9 held "Skysight" (2 min cooldown, 0.5 s cast), which The Gift of Skysight uses near its place.
+        let barRead = QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight", "Walk on Air"])
+        let skyOffers = questOffers(barRead, failed: [])
+        check(skyOffers.map(\.skill) == ["USE_1"] && skyOffers[0].criterion.contains("from the bar")
+              && skyOffers[0].criterion.contains("at the quest's place") && usesNear(skysight) && !usesNear(embracing),
+              "a bar ability a use-at quest names is offered as a use at the quest's place when it says \"near\"")
         check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
               && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
               && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: [QuestStep.hunt(winds).key]).isEmpty,

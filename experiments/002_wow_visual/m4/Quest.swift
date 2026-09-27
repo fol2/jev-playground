@@ -658,6 +658,7 @@ struct QuestRead {
     var missing: [String]  // named by a "?" tooltip but absent from the log read
     var givers: [Giver] = []
     var items: [String] = []  // the bags' item names, read when a use-at quest may name one (M4m)
+    var abilities: [String] = []  // the bar's skills with no fight role ("Skysight"), which a use-at quest may name (M4m)
 }
 
 protocol QuestHost: AnyObject {
@@ -780,6 +781,9 @@ func questItem(_ quest: PlannedQuest, items: [String]) -> String? {
     return items.filter { nameKey($0).count >= 5 && objective.contains(nameKey($0)) }.max { nameKey($0).count < nameKey($1).count }
 }
 
+/// Whether a use-at quest's use belongs to a place: "Use Skysight near the Elemental Convergence" (walk to its pin first).
+func usesNear(_ q: PlannedQuest) -> Bool { q.objective.lowercased().contains(" near ") }
+
 /// Whether a use-at quest sends the player to someone once its item is used: "... then speak with Windshaper Boro".
 func talksAfterUse(_ q: PlannedQuest) -> Bool {
     let text = q.objective.lowercased()
@@ -876,11 +880,13 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
         + "a hostile creature's red name came into view ahead of it.")] : []
     let usable = questPlan(read.quests, from: read.player).compactMap { q -> (PlannedQuest, String)? in
         guard questKind(q) == .useAt, !failed.contains(QuestStep.use(q, item: "").key) else { return nil }
-        return questItem(q, items: read.items).map { (q, $0) }
+        return questItem(q, items: read.items + read.abilities).map { (q, $0) }
     }
     let uses = usable.prefix(QuestLimits.useSlots).enumerated().map { i, u in
-        ("USE_\(i + 1)", QuestStep.use(u.0, item: u.1), "Open the bags and use \"\(u.1)\" (right-click it), the item \"\(u.0.title)\" "
-            + "(level \(u.0.level)) asks for, here. The log reads: \(u.0.objective)")
+        ("USE_\(i + 1)", QuestStep.use(u.0, item: u.1), (read.abilities.contains(u.1)
+            ? "Use \"\(u.1)\" from the bar (its key)" : "Open the bags and use \"\(u.1)\" (right-click it)")
+            + (usesNear(u.0) && u.0.pin != nil ? ", at the quest's place (\(away(u.0.pin!)) units away), " : ", here, ")
+            + "as \"\(u.0.title)\" (level \(u.0.level)) asks. The log reads: \(u.0.objective)")
     }
     let here = back + handIns + accepts + uses + hunts
     guard here.isEmpty, let roads else { return here }
