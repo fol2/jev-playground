@@ -1324,6 +1324,13 @@ func npcWindowOpen(_ lines: [TipLine], name: String) -> Bool {
     lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && npcWindowShown(lines)
 }
 
+/// A town NPC's name as the view search reads it (M4u): the name, or one like it of about its length. Live run 78, 27 Sept: a
+/// player's longer name ("aria Darkwina Darkbloom") shares nine letters in order with "Windshaper Boro" and was taken for him;
+/// the hover then read a player, and the visit ended NPC_NOT_OPENED.
+func townNameHit(_ text: String, _ name: String) -> Bool {
+    sameUnit(text, name) || (likeName(text, name) && abs(nameKey(text).count - nameKey(name).count) <= 3)
+}
+
 /// Such a line, whoever's window it is (M4x: a right-click on a bag item with a merchant's window open sells the item).
 func npcWindowShown(_ lines: [TipLine]) -> Bool {
     lines.contains { l in
