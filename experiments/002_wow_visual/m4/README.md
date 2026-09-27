@@ -797,6 +797,26 @@ Run 39 (27 Sept, about 02:31) killed the eighth Cirrusfly: Infestation Investiga
 - Jev was offered only a hunt for Harvesting Windstones, whose 15 Windstone Clusters are objects on the ground. The
   hunt cannot take objects, and found nothing. Taking objects is not built yet.
 
+Run 40 (27 Sept, about 02:42) turned to the hand-in's pin and clicked the only "?" in view: Windshaper Boro's, which
+is another quest's. His panel was closed, no mark was left, and the step ended `DIALOGUE_NOT_OPEN`. A search now
+remembers each NPC whose panel it closed as someone else's, skips a mark over one (never clicking it blind), and looks
+round when no mark is left.
+
+Run 41 (27 Sept, about 02:48) turned to the pin and handed in Infestation Investigation: `COMPLETED`, "Experience
+gained: 170", 35 copper, and its follow-up, The Cirrusfly Queen, accepted on completion. The Queen's walk stopped at a
+red name 3.6 units short of her pin, and Jev chose RETREAT.
+
+**Where runs 14-41 leave the character** (live, unattended, from the runs' chat lines):
+- **Handed in:** Ancient Heirloom (run 22), Harmony in Balance (run 32) and Infestation Investigation (run 41).
+- **Taken:** Coming of Age, Harmony in Balance, Infestation Investigation, Embracing the Elements, The Gift of Skysight,
+  Harvesting Windstones and The Cirrusfly Queen.
+- **Killed:** 8 Juvenile Vuldren and 8 Pesky Cirrusflies, with no death.
+- **Left in the log:**
+  - The Cirrusfly Queen: one stronger creature.
+  - Harvesting Windstones: objects on the ground.
+  - The Gift of Skysight and Embracing the Elements: use an item or ability at a place.
+  - None of the last three has a skill yet.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
