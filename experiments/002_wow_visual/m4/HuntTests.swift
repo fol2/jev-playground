@@ -1107,6 +1107,56 @@ extension NavTests {
         let (taken, takenCasts) = await healed([0.2, 0.3, 0.4], owner: 1)
         check(aims == 3 && clears == 3 && taken == "OWNER" && takenCasts == 1,
               "review of #79: the character is selected before the first cast and the selection dropped after; the owner stops the casts")
+        // M4x: the owner's reward rule on the bags (27 Sept: the chest, hands and waist were empty; a belt lay in the bags).
+        let belt = Reward(name: "Ragged Leather Belt", slot: "Waist", usable: true, change: 1, sell: 3)
+        let shoes = Reward(name: "Frayed Shoes", slot: "Feet", usable: true, change: -1, sell: 2)
+        let mail = Reward(name: "Flimsy Chain Vest", slot: "Chest", usable: false, change: 8, sell: 7)
+        let vest = Reward(name: "Ragged Leather Vest", slot: "Chest", usable: true, change: 3, sell: 4)
+        let better = Reward(name: "Linen Vest", slot: "Chest", usable: true, change: 5, sell: 5)
+        let meat = Reward(name: "Stringy Wolf Meat", slot: nil, usable: true, change: 0, sell: 1)
+        check(equipChoices([(belt.name, belt), (shoes.name, shoes), (mail.name, mail), (vest.name, vest), (better.name, better), (meat.name, meat)])
+              == ["Ragged Leather Belt", "Linen Vest"],
+              "M4x: an upgrade is worn (an empty slot's armour counts); not a worse one, one the class cannot wear, or not gear; the best of one slot")
+        // Bag tooltips as Vision read them live on 27 Sept (Thendal Village): the equipped item's box to the left, the
+        // backpack's title and search box and world text behind.
+        let beltTip = tip([("dangers of T", 2067, 637), ("Ragged Leather Belt", 1862, 1044), ("Waist", 1862, 1060), ("18 Armor", 1862, 1074),
+            ("Durability 16 / 16", 1862, 1092), ("Sell Price: 4", 1862, 1104), ("Leather", 2076, 1059),
+            ("Press F6 to submit an issue for this Item", 1862, 1138), ("Combined Backpack", 2254, 1042), ("Q Search", 2152, 1079)])
+        let shoesTip = tip([("Equipped", 1868, 970), ("Thendal Novice's Boots", 1864, 998), ("Feet", 1862, 1014), ("Sell Price:", 1862, 1029),
+            ("Frayed Shoes", 2134, 998), ("Feet", 2134, 1014), ("Cloth", 2364, 1014), ("58    12  5 Armor", 2134, 1030),
+            ("Durability 18 / 18 Combined Backpack", 2134, 1041), ("Sell Price: 3", 2134, 1060),
+            ("If you replace this item, the following", 1862, 1062), ("stat changes will occur:", 1862, 1076), ("+5 Armor", 1862, 1092),
+            ("Press F6 to submit an issue for this Item", 2134, 1090)])
+        let bracersTip = tip([("Vale Tide", 1442, 614), ("Equipped", 1552, 1014), ("Vuldren Hide Bracers", 1548, 1042), ("Soulbound", 1546, 1060),
+            ("Wrist", 1546, 1076), ("15 Armor", 1547, 1089), ("Durability 16 / 16", 1548, 1106), ("Sell Price: 6", 1548, 1120),
+            ("Leather", 1743, 1074), ("If you replace this item, the following", 1546, 1152), ("stat changes will occur:", 1546, 1163),
+            ("- 3 Armor", 1548, 1180), ("Ragged Leather Bracers", 1818, 1041), ("Wrist", 1816, 1060), ("12 Armor", 1818, 1075),
+            ("Durability 16 / 16", 1818, 1090), ("Sell Price:", 1816, 1106), ("Leather", 2030, 1060),
+            ("Press F6 to submit an issue for this Item", 1816, 1138), ("Combined Backpack", 2254, 1042), ("Q Search", 2154, 1080),
+            ("0.0", 1474, 1218), ("Issue", 2080, 1224), ("Reporter", 2068, 1236), ("23", 2494, 1206)])
+        let liveBelt = parseReward(beltTip), liveShoes = parseReward(shoesTip), liveBracers = parseReward(bracersTip)
+        check(liveBelt == Reward(name: "Ragged Leather Belt", slot: "Waist", usable: true, change: 18, sell: 4),
+              "M4x live: a bag item's name under the backpack's title (2 px higher); an empty waist: its own 18 armour is the gain")
+        check(liveShoes == Reward(name: "Frayed Shoes", slot: "Feet", usable: true, change: 5, sell: 3),
+              "M4x live: the equipped box on the left no longer hides the item's own lines; the game's +5")
+        check(liveBracers?.name == "Ragged Leather Bracers" && liveBracers?.change == -3,
+              "M4x live: OCR's \"- 3 Armor\" is -3, read below the bags (the rect reaches y 1300)")
+        check(equipChoices([("Ragged Leather Bracers", liveBracers!), ("Frayed Shoes", liveShoes!), ("Ragged Leather Belt", liveBelt!)])
+              == ["Frayed Shoes", "Ragged Leather Belt"], "M4x live: the shoes and the belt are put on, not the worse bracers")
+        // Live run 76: an NPC's subtitle on the cloak tooltip's left edge above it was read as its name ("«tungut ot tengal crovs").
+        // The tooltip's lines are Vision's on the frame of 27 Sept; the subtitle's place above it is a reconstruction.
+        let cloakTip = tip([("<Rangers of Thendal Grove>", 2090, 930), ("Ragged Cloak", 2090, 1015), ("Back", 2090, 1031), ("3 Armor", 2090, 1046),
+                            ("Sell Price: 2", 2090, 1061), ("Press F6 to submit an issue for this Item", 2090, 1093)])
+        check(bagItemName(cloakTip) == "Ragged Cloak" && parseReward(cloakTip) == Reward(name: "Ragged Cloak", slot: "Back", usable: true, change: 3, sell: 2),
+              "M4x live run 76: the name is the top of the tooltip's own lines, not world text on its edge above")
+        let rorian = parseQuestLog(tip([("Zephras Isle", 791, 225), ("[4] Harvesting Windstones", 809, 255), ("0/15 Windstone Cluster", 815, 271),
+            ("4 Return to Rorian", 811, 297), ("Bring word of the Al' Aketh to", 821, 310), ("Rorian the Dayseeker in Thendal", 821, 323),
+            ("Grove.", 821, 339), ("[4] The Gift of Skysight", 809, 363), ("Use Skysight near the Elemental", 821, 379), ("Convergence", 820, 392)]))
+        check(rorian.map(\.title) == ["Harvesting Windstones", "Return to Rorian", "The Gift of Skysight"] && rorian[1].level == 4
+              && rorian[1].objective.hasPrefix("Bring word") && questTitle("0/15 Windstone Cluster") == nil && questTitle("15 windstones") == nil,
+              "live run 75: a ready quest's title with its brackets dropped by OCR (\"4 Return to Rorian\") is still a title")
+        check(npcWindowShown(tip([("Uualia Suncrest", 216, 165), ("Buyback", 300, 560)])) && !npcWindowShown(beltTip),
+              "M4x: a merchant's window, whoever's, holds the equip back (a right-click there sells)")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])
         let spent = await runQuests(host: lateRun, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad, seconds: 0)
         check(spent.outcome == "TIME_LIMIT" && spent.steps.isEmpty && lateRun.handed.isEmpty,

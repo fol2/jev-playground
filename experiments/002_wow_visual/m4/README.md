@@ -1204,6 +1204,36 @@ of combat under 30% health, the way to safety set off at once, got stuck on the 
 - Evidence: sim (`HuntTests`: healed in two casts; not hurt; in combat; no mana; still hurt after three; aimed and cleared
   once; the owner stops the casts). Live: the next run.
 
+## M4x — wear the better gear (27 Sept)
+
+The owner, 27 Sept: "i don't see you equip?", then "you can right click on the inventory to quick equip/swap gears. and we
+should always wear better gear first when non-battle". The bags held a belt for an empty waist and shoes better than the
+character's, and Sell All Junk had sold such grey gear before.
+
+- Observed live by direct control: a bag item's tooltip shows the equipped item's box with the game's stat changes without
+  Shift ("If you replace this item, the following stat changes will occur: +5 Armor"), drawn to the tooltip's left by the
+  screen's right edge; an item for an empty slot shows no such box (its own armour is the gain).
+- `parseReward` reads both layouts: the equipped box bounds the item's lines only when it is to the right; the name is
+  `tooltipName`'s, the top of the lines that climb from the footer at its left edge (the backpack's title, world text and an
+  NPC's subtitle above the tooltip are not the name); OCR's "- 3 Armor" is -3. `bagTooltip` reaches y 1300, as a bottom
+  row's stat changes stood at y 1181.
+- `equipChoices` (pure) applies the owner's reward rule of 24 Sept to the bags: a usable item with a slot and a gain, the best
+  of each slot. `QuestRun.wearUpgrades` right-clicks each, only while its tooltip still names it (Click-to-Move), and counts it
+  worn when its slot then shows another item or none. Never with an NPC's window open (`npcWindowShown`): a right-click at a
+  merchant sells.
+- `LiveQuestHost` runs it as a RULE out of combat at the run's first log read and after each fight or hunt, so before a town
+  stop too, and the bag read of a use-at quest reuses its names. Logged as `equip` and `equip_item`.
+- A quest reward chosen as an upgrade is no longer typed as `/equip NAME` (M4c): live run 77 read no "Say:" after Enter,
+  `command` returned with the chat box still open, and the box took the map's key (`LOG_INCOMPLETE`) and the walk's
+  (`WALK_NO_PROGRESS`). The hand-in returns `COMPLETED_TO_WEAR` and marks the gear unchecked, and the next log read's
+  right-click RULE puts it on. `command`, `wearing` and the character pane's boxes are gone.
+- Also here (live run 75): OCR dropped the brackets of a ready quest's title beside its "?" ("4 Return to Rorian"), the log read
+  2 of 3 quests and the run stopped `LOG_INCOMPLETE`. `questTitle` takes a bare level when a capital follows it.
+- Evidence: sim (`HuntTests`: the belt, shoes and bracers tooltips as Vision read them live; the cloak with an NPC's subtitle
+  above it; the log lines of runs 75 and 76). Live run 76: the shoes (+5, the old boots back in their bag slot) and the belt
+  (+18, the slot then empty) were worn; the cloak was not (its name read as world text, fixed above); the bracers (-3) were
+  left.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
