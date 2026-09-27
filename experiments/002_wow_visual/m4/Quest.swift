@@ -684,12 +684,14 @@ enum QuestLimits {
                                                             ("Valanaar", (58.2, 78.4))]
     static let safeArrive = 1.0
     static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
-    static let safeRounds = 4  // fights and walks on the way to safety
-    static let safeSeconds = 240.0  // after the run's 25 minutes, inside the envelope's 30
+    static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
+    static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
+    static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
     static let maxSteps = 12
-    // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
-    // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
-    static let runSeconds = 1500.0
+    // The run envelope allows 30 min a run. No step starts after 20 min; a hunt gets what is left of them, at most its
+    // own 15. The last step's walk (3 min) and its fight back (2.5) end by 25:30, and the way to safety has the rest,
+    // one fight at least (review of #72: 25 min left a fight back after the last walk running past 30).
+    static let runSeconds = 1200.0
     // A hunt that ends at one of its limits with no count risen fails its step; any other code that is
     // not HUNTED ends the run (death, the owner, the HUD, Jev, a lost fight, keys held).
     static let huntFails: Set<String> = ["HUNT_DECISION_LIMIT", "HUNT_FIGHT_LIMIT", "HUNT_TIME_LIMIT",
@@ -848,22 +850,28 @@ func leavesDanger(_ outcome: String) -> Bool {
     !(outcome.contains("OWNER") || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
 }
 
-/// The way to safety in rounds (M4r): in combat, a fight back first (SAFETY's, as M4i's); out of it, the walk; a walk
-/// that met combat is fought and walked again. At most `rounds`, none started at or after `deadline`. "SAFE" on
-/// arrival; a fight not won ends it with "FIGHT_" and its outcome, a walk's other end with "WALK_" and its. Live run 65
-/// (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and it died.
-func leaveDangerRounds(_ rounds: Int, until deadline: Double, now: () -> Double, inCombat: () async -> Bool,
-                       fightBack: () async -> String, walk: () async -> String) async -> String {
-    for _ in 0..<rounds {
-        if now() >= deadline { return "SAFE_TIME_LIMIT" }
+/// The way to safety (M4r): in combat, a fight back first (SAFETY's, as M4i's); out of it, a walk; a walk that met
+/// combat is fought, then walked again, at most `walks` walks. "SAFE" on arrival; a fight not won ends it with "FIGHT_"
+/// and its outcome, a walk's other end with "WALK_" and its. Everything ends by `end`: a fight starts only with its
+/// whole `FightLimits.maxSeconds` left, and a walk gets what is left, at most `NavLimits.maxSeconds` (reviews of #72).
+/// Live run 65 (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and died.
+func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCombat: () async -> Bool,
+                       fightBack: () async -> String, walk: (Double) async -> String) async -> String {
+    var walked = 0
+    for _ in 0...(2 * walks) {
+        let left = end - now()
         if await inCombat() {
+            guard left >= FightLimits.maxSeconds else { return "SAFE_TIME_LIMIT_IN_COMBAT" }
             let fought = await fightBack()
             guard QuestLimits.fightWon.contains(fought) else { return "FIGHT_" + fought }
             continue
         }
-        let walked = await walk()
-        if walked == "ARRIVED" { return "SAFE" }
-        if walked != "COMBAT" { return "WALK_" + walked }
+        guard walked < walks else { return "SAFE_ROUNDS" }
+        guard left >= QuestLimits.safeWalkSeconds else { return "SAFE_TIME_LIMIT" }
+        walked += 1
+        let outcome = await walk(min(NavLimits.maxSeconds, left))
+        if outcome == "ARRIVED" { return "SAFE" }
+        if outcome != "COMBAT" { return "WALK_" + outcome }
     }
     return "SAFE_ROUNDS"
 }

@@ -977,16 +977,17 @@ final class LiveQuestHost: QuestHost {
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
     }
 
-    /// At a run's end, a walk to the nearest safe place (safePlace), SAFETY's: its moves are a fixed preference (straight,
-    /// then detours), with no model call, so a run that ended on a failed Jev call walks too. At most one walk (180 s),
-    /// inside the run envelope's 30 minutes (the run stops new steps at 25).
+    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks' moves are a
+    /// fixed preference (straight, then detours), with no model call, so a run that ended on a failed Jev call walks too.
+    /// It ends inside the run envelope's 30 minutes (the run stops new steps at 20). No fresh HUD counts as combat.
     func leaveDanger(after outcome: String) async {
         guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),
               let safe = safePlace(from: at) else { return }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
-        let end = await leaveDangerRounds(QuestLimits.safeRounds, until: runDeadline + QuestLimits.safeSeconds, now: now,
-                                          inCombat: { self.combatNow() == true }, fightBack: { await self.fightBack() }) {
+        let envelopeEnd = runDeadline - QuestLimits.runSeconds + QuestLimits.envelopeSeconds
+        let end = await leaveDangerRounds(QuestLimits.safeWalks, until: envelopeEnd, now: now,
+                                          inCombat: { self.combatNow() != false }, fightBack: { await self.fightBack() }) { seconds in
             guard !self.ownerTookFocus(), self.walker?.holding != true else { return "OWNER_OR_KEYS" }
             self.walks += 1
             let folder = self.quester.body.directory.appendingPathComponent(String(format: "walk%d", self.walks))
@@ -995,7 +996,7 @@ final class LiveQuestHost: QuestHost {
             self.walker = legs
             let walked = await runNav(body: legs, jev: ScriptedJev(preference: preference),
                                       destination: NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive,
-                                                                  passesDanger: true))
+                                                                  toSafety: true, seconds: seconds))
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])
