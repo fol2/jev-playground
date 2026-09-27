@@ -1174,11 +1174,13 @@ sought its "?" where the character stood. Its ender is Yala Windwatcher in Thend
 - **Knowledge** (`learning/knowledge/zephras-quests.json`): each quest's ender and where they stand, from warcraft.wiki.gg
   (read by a research subagent; URLs per quest). Agitators → Yala Windwatcher (47.3, 21.9); Harvesting Windstones → Dalia the
   Collector (43.2, 24.0); The Gift of Skysight → Ventaari Brightwish (42.6, 24.4).
-- **The log** (`withEnders`): each quest is named with its ender; one with no map pin takes its ender's place. A map pin
-  stays, since it is what the game shows now. Jev's hand-in offer names the ender.
+- **The log** (`withEnders`): each quest is named with its ender. Only a quest ready to hand in (or a delivery) with no map
+  pin takes its ender's place; one in progress keeps its own area (review of #78). A map pin stays, since it is what the
+  game shows now. Jev's hand-in offer names the ender.
 - **The hand-in** (`turnIn(ender:)`): with the ender's name known, the NPC is opened by its name first (`openByName`, M4u:
   the name read at twice its size, the tooltip naming it). The completion page follows as before (a quest list's entry,
-  Continue). Someone else's page is closed, and the "?" is sought after, as before.
+  Continue). Another quest's page or the NPC's greeting is closed (`panelOpen` or `npcWindowOpen`), and the "?" is sought
+  after, as before. The search by name stops at the run's time.
 - **Also here (review of #77):** the trainer's level is remembered only when a spell was learnt, so a visit short of money
   is offered again at the same level; the run's deadline is read again just before Train; a player's tooltip met while
   hovering for an NPC is logged as "(a player)", never by name.

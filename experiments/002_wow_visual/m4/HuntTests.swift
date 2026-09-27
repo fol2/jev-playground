@@ -1075,10 +1075,16 @@ extension NavTests {
         let agitators = PlannedQuest(title: "Agitators", level: 3, ready: true, objective: "Ready for turn-in", pin: nil)
         let pinned = PlannedQuest(title: "The Gift of Skysight", level: 4, ready: false, objective: "", pin: (48.2, 20.1))
         let unknown = PlannedQuest(title: "Nobody's Quest", level: 1, ready: true, objective: "", pin: nil)
-        let named = withEnders([agitators, pinned, unknown], enders)
+        let windstones = PlannedQuest(title: "Harvesting Windstones", level: 4, ready: false, objective: "- 0/15 Windstone Cluster", pin: nil)
+        let named = withEnders([agitators, pinned, unknown, windstones], enders)
         check(enders.count == 3 && named[0].ender == "Yala Windwatcher" && same(named[0].pin, 47.3, 21.9)
-              && named[1].ender == "Ventaari Brightwish" && same(named[1].pin, 48.2, 20.1) && named[2].ender == nil && named[2].pin == nil,
-              "M4v: a quest with no map pin takes its ender's place from the wiki; a map pin stays; an unknown quest is left alone")
+              && named[1].ender == "Ventaari Brightwish" && same(named[1].pin, 48.2, 20.1) && named[2].ender == nil && named[2].pin == nil
+              && named[3].ender == "Dalia the Collector" && named[3].pin == nil,
+              "M4v: a quest ready to hand in with no map pin takes its ender's place; one in progress keeps none (review of #78); a map pin stays")
+        let otherPage: [TipLine] = [TipLine(text: "Yala Windwatcher", x: 156, y: 156), TipLine(text: "Elemental Unrest", x: 40, y: 230),
+                                    TipLine(text: "Complete Quest", x: 40, y: 660)]
+        check(panelOpen(otherPage) && !npcWindowOpen(otherPage, name: "Yala Windwatcher"),
+              "review of #78: another quest's completion page (no Goodbye) is a panel, closed before the \"?\" is sought")
         let enderOffer = questOffers(QuestRead(quests: [named[0]], player: thendal, missing: []), failed: [])
         check(enderOffer.first?.skill == "HAND_IN_1" && enderOffer.first?.criterion.contains("Yala Windwatcher") == true,
               "M4v: the hand-in is offered at its ender's place, by name")

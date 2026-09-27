@@ -1340,14 +1340,15 @@ struct QuestEnder: Codable, Equatable {
     }
 }
 
-/// The log's quests with their enders named from the knowledge; a quest with no map pin takes its ender's place. A map pin
-/// stays: it is what the game shows now.
+/// The log's quests with their enders named from the knowledge. Only a quest ready to hand in (or a delivery) with no map pin
+/// takes its ender's place: a quest in progress keeps its own area, or none (review of #78: "Harvesting Windstones" at 0/15
+/// would have walked to Dalia in the village). A map pin stays: it is what the game shows now.
 func withEnders(_ quests: [PlannedQuest], _ enders: [QuestEnder]) -> [PlannedQuest] {
     quests.map { q in
         guard let e = enders.first(where: { sameTitle($0.title, q.title) }) else { return q }
         var named = q
         named.ender = e.ender
-        if named.pin == nil { named.pin = (e.at[0], e.at[1]) }
+        if named.pin == nil, [.handIn, .travel].contains(questKind(q)) { named.pin = (e.at[0], e.at[1]) }
         return named
     }
 }

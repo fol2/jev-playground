@@ -896,7 +896,7 @@ final class QuestRun {
         return chat.contains { $0.lowercased().contains("accepted") } ? "ACCEPTED" : "ACCEPTED_UNCONFIRMED"
     }
 
-    func turnIn(_ quest: String, ender: String? = nil) async -> String {
+    func turnIn(_ quest: String, ender: String? = nil, until deadline: Double = .infinity) async -> String {
         func ours(_ lines: [TipLine]) -> TipLine? { lines.first { sameTitle($0.text, quest) } }
         /// A delivery shows its progress page first ("Continue", live 24 Sept for Call of Earth).
         func pastContinue(_ dialog: [TipLine]) async -> [TipLine] {
@@ -921,13 +921,16 @@ final class QuestRun {
             return .other(page)
         }
         // M4v: an ender known by name is opened by its name first (openByName, the M4u rule); its "?" is sought only after.
-        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil, let ender, let opened = await openByName(ender) {
+        if has(dialog, "Complete Quest") == nil || ours(dialog) == nil, let ender, let opened = await openByName(ender, until: deadline) {
             body.emit("ender_open", ["quest": quest, "ender": ender, "lines": opened.prefix(4).map(\.text)])
             switch await page(opened) {
             case .wanted(let d): dialog = d
             case .failed(let code): return code
-            case .other(let seen):
-                if !seen.isEmpty { await close(ender) }  // someone else's page, or its greeting without this quest
+            case .other(let seen):  // another quest's page (Complete Quest, Accept), or its greeting without this quest
+                if panelOpen(seen) || npcWindowOpen(seen, name: ender) {  // review of #78: a quest page has no "Goodbye"
+                    await tap(QuestHUD.escape)
+                    await sleep(0.6)
+                }
             }
         }
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
@@ -1250,7 +1253,7 @@ final class LiveQuestHost: QuestHost {
         let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
         if let pin, let stop = await walkBeside(pin, label: quest.title) { return stop }
         if let pin = quest.pin { await quester.face(pin) }
-        let outcome = await quester.turnIn(quest.title, ender: quest.ender)
+        let outcome = await quester.turnIn(quest.title, ender: quest.ender, until: runDeadline)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
         return outcome
