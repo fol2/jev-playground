@@ -1040,6 +1040,10 @@ final class LiveQuestHost: QuestHost {
     private var fights = 0, walks = 0, hunts = 0
     private var gearUnchecked = true  // M4x: the bags are looked over for upgrades at the start and after a fight, hunt or hand-in
     private var upgradeInBags = false, unworn = 0  // M4x: a check left an upgrade unworn; how many checks did
+    /// M4ab: the reads a step made stale (all at the start), and the last of each.
+    private var stale: Set<StaleRead> = [.log, .bags, .level]
+    private var lastLog: (quests: [PlannedQuest], missing: [String], givers: [Giver], at: MapPoint)?
+    private var lastItems: [String]?, lastLevel: Int?
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
     init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
          newHunter: @escaping (URL) -> LiveHuntHost, huntGraph: URL? = nil, tactics: FightTactics? = nil) {
@@ -1125,25 +1129,50 @@ final class LiveQuestHost: QuestHost {
                                     startHealth: inCombat ? 0 : FightLimits.startHealth, tactics: tactics)
         emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
         gearUnchecked = true
+        stale.formUnion([.log, .bags, .level])  // M4ab: a fight back or ahead, as staleAfter's fight ahead: kills, loot, experience
         guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
         lock.withLock { fighting = nil }
         return result.outcome
     }
 
     func readQuests() async -> QuestRead? {
-        let (read, player, missing, givers) = await quester.readQuests(turnIfUnread: true)
-        guard let player else { return nil }
-        let quests = withEnders(read, enders)  // M4v: who takes each in; a quest with no map pin takes its ender's place
+        // M4ab: the log, the bags and the level are read again only when a step made them stale (staleAfter), or the log when
+        // the character has walked `rereadMove` since; the place is read each time.
+        var quests: [PlannedQuest], missing: [String], givers: [Giver], player: MapPoint
+        if !stale.contains(.log), let last = lastLog, let here = await quester.position(turn: true),
+           distance(here, last.at) < QuestLimits.rereadMove {
+            (quests, missing, givers, player) = (last.quests, last.missing, last.givers, here)
+            emit("read_kept", ["log": true, "moved": roundTo(distance(here, last.at))])
+        } else {
+            let (read, at, lost, found) = await quester.readQuests(turnIfUnread: true)
+            guard let at else { return nil }
+            (quests, missing, givers, player) = (withEnders(read, enders), lost, found, at)  // M4v: each quest's ender
+            lastLog = (quests, missing, givers, at)
+            stale.remove(.log)
+        }
         let checked = await wearUpgrades()
-        // The bags are read only when a use-at quest might name an item in them (M4m), and not again after M4x's read.
+        if let checked { lastItems = checked; stale.remove(.bags) }
+        // The bags are read only when a use-at quest might name an item in them (M4m), and not again after M4x's read or while
+        // the last read stands (M4ab).
         var items: [String] = []
         if quests.contains(where: { questKind($0) == .useAt }) {
-            if let checked { items = checked } else { items = (await quester.readBags())?.map(\.name) ?? [] }
+            if !stale.contains(.bags), let kept = lastItems {
+                items = kept
+            } else if let read = await quester.readBags() {  // a read that failed keeps them stale (second review of #84)
+                items = read.map(\.name)
+                lastItems = items
+                stale.remove(.bags)
+            }
         }
         if !items.isEmpty { emit("bags", ["items": items]) }
         // M4u: the level, for the trainer; the level last trained, from the character's memory (a lower level read is a new
         // character with the same name: the memory is forgotten); the bags' filled slots when they were read.
-        let level = town.isEmpty ? nil : await quester.readLevel()
+        var level = town.isEmpty ? nil : lastLevel
+        if !town.isEmpty && (stale.contains(.level) || lastLevel == nil) {
+            level = await quester.readLevel()
+            lastLevel = level
+            if level != nil { stale.remove(.level) }
+        }
         if let level, let known = ([trainedAt] + history.values.map(\.level)).compactMap({ $0 }).max(), level < known {
             trainedAt = nil
             history = [:]
@@ -1160,6 +1189,7 @@ final class LiveQuestHost: QuestHost {
     private func wearUpgrades() async -> [String]? {
         guard gearUnchecked, combatNow() == false, !ownerTookFocus() else { return nil }
         let (outcome, worn, items) = await quester.wearUpgrades()
+        if !worn.isEmpty { stale.insert(.bags) }  // M4ab: what was worn left the bags, and what it replaced went in
         // An upgrade left in the bags (a tooltip or a click that failed, a bind prompt) is tried once more; until it is worn no
         // junk is sold (visit).
         upgradeInBags = outcome == "NOT_WORN"
@@ -1183,6 +1213,7 @@ final class LiveQuestHost: QuestHost {
         emit("town_open", ["npc": npc.name, "lines": opened.prefix(4).map(\.text)])
         if npc.role == "vendor" {
             let outcome = await quester.sellJunk(npc.name, until: runDeadline)
+            stale.formUnion(staleAfter(.town(npc), outcome))
             emit("town_done", ["npc": npc.name, "outcome": outcome])
             return outcome
         }
@@ -1230,6 +1261,7 @@ final class LiveQuestHost: QuestHost {
             outcome = await quester.useItem(item)
         }
         emit("item_used", ["quest": quest.title, "item": item, "outcome": outcome])
+        stale.formUnion(staleAfter(.use(quest, item: item), outcome))
         forgetLog(outcome)
         return outcome
     }
@@ -1355,7 +1387,8 @@ final class LiveQuestHost: QuestHost {
         if let pin = quest.pin { await quester.face(pin) }
         let outcome = await quester.turnIn(quest.title, ender: quest.ender, until: runDeadline)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
-        gearUnchecked = true  // a reward is in the bags (M4x)
+        stale.formUnion(staleAfter(.handIn(quest), outcome))
+        if outcome.hasPrefix("COMPLETED") { gearUnchecked = true }  // a reward is in the bags (M4x)
         forgetLog(outcome)
         return outcome
     }
@@ -1388,6 +1421,7 @@ final class LiveQuestHost: QuestHost {
         if !giver.inView { await quester.face(giver.pin) }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
+        stale.formUnion(staleAfter(.accept(giver), outcome))
         forgetLog(outcome)
         return outcome
     }
@@ -1411,9 +1445,10 @@ final class LiveQuestHost: QuestHost {
         let result = await runHunt(host: hunter, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
                                    graph: graph, seconds: seconds)
         let outcome = huntOutcome(result.outcome, start: result.start, end: result.end)
-        gearUnchecked = true
+        if !result.fights.isEmpty { gearUnchecked = true }  // M4ab: only a hunt that fought looted (live run 81: none, a bag read)
         emit("hunt_end", ["hunt": hunts, "quest": quest.title, "code": result.outcome, "outcome": outcome,
                           "fights": result.fights.map(\.outcome), "decisions": result.decisions])
+        stale.formUnion(staleAfter(.hunt(quest), outcome))
         guard !hunter.holding else { return "HUNT_KEYS_HELD" }
         lock.withLock { hunting = nil }
         return outcome

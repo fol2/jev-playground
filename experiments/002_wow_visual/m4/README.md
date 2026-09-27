@@ -1291,6 +1291,23 @@ sent it by road; the roads players walked go south round the ridge (42.5, 24.3; 
   there from those runs' own `NO_PROGRESS` places): the walk to Foul Matriarch (pin 36.2, 24.1) logged `road_gap` with
   `stuck_ahead` (13 legs, 18.4 units by road against 10.8 straight) and set off south; its first leg stopped at 41.9, 25.4 for
   a hostile ahead (`WALK_DANGER_AHEAD`), so the far side is still to be reached live.
+## M4ab — reads only when a step made them stale (27 Sept)
+
+The owner, 27 Sept: "the cache memory also had issues... it keep updating inventory and quest, even there're no related
+events. just waste of time." Live run 80: 8 steps took 7 world-map scans (21 pin hovers), 7 bag reads (93 slot hovers) and 8
+level reads, 9-20 s before each decision, though most steps (danger stops, retreats) changed none of them. The log's own
+memory (M4d) is keyed by the zone's name and the tracker's text, which change with the subzone and OCR, and held once.
+
+- `staleAfter` (pure): the reads a step's outcome makes stale. A hand-in: the log, the bags (its reward) and the level (its
+  experience); an accept or a use: the log and the bags; a fight, or a hunt that reached its area (one that fought may still end
+  NO_TARGET_FOUND: live run 39): all three; a sale: the bags;
+  a walk that stopped, a retreat or a road: none.
+- `LiveQuestHost` keeps the last log (with the minimap's givers), the bags' names and the level, and reads each again only
+  when stale; the log also after a walk of 3 units or more, as the givers change with the place. The place is read each step.
+  A fight back or ahead and a worn upgrade make their reads stale too. The gear check of M4x follows the same events: after a
+  hunt only when it fought, after a hand-in only when it completed (live run 81: a hunt with no fight re-read the bags).
+- Evidence: sim (`HuntTests`: each step's stale reads). Live run 81 (two steps, each after a walk of more than 3 units): the
+  level was read once for two steps; the bags twice, the second by the gear check this now leaves out.
 
 ## Limits
 

@@ -1149,6 +1149,13 @@ extension NavTests {
               && withHistory("Hunt.", nil) == "Hunt." && memoryRun.remembered.count == 1
               && memoryRun.remembered.first.map { $0.key == "HUNT Harvesting Windstones" && $0.outcome == "HUNT_NO_TARGET_FOUND" } == true,
               "M4y live runs 77-78: Jev reads a step's failures in earlier runs in its criterion, and the step's outcome is remembered")
+        // M4ab (the owner: "it keep updating inventory and quest, even there're no related events"): what a step makes stale.
+        check(staleAfter(.handIn(stones), "COMPLETED_TO_WEAR") == [.log, .bags, .level] && staleAfter(.handIn(stones), "WALK_NO_PROGRESS").isEmpty
+              && staleAfter(.hunt(stones), "HUNTED 2") == [.log, .bags, .level] && staleAfter(.hunt(stones), "HUNT_NO_TARGET_FOUND") == [.log, .bags, .level]
+              && staleAfter(.hunt(stones), "WALK_DANGER_AHEAD").isEmpty && staleAfter(.town(uualia), "SOLD 38") == [.bags]
+              && staleAfter(.town(boro), "TRAINED 1").isEmpty && staleAfter(.retreat, "RETREATED").isEmpty
+              && staleAfter(.use(stones, item: "Skysight"), "USED_ABILITY") == [.log, .bags] && staleAfter(.fightAhead, "FLED") == [.log, .bags, .level],
+              "M4ab: a hand-in, a hunt that met creatures or a fight make every read stale; a sale the bags; a stopped walk or a retreat none")
         // Bag tooltips as Vision read them live on 27 Sept (Thendal Village): the equipped item's box to the left, the
         // backpack's title and search box and world text behind.
         let beltTip = tip([("dangers of T", 2067, 637), ("Ragged Leather Belt", 1862, 1044), ("Waist", 1862, 1060), ("18 Armor", 1862, 1074),
