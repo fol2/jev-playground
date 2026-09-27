@@ -332,10 +332,11 @@ final class LiveHost: FightHost {
                 return "looted by Interact With Target: \(fresh.joined(separator: "; "))"
             }
             await tap(FightLimits.forward)  // a walk to the corpse that came to nothing stops here
+            // No label click after it: the frame's labels were read before the walk, and the point may now be a living
+            // creature (review of #68).
+            return "no corpse label visible, and Interact With Target found no loot"
         }
-        guard let label = corpseLabel(image, corpseNames) else {
-            return named ? "no corpse label visible, and Interact With Target found no loot" : "no corpse label visible"
-        }
+        guard let label = corpseLabel(image, corpseNames) else { return "no corpse label visible" }
         let fx = label.midX / Double(HUD.width), fy = (label.maxY + 200) / Double(HUD.height)
         guard (0.2...0.8).contains(fx), (0.35...0.8).contains(fy) else { return "corpse point outside the view" }
         let before = chatLines(image)
