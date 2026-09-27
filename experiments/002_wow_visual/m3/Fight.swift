@@ -59,6 +59,7 @@ enum FightLimits {
     static let freshWait = 2.0  // how long a fight waits for a fresh frame before NO_FRESH_FRAME
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
+    static let searchTurnMs = 600  // a quarter turn with E at 150° a second (NavLimits.turnRate): SELECT_TARGET turns so, up to a whole turn
     static let watchdogSeconds = 4.0
     static let jevTimeout = 4.0
     static let lootPolls = 6
@@ -169,7 +170,8 @@ enum FightAction: String, JevAction {
         case .buffWeapon:
             return "Apply the character's weapon enchant (instant, costs mana). It adds damage to every melee swing and lasts 60 minutes once applied."
         case .selectTarget:
-            return "Press Tab to select the nearest enemy creature in front of the character."
+            return "Press Tab to select the nearest enemy creature in front of the character. In combat with none in front, the "
+                + "character turns a quarter and presses Tab again, a whole turn at most: an attacker behind is found so."
         case .faceTarget:
             return "Press Interact With Target: the game turns the character to face the selected target at once, even one behind it, and turns on automatic weapon swings; the walk it starts is cancelled, so the character stays put. Spells need the target in front of the character."
         case .approachToRange:
@@ -237,7 +239,9 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
     if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
         return o.casting ? [.wait] : [.heal]
     }
-    var out: [FightAction] = [.wait, .stop]
+    // STOP only out of combat: in combat, standing still is dying (live run 68, 27 Sept: a fight back on the way to safety,
+    // attacked from behind, chose STOP at 53% health; the way to safety ended, and the character died where it stood).
+    var out: [FightAction] = o.combat ? [.wait] : [.wait, .stop]
     if !o.buff && kit?.has(.buff) != false { out.append(.buffWeapon) }  // the legacy policy: always, as before
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
@@ -1230,4 +1234,19 @@ func applyRoles(_ keys: [SkillRole: UInt16]) {
         HUD.shockRangeX0 = 716 + Int((Double(i - 1) * SkillHUD.pitch).rounded())
         HUD.shockRangeX1 = HUD.shockRangeX0 + 16
     }
+}
+
+/// SELECT_TARGET's search (live run 68, 27 Sept: attacked from behind, six Tabs found nothing, since Tab finds only an enemy
+/// in front): Tab; in combat with nothing selected, a quarter turn and Tab again, four Tabs at most, as a human turns round.
+/// Out of combat, one Tab. `tab` presses Tab and returns the next observation; `turn` makes the quarter turn. A selection is
+/// the target frame's (`Episode.alive`), not a plate. Returns whether one is selected, and the turns made.
+func searchTarget(combat: Bool, tab: () async -> Obs, turn: () async -> Void) async -> (selected: Bool, turns: Int) {
+    for turns in 0..<4 {
+        if turns > 0 {
+            guard combat else { break }
+            await turn()
+        }
+        if Episode.alive(await tab()) { return (true, turns) }
+    }
+    return (false, combat ? 3 : 0)
 }

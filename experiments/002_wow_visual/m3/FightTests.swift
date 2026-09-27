@@ -31,9 +31,24 @@ struct FightTests {
         await watchdog()
         liveKeys()
         await sim()
+        await search()
         tactics()
         await chains()
         print("fight checks passed: \(checks)")
+    }
+
+    /// SELECT_TARGET's search (live run 68): in combat it turns round until Tab selects, four Tabs at most; out of it, one Tab.
+    static func search() async {
+        var tabs = 0, turns = 0
+        let behind = await searchTarget(combat: true, tab: { tabs += 1; return Obs(target: tabs < 3 ? 0 : 0.8, combat: true) }, turn: { turns += 1 })
+        check(behind.selected && behind.turns == 2 && tabs == 3 && turns == 2,
+              "live run 68: attacked from behind, a quarter turn and Tab again until the target frame shows one")
+        tabs = 0; turns = 0
+        let nobody = await searchTarget(combat: true, tab: { tabs += 1; return Obs(target: 0, combat: true) }, turn: { turns += 1 })
+        let calm = await searchTarget(combat: false, tab: { Obs(target: 0) }, turn: { turns += 10 })
+        check(!nobody.selected && tabs == 4 && turns == 3 && !calm.selected && turns == 3,
+              "in combat a whole turn at most (four Tabs, three turns); out of combat one Tab and no turn")
+        check(FightAction.selectTarget.facts.contains("turns a quarter"), "Jev is told that SELECT_TARGET turns round in combat")
     }
 
     static func blank() -> RGBA {
@@ -337,6 +352,9 @@ struct FightTests {
         let points = corpseHoverPoints(Plate(x0: 1214, x1: 1346, top: 400, bottom: 413))
         check(points.count == 12 && points.allSatisfy { $0.y > 413 } && abs(points[0].x - 1280) < 1 && points[1].y == points[0].y && points[3].y > points[0].y,
               "live run 64: a corpse is sought below the last plate, middle column first, row by row downwards")
+        check(!has(admissible(Obs(target: 0, combat: true), Episode()), .stop) && !has(admissible(Obs(target: 0.5, combat: true), Episode()), .stop)
+              && has(admissible(Obs(target: 0, combat: false), Episode()), .stop),
+              "live run 68: STOP only out of combat; in combat, standing still is dying")
         let sought = corpseSearchPoints(label: (x: 1280, bottom: 398, height: 41))
         let around = corpseSearchPoints(label: nil)
         check(sought.count == 21 && sought[0].x == 1280 && sought[0].y == 398 + 3 * 41 && around.count == 12

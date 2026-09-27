@@ -120,6 +120,7 @@ final class LiveHost: FightHost {
     /// action taken on the one before (live run 37, 27 Sept: FACE_TARGET 26 times, "not done: target_cue_changed").
     var cue: (String) -> String = { $0 }
     var turnedMs = 0
+    var searchedMs = 0  // SELECT_TARGET's turns round, apart from the approach's budget
 
     init(session: Session, feed: FrameFeed, sink: PidKeySink, directory: URL, log: Log, input: LiveKeys? = nil) {
         self.origin = hostNow()
@@ -215,17 +216,21 @@ final class LiveHost: FightHost {
         keys.releaseAll()
     }
 
+    // Every key is granted before it goes down, so the watchdog lifts it if the task stalls (review of #76, as #53).
     private func tap(_ code: UInt16) async {
+        keys.grant(code, seconds: 0.06 + FightLimits.watchdogSeconds)
         keys.press(code)
         await sleep(0.06)
         keys.lift(code)
     }
 
-    private func hold(_ code: UInt16, _ ms: Int) async {
+    /// `searching`: SELECT_TARGET's turn round, kept out of the approach's turn budget (review of #76).
+    private func hold(_ code: UInt16, _ ms: Int, searching: Bool = false) async {
+        keys.grant(code, seconds: Double(ms) / 1000 + FightLimits.watchdogSeconds)
         keys.press(code)
         await sleep(Double(ms) / 1000)
         keys.lift(code)
-        if code == FightLimits.forward { walkedMs += ms } else { turnedMs += ms }
+        if code == FightLimits.forward { walkedMs += ms } else if searching { searchedMs += ms } else { turnedMs += ms }
     }
 
     /// The owner, 24 Sept: "if F9 work for behind, why can't F9 work for everything?" The game turns to
@@ -438,10 +443,17 @@ final class LiveHost: FightHost {
             await sleep(1.5)
             return look("buff", plates: false).buff ? "enchant active" : "enchant not seen"
         case .selectTarget:
-            await tap(FightLimits.tab)
-            await sleep(1.0)
+            // Tab finds only an enemy in front. In combat with none there, the attacker stands behind or aside (live run 68: six
+            // Tabs found nothing while Roiling Winds cast from behind), so the character turns a quarter and tabs again, a whole
+            // turn at most, as a human turns round. The target frame is the evidence, not a plate (none was read that day).
             episode.meleeOn = false
-            return look("tab", plates: true).plate != nil ? "a target is selected" : "no target selected"
+            let found = await searchTarget(combat: observation.combat, tab: {
+                await self.tap(FightLimits.tab)
+                await self.sleep(1.0)
+                return self.look("tab", plates: true)
+            }, turn: { await self.hold(FightLimits.turnRight, FightLimits.searchTurnMs, searching: true) })
+            if found.selected { return found.turns == 0 ? "a target is selected" : "a target is selected after turning \(found.turns * 90)°" }
+            return observation.combat ? "no target selected, even turning round" : "no target selected"
         case .faceTarget:
             return await face(&episode)
         case .approachToRange:

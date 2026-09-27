@@ -579,8 +579,8 @@ with its keys released, leaving the character standing under attack. Now `WALK_C
 to one M3 fight in combat (controller SAFETY, no quest-graph call: in combat the only choice is to fight
 back, as in the hunt). The fight's own decisions are Jev's, on a child of the run's own key set, its frames
 in `fightN/` (and each walk's in `walkN/`: run 3 of 25 Sept overwrote its first walk's frames with the second's). A kill lets the run go on, and the interrupted step may be offered again; any other outcome,
-Jev's STOP included, ends the run as `FIGHT_<outcome>`. Unlike the hunt, M3 cannot select an attacker
-behind the character (Tab looks ahead), so walking on after a STOP would only be attacked again. The exit
+Jev's STOP included, ends the run as `FIGHT_<outcome>`: walking on while still attacked would only be attacked
+again. (Since #76, STOP is not offered in combat, and SELECT_TARGET turns round to find an attacker behind.) The exit
 sweep and the key check cover the fight's keys as well as the walk's. (Until 25 Sept the child was taken
 from the walk's set, which the walk's own exit sweep had already retired: no fight could have started. Found
 in review before any live fight back.) 2 nav checks replace "combat ends
