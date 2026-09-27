@@ -894,19 +894,24 @@ so the pick-up is a choice Jev makes, not a script's loop; and it sees through a
 
 - **PICK_UP_OBJECT**, a hunt skill in the search node of `skyborne-hunt-tools-v3`. The survey reads the objects in
   view with the M5 object detector (`ObjectReader`, m5/README.md) while an objective is open.
-- **Admissibility (the script's part):** offered only with an object in view, an open objective, health for walking,
-  not in combat, and not after two pick-ups in a row that picked nothing up.
-- **The skill:** the object nearest the character's feet is hovered, as a human rests the pointer. Before that, the
-  pointer waits off every unit until no tooltip is left from before. Only a tooltip line that names an open objective
-  (`objective(for:)`) is right-clicked; Click-to-Move walks there and picks it up.
+- **Admissibility (the script's part):** offered only with an object in view, an open collect objective (its text
+  names no defeat), health for walking and no combat. After two pick-ups that picked nothing up it is not offered
+  again until a walk: a Tab or a look around does not make a false object worth hovering again.
+- **Jev's view:** the state lists the objects in view (screen place, confidence), and the goal says what a pick-up does.
+- **The skill:** the object nearest the character's feet is hovered, as a human rests the pointer.
+  - Before that, the pointer waits off every unit until two fresh frames show no tooltip (`tooltipGone`, at most 4 s).
+  - Only a tooltip that names an open collect objective and is not a unit's (no "Level" line) is right-clicked
+    (`objectTipObjective`), and only with no combat read just before. Click-to-Move walks there and picks it up.
   - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
-  - An attack ends the wait. A pick-up that counts is progress, as a fight is, for the hunt's search limit.
+  - An attack ends the wait, and a tap of forward stops Click-to-Move. A pick-up that counts is progress, as a fight
+    is, for the hunt's search limit.
 - **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
   The HUNT offer tells Jev so.
 
 Proof (sim): `SimHunt` has objects on the ground whose tooltip is their name. It checks that PICK_UP_OBJECT is offered
 only in the cases above; that two Windstone Clusters in view make two pick-ups and complete the objective with no
-fight; and that an object whose tooltip names no objective is not clicked. The live hover, click and tracker read are
+fight; that an object whose tooltip names no objective is not clicked, nor hovered more than twice between walks;
+that a unit's tooltip or a kill objective is never picked up; and that Jev's state lists the objects. The live hover, click and tracker read are
 not observed yet (F3).
 
 ## Limits
