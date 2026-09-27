@@ -9,7 +9,7 @@ enum QuestHUD {
     static let dialog = CGRect(x: 0, y: 140, width: 400, height: 580)  // the quest dialogue, left edge
     // The unit under the pointer: the game's tooltip, bottom right, growing upwards (25 Sept: a player's four
     // lines at x 2278-2545, y 1150-1248).
-    static let unitTip = CGRect(x: 2200, y: 1000, width: 360, height: 260)
+    static let unitTip = unitTooltipBox
     static let tooltip = CGRect(x: 150, y: 100, width: 850, height: 560)  // a reward's tooltip and the equipped one
     static let chatInput = CGRect(x: 30, y: 1160, width: 700, height: 44)  // "Say:" once Enter opens it
     static let world = (300, 100, 2100, 950)  // where quest marks are looked for

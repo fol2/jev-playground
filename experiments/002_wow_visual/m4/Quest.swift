@@ -486,12 +486,6 @@ func hoverPoints(_ m: QuestMark) -> [(x: Double, y: Double)] {
     return columns.flatMap { x in rows.map { (x, $0) } } + [(m.x, m.body)]
 }
 
-/// Whether the NPC's tooltip has gone: the last two reads, both on fresh frames, lack its name. An
-/// unreadable frame (nil) proves nothing, and one OCR miss is not "gone" (review, 25 Sept).
-func tooltipGone(_ reads: [Bool?]) -> Bool {
-    reads.count >= 2 && reads.suffix(2).allSatisfy { $0 == false }
-}
-
 /// Whether an unconfirmed click would repeat the last unconfirmed one: within half a mark height of it
 /// (live run 4: three clicks at one point below Dalia's "?" found the ground). A new mark after
 /// Click-to-Move has moved the character is a new point.

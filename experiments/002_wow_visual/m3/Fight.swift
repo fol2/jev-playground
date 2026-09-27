@@ -1131,6 +1131,19 @@ func corpseTooltip(_ lines: [String], names: [String]) -> Bool {
     lines.contains { $0.lowercased().filter(\.isLetter) == "corpse" } && lines.contains { fuzzyNameMatch($0, names) }
 }
 
+/// Whether one hovered point is the fought creature's corpse: the last two reads, each on a frame captured after the
+/// pointer moved there, are its corpse's tooltip. One read may be a tooltip fading from the last point (review of #71).
+func confirmedCorpse(_ reads: [[String]], names: [String]) -> Bool {
+    reads.count >= 2 && reads.suffix(2).allSatisfy { corpseTooltip($0, names: names) }
+}
+
+/// Whether the NPC's tooltip has gone: the last two reads, both on fresh frames, lack its name. An
+/// unreadable frame (nil) proves nothing, and one OCR miss is not "gone" (review, 25 Sept).
+func tooltipGone(_ reads: [Bool?]) -> Bool {
+    reads.count >= 2 && reads.suffix(2).allSatisfy { $0 == false }
+}
+
+
 func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
     guard let foot = boxes.first(where: { isTooltipFooter($0.text) }) else { return [] }
     return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }

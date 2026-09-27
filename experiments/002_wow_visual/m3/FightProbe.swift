@@ -314,20 +314,49 @@ final class LiveHost: FightHost {
     }
 
     private var lastTargetPlate: Plate?  // the selected creature's plate while it lived: its corpse lies below it
+    private var hoverLoots = 0  // right-clicks on a corpse's tooltip this fight: two, then the kill stands unlooted
 
-    /// The first of corpseHoverPoints whose unit tooltip is the fought creature's corpse, or nil.
+    /// The first of corpseHoverPoints whose unit tooltip is the fought creature's corpse, or nil. M4's rule for a hover (review
+    /// of #71): the pointer first rests off every unit until two fresh frames show no tooltip; at each point two reads, on
+    /// frames captured after the move, must both be the corpse's; after a point with any tooltip it rests off again, so a
+    /// tooltip fading from one point never confirms the next.
     private func hoverCorpse(_ plate: Plate) async -> (x: Double, y: Double)? {
+        guard await parkPointer() else { return nil }
         for p in corpseHoverPoints(plate) where (0.1...0.9).contains(p.x / Double(HUD.width)) && (0.2...0.85).contains(p.y / Double(HUD.height)) {
             guard move(p) else { return nil }
-            await sleep(0.35)
-            guard let image = latestImage(), let tip = image.cropping(to: tooltipBox) else { continue }
-            let lines = ocr(tip).map(\.0)
-            if corpseTooltip(lines, names: corpseNames) {
-                emit("corpse_hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(lines.prefix(3))])
+            var reads: [[String]] = []
+            for wait in [0.4, 0.3] { reads.append(await tip(after: hostNow() + wait) ?? []) }
+            if confirmedCorpse(reads, names: corpseNames) {
+                emit("corpse_hover", ["at": [Int(p.x), Int(p.y)], "tooltips": reads.map { Array($0.prefix(3)) }])
                 return p
             }
+            if reads.contains(where: { !$0.isEmpty }) {
+                guard await parkPointer() else { return nil }
+            }
+        }
+        _ = await parkPointer()
+        return nil
+    }
+
+    /// The unit tooltip on a frame captured after `t`, or nil when none comes within 2.5 s.
+    private func tip(after t: Double) async -> [String]? {
+        let start = hostNow()
+        while hostNow() - start < 2.5 {
+            if let latest = feed.latestFrame, latest.pts > t { return upscaledText(latest.image, unitTooltipBox) }
+            await sleep(0.05)
         }
         return nil
+    }
+
+    /// The pointer rests off every unit (at the top of the view) until two fresh frames show no tooltip, at most 4 s.
+    private func parkPointer() async -> Bool {
+        guard move((1280, 60)) else { return false }
+        var fades: [Bool?] = []  // true: a tooltip is still up; nil: no fresh frame
+        let parked = hostNow()
+        while !tooltipGone(fades) && hostNow() - parked < 4 {
+            fades.append((await tip(after: hostNow() + 0.2)).map { !$0.isEmpty })
+        }
+        return tooltipGone(fades)
     }
 
     private func move(_ p: (x: Double, y: Double)) -> Bool {
@@ -371,7 +400,8 @@ final class LiveHost: FightHost {
         }
         // The target cleared at the kill: rest the pointer below its last plate until a tooltip names its corpse, and
         // right-click there (live run 64).
-        if !named, let plate = lastTargetPlate, let found = await hoverCorpse(plate) {
+        if !named, hoverLoots < 2, let plate = lastTargetPlate, let found = await hoverCorpse(plate) {
+            hoverLoots += 1
             let before = chatLines(image)
             guard click(found, button: .right) else { return "loot click failed or input ownership revoked" }
             var fresh: [String] = []
@@ -382,8 +412,12 @@ final class LiveHost: FightHost {
                 fresh = chatLines(after).filter { ($0.contains("receive loot") || $0.contains("You loot")) && !before.contains($0) }
             }
             episode.looted = !fresh.isEmpty
-            return episode.looted ? "looted by its corpse's tooltip: \(fresh.joined(separator: "; "))"
-                : "no corpse label visible; its corpse's tooltip was right-clicked, no new loot line in chat"
+            _ = await parkPointer()  // no tooltip left over the next look
+            // The first miss is not "no corpse …", which ends the fight KILLED_NO_CORPSE: one missed chat line would give up
+            // a confirmed corpse, so Jev may loot again, as after a label click (review of #71). The second ends it.
+            if episode.looted { return "looted by its corpse's tooltip: \(fresh.joined(separator: "; "))" }
+            return hoverLoots < 2 ? "right-clicked its corpse's tooltip; no new loot line in chat"
+                : "no corpse loot: its corpse's tooltip was right-clicked twice, and no loot line came"
         }
         guard let label = corpseLabel(image, corpseNames) else { return "no corpse label visible" }
         let fx = label.midX / Double(HUD.width), fy = (label.maxY + 200) / Double(HUD.height)
@@ -459,6 +493,19 @@ final class LiveHost: FightHost {
 /// Hover each main-bar slot in the background and read its tooltip: the keys come from what the bar
 /// holds, not from constants. Throws (a HOLD) when a role is missing or the pointer was contested.
 let tooltipBox = CGRect(x: 2240, y: 900, width: 320, height: 340)  // bottom-right; a tooltip grows upwards
+let unitTooltipBox = CGRect(x: 2200, y: 1000, width: 360, height: 260)  // a unit's; empty with the pointer off every unit (M4)
+
+/// OCR lines of one HUD box, top to bottom, after a x3 upscale: Vision misreads ~10 px text at 1x.
+func upscaledText(_ image: CGImage, _ box: CGRect) -> [String] {
+    guard let crop = image.cropping(to: box),
+          let context = CGContext(data: nil, width: Int(box.width) * 3, height: Int(box.height) * 3, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+    context.interpolationQuality = .high
+    context.draw(crop, in: CGRect(x: 0, y: 0, width: context.width, height: context.height))
+    guard let scaled = context.makeImage() else { return [] }
+    return ocr(scaled).sorted { $0.1.maxY > $1.1.maxY }.map(\.0)  // Vision's boxes grow upwards
+}
 
 /// The bar's role keys, and each filled slot's tooltip for the fight's skill cards (M3b).
 struct SkillBar {

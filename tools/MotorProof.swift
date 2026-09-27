@@ -6,7 +6,7 @@ import ImageIO
 
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
-let minFightChecks = 224  // the current count: removing a check must lower this on purpose
+let minFightChecks = 225  // the current count: removing a check must lower this on purpose
 let minNavChecks = 399  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
