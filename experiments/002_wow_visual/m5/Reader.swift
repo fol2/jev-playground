@@ -93,6 +93,15 @@ struct DepthReader {
     }
 
     func read(_ image: CGImage) throws -> ViewDepth? {
+        try disparity(image).flatMap { viewDepth($0.values, width: $0.width, height: $0.height) }
+    }
+
+    /// M4ac: the view's nearness by column, for the steering walk.
+    func columns(_ image: CGImage) throws -> [Double]? {
+        try disparity(image).flatMap { depthColumns($0.values, width: $0.width, height: $0.height) }
+    }
+
+    func disparity(_ image: CGImage) throws -> (values: [Float], width: Int, height: Int)? {
         let input = try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(cgImage: image, constraint: constraint,
             options: [.cropAndScale: VNImageCropAndScaleOption.scaleFill.rawValue])])
         guard let buffer = try model.prediction(from: input).featureValue(for: "depth")?.imageBufferValue else { return nil }
@@ -105,7 +114,7 @@ struct DepthReader {
             let line = base.advanced(by: y * row).assumingMemoryBound(to: Float16.self)
             for x in 0..<w { disparity[y * w + x] = Float(line[x]) }
         }
-        return viewDepth(disparity, width: w, height: h)
+        return (disparity, w, h)
     }
 }
 

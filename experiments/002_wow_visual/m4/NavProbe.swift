@@ -136,6 +136,12 @@ final class LiveNavBody: NavBody {
         return try? reader.read(frame.image)
     }
 
+    /// M4ac: the view's nearness by column on the latest fresh frame, once per steering tick (25 ms).
+    func viewColumns() -> [Double]? {
+        guard let reader = Self.loadedDepth.reader, let frame = runtimeFrame(session, feed) else { return nil }
+        return try? reader.columns(frame.image)
+    }
+
     func look() -> NavObs? {
         guard let frame = runtimeFrame(session, feed) else { return nil }
         let image = frame.image
