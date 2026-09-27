@@ -467,11 +467,13 @@ walk, hunt: frame -> FacingReader (the arrow's crop, classes every 10 degrees) +
   the `final` fit read 329 (0.73) for about 50. That comparison informed the choice, so the test set is no longer
   held out for it. The next live runs, whose walk looks name their frames, are the fresh held-out evidence.
 - **How the walk uses it (`fusedFacing`, m4/Nav.swift).**
-  - Where the rule and the reader agree within 30 degrees, the walk takes the rule's bearing, which is finer.
+  - Where the rule reads, the walk takes the rule's bearing.
   - Where the rule reads nothing, it takes the reader's bearing at 0.7 or more.
-  - Where they disagree, it takes none: a wrong bearing turns the character the wrong way.
-  - On the test frames the reader was more than 30 degrees wrong on 4 of 83 at 0.7 or more. Where it confidently read
-    a flipped arrow, it disagreed with the rule and gave no bearing.
+  - Where they disagree, it takes the rule's, unless a turn test showed the rule wrong (m4/README.md).
+  - On the test frames the reader was more than 30 degrees wrong on 4 of 83 at 0.7 or more. Live it did worse: on
+    runs 54 and 58-62 (27 Sept, a new character, dusk) it was wrong at up to 1.00 where the rule was right, and giving
+    no bearing on a disagreement ended run 62's walk. Those runs' walk looks log their frame's file and the rule's
+    reading: they are the next training rows.
   - Without the private model the rule reads alone, as before. Every walk look logs `facing_rule`, `facing_learned`
     and `facing_confidence`.
 - **A frame takes about 12 ms.**

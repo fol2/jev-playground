@@ -229,17 +229,17 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
-        check(fusedFacing(rule: 150, learned: (160, 0.9)) == 150 && fusedFacing(rule: 350, learned: (151, 0.83)) == nil
+        check(fusedFacing(rule: 150, learned: (160, 0.9)) == 150 && fusedFacing(rule: 350, learned: (151, 0.83)) == 350
               && fusedFacing(rule: nil, learned: (30, 0.75)) == 30 && fusedFacing(rule: nil, learned: (329, 0.54)) == nil
               && fusedFacing(rule: 20, learned: nil) == 20 && fusedFacing(rule: nil, learned: nil) == nil
               && fusedFacing(rule: 355, learned: (10, 0.5)) == 355,
-              "live run 52: the rule's bearing where both agree, the reader's (0.7 or more) where the rule has none, none where they disagree")
+              "live runs 52-62: the rule's bearing where it reads, the reader's (0.7 or more) only where the rule has none")
         check(turnTest(before: (222, 150), after: (254, 118), turned: 25) == .rule && turnTest(before: (130, 250), after: (128, 276), turned: 25) == .learned
               && turnTest(before: (90, 92), after: (116, 118), turned: 25) == nil && turnTest(before: (nil, 150), after: (nil, 175), turned: 25) == nil,
               "live run 58: the reader whose bearing followed a turn of 25 degrees is the one a turn test trusts; both, neither or a missing reading: none")
         check(fusedFacing(rule: 222, learned: (150, 0.93), trust: .rule) == 222 && fusedFacing(rule: 222, learned: (150, 0.93), trust: .learned) == 150
-              && fusedFacing(rule: 222, learned: (150, 0.5), trust: .learned) == nil && fusedFacing(rule: 222, learned: (150, 0.93)) == nil,
-              "a disagreement follows the reader a turn test trusted; with none, no bearing")
+              && fusedFacing(rule: 222, learned: (150, 0.5), trust: .learned) == 222 && fusedFacing(rule: 42, learned: (320, 1.0)) == 42,
+              "live run 62: a disagreement takes the rule's bearing, unless a turn test showed the reader right")
         check(turnTest(before: (350, 200), after: (15, 200), turned: 25) == .rule && turnTest(before: (20, 355), after: (21, 20), turned: 25) == .learned,
               "a turn across north counts as the 25 degrees it is")
         let trusted = FacingState()

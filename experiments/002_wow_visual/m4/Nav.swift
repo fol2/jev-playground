@@ -80,21 +80,16 @@ func compass(dx: Double, dy: Double) -> Double {  // dy grows southwards, as on 
 }
 
 /// The facing a walk or a hunt acts on, from the rule (arrowFacing) and the learned reader (M5, FacingReader): the rule's
-/// where the two agree within 30 degrees (it is finer), the learned one at 0.7 or more where the rule has none, and none
-/// where they disagree, since a wrong bearing turns the character the wrong way. Live run 52 (27 Sept), beside the Elemental
-/// Convergence: the rule read 350 and 316 where the arrow faced about 150, then nothing where it faced about 50; the reader
-/// read 152 and 159, then 30 (0.75). On the held-out runs the reader was more than 30 degrees wrong on 4 of 83 frames at
-/// 0.7 or more, so it does not overrule a reading of the rule.
-/// `trust`: the reader a turn test showed right (turnTest), which a disagreement then follows.
+/// where it reads, the learned one at 0.7 or more where the rule has none, and the learned one over the rule only where a
+/// turn test (turnTest) showed the rule wrong. Live evidence, 27 Sept: beside the Elemental Convergence the rule was wrong
+/// and the reader right (run 52: 350 and 316 for about 150), but on runs 54 and 58-62 the rule was right and the reader
+/// wrong at up to 1.00 (run 62: 320, 270 and 150 for 42 and 68). A disagreement that gave no bearing ended run 62's walk
+/// HUD_UNREADABLE in 10 s, so a disagreement no longer does: until the reader is retrained, it only fills the rule's gaps.
 func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?, trust: FacingSource? = nil) -> Double? {
     switch (rule, learned) {
     case let (r?, l?):
         if abs(angleError(r, l.bearing)) <= 30 { return r }
-        switch trust {
-        case .rule?: return r
-        case .learned?: return l.confidence >= 0.7 ? l.bearing : nil
-        case nil: return nil
-        }
+        return trust == .learned && l.confidence >= 0.7 ? l.bearing : r
     case let (nil, l?): return l.confidence >= 0.7 ? l.bearing : nil
     case let (r, nil): return r
     }
