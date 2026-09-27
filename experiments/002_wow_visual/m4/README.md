@@ -893,8 +893,10 @@ The hunt could only fight, so a collect quest of objects on the ground was never
 so the pick-up is a choice Jev makes, not a script's loop; and it sees through a learned model, not a pixel rule.
 
 - **PICK_UP_OBJECT**, a hunt skill in the search node of `skyborne-hunt-tools-v3`. The survey reads the objects in
-  view with the M5 object detector (`ObjectReader`, m5/README.md) only while a collect objective is open, and not on
-  a frame already older than its age limit less the detector's 0.7 s (the `look` event logs each survey's ms).
+  view with the M5 object detector (`ObjectReader`, m5/README.md) only while a collect objective is open. The
+  detector runs beside the survey's other reads, not after them (the `look` event logs each survey's ms): live run 51
+  (27 Sept) read the tracker, target, position and plates in 0.34-0.49 s, and a detector after them was skipped as too
+  old on every frame, so PICK_UP_OBJECT was never offered.
 - **Admissibility (the script's part):** offered only with an object in view, an open collect objective (its text
   names no defeat), health for walking and no combat. After two pick-ups that picked nothing up it is not offered
   again until a walk: a Tab or a look around does not make a false object worth hovering again.

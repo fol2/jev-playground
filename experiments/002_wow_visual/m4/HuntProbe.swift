@@ -126,10 +126,35 @@ final class LiveHuntHost: HuntHost {
             emit("unreadable", ["frame": frameNo - 1])
             return nil
         }
+        let objectives = parseTracker(lines)
+        // The object detector (0.24-0.63 s offline) runs beside the reads below (0.34-0.49 s live), not after them: after
+        // them it was skipped as too old on every frame of live run 51 (27 Sept).
+        var found: [SeenObject] = []
+        let detect = Self.objectReader != nil && objectives.contains(where: collects)
+        var o = HuntObs()
+        DispatchQueue.concurrentPerform(iterations: detect ? 2 : 1) { i in
+            if i == 1 { found = objectsSeen(image, objectives: objectives); return }
+            o = surveyReads(frame, objectives: objectives)
+        }
+        o.objects = found
+        lastTarget = o.target
+        lastObjectives = o.objectives
+        emit("look", ["frame": frameNo - 1, "ms": Int((hostNow() - frame.stamp.capturedAt) * 1000), "tracker": lines,
+                      "target": orNull(o.target), "alive": o.targetAlive,
+                      "health": Int(o.player * 100), "mana": Int(o.mana * 100), "combat": o.combat, "game_menu": o.gameMenu,
+                      "facing": orNull(o.facing.map { Int($0.rounded()) }), "x": orNull(o.here?.x), "y": orNull(o.here?.y),
+                      "area": orNull(o.area.map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
+                      "seen": o.seen.map { ["name": $0.name, "hostile": $0.hostile, "bearing": Int($0.bearing.rounded()), "near": $0.near] }])
+        return o
+    }
+
+    /// A survey's reads of one frame but the tracker's and the objects'.
+    private func surveyReads(_ frame: (image: CGImage, stamp: ObservationStamp), objectives: [Objective]) -> HuntObs {
+        let image = frame.image
         let pixels = rgba(image)
         let name = upscaledText(image, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces)
         var o = pixelObs(pixels)
-        o.objectives = parseTracker(lines)
+        o.objectives = objectives
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
         o.stamp?.target = targetCue(o.target, o.objectives)  // one creature, however its name reads
@@ -146,14 +171,6 @@ final class LiveHuntHost: HuntHost {
                 return label.filter(\.isLetter).count >= 4 ? sighting(bar, name: label, facing: facing, width: image.width, height: image.height) : nil
             }
         }
-        o.objects = objectsSeen(image, objectives: o.objectives, capturedAt: frame.stamp.capturedAt)
-        lastTarget = o.target
-        lastObjectives = o.objectives
-        emit("look", ["frame": frameNo - 1, "ms": Int((hostNow() - frame.stamp.capturedAt) * 1000), "tracker": lines, "target": orNull(o.target), "alive": o.targetAlive,
-                      "health": Int(o.player * 100), "mana": Int(o.mana * 100), "combat": o.combat, "game_menu": o.gameMenu,
-                      "facing": orNull(o.facing.map { Int($0.rounded()) }), "x": orNull(o.here?.x), "y": orNull(o.here?.y),
-                      "area": orNull(o.area.map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
-                      "seen": o.seen.map { ["name": $0.name, "hostile": $0.hostile, "bearing": Int($0.bearing.rounded()), "near": $0.near] }])
         return o
     }
 
@@ -161,15 +178,11 @@ final class LiveHuntHost: HuntHost {
     static let objectReader: ObjectReader? = try? ObjectReader()
 
     /// The objects the detector sees in a frame, as screen centres; none without its model or an open collect objective. A
-    /// survey's frame already older than its age limit less the detector's worst case (0.63 s offline) is not read: the
-    /// detector must not make a survey stale (review of #59; the `look` event logs each survey's ms).
-    func objectsSeen(_ image: CGImage, objectives: [Objective], capturedAt: Double? = nil) -> [SeenObject] {
+    /// survey runs it beside its other reads; one that ends too old for the hunt's age limit is refused as any stale
+    /// survey is (the `look` event logs each survey's ms).
+    func objectsSeen(_ image: CGImage, objectives: [Objective]) -> [SeenObject] {
         guard let reader = Self.objectReader, objectives.contains(where: collects) else { return [] }
         let began = hostNow()
-        if let capturedAt, began - capturedAt > FightLimits.maxFrameAge - 0.7 {
-            emit("objects", ["skipped": "frame_too_old", "age_ms": Int((began - capturedAt) * 1000)])
-            return []
-        }
         let found = ((try? reader.objects(image)) ?? []).map {
             SeenObject(x: ($0.box[0] + $0.box[2]) / 2, y: ($0.box[1] + $0.box[3]) / 2, confidence: $0.confidence)
         }
