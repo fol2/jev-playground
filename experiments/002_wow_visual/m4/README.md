@@ -784,6 +784,11 @@ a Cirrusfly selected in front of the character. None landed a blow.
 - After 24 walks, LOOK_AROUND left nothing admissible on a readable frame, and the empty request ended the hunt
   `HUD_UNREADABLE`. It now ends `MOVE_LIMIT` (or `NO_ADMISSIBLE_SKILL`), which fails the step, not the run.
 
+Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
+slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as
+failed: the last tracker read "12] Infestation Investigation", so the quest's name changed and its kills counted for
+nothing. `parseTracker` now drops a marker ("** ", "› ") and a level tag whose bracket read as "1".
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

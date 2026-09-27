@@ -29,6 +29,11 @@ extension NavTests {
         check(parseTracker(["[1] Harmony in Balance", "- 0/8 Juvenile Vuldren slain"]) == [Objective(quest: "Harmony in Balance", done: 0, need: 8, text: "Juvenile Vuldren slain")]
               && parseTracker(["(12] Agitators", "- 0/6 Roiling Winds destroyed"]).first?.quest == "Agitators",
               "live run 22: a title led by its quest's level (\"[1] \") is still a title")
+        let titles = ["12] Infestation Investigation", "[41 Harvesting Windstones", "** [2] Infestation Investigation", "› [4] The Gift of Skysight"]
+        check(titles.map { parseTracker([$0, "- 7/8 Pesky Cirrusfly slain"]).first?.quest }
+              == ["Infestation Investigation", "Harvesting Windstones", "Infestation Investigation", "The Gift of Skysight"]
+              && parseTracker(["Agitators", "- 12/15 Windstone Cluster"]).first.map { $0.done == 12 && $0.need == 15 } == true,
+              "live run 38: a level tag with a bracket read as \"1\", or a marker before it, still leaves the title; counts keep their digits")
         check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
         // The owner's demo tracker (23 Sept): finished quests show "Ready for turn-in" instead of objectives.
         let demo = parseTracker(["Quests", "Aggressive Encroachment", "Ready for turn-in", "Harvesting Windstones",

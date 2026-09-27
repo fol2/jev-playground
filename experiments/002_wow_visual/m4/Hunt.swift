@@ -58,8 +58,13 @@ func parseTracker(_ lines: [String]) -> [Objective] {
     let count = try! NSRegularExpression(pattern: #"^\W*(\d{1,3})\s*/\s*(\d{1,3})\s+(\S.*)$"#)
     var quest = "", underTitle = false, out: [Objective] = []
     for raw in lines {
-        // A title may carry its quest's level, "[1] Harmony in Balance" (live run 22, 26 Sept: the hunt read no objective).
-        let line = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"^[\[(]\d{1,2}[\])]\s*"#, with: "", options: .regularExpression)
+        // A title may carry its quest's level, "[1] Harmony in Balance" (live run 22, 26 Sept: the hunt read no objective),
+        // and OCR reads its brackets as "1" and leads it with a marker (live run 38, 27 Sept: "12] Infestation Investigation",
+        // "[41 Harvesting Windstones", "** [2] ...", "› [4] ..."; the hunt's quest changed its name, and its 3 kills to 7
+        // counted for nothing). The marker and the tag go; a count line keeps its digits.
+        let line = raw.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"^[^\p{L}\p{N}\[(|-]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^[\[(1lI|]?\d{1,2}[\])1lI|]\s+"#, with: "", options: .regularExpression)
         if let m = count.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
            let done = Int(line[Range(m.range(at: 1), in: line)!]), let need = Int(line[Range(m.range(at: 2), in: line)!]) {
             if !quest.isEmpty && need > 0 {
