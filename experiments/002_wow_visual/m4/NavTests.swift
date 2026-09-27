@@ -196,6 +196,9 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
+        check(huntStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
+              && !huntStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !huntStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
+              "live run 35: a hunt walk stopped by a red name near its pin starts the hunt; far away, unseen, or another stop ends the step")
         check(walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false) == .there
               && walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false, arrive: RoadLimits.approachArrive) == .walk,
               "live run 19: 0.45 from Rorian's approach counts as there at a walk's 0.5, not at the approach's 0.15")

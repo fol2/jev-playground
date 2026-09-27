@@ -690,6 +690,14 @@ enum QuestStep {
     }
 }
 
+/// Whether a hunt starts where its walk stopped. A walk stops at a red name ahead, and near a kill quest's pin red names are
+/// most likely its creatures (live run 35, 27 Sept: 1.9 from the pin, two level-1 Juvenile Vuldren, one's red-brown body read
+/// as a red name; the run retreated and ended). Within startNear the hunt starts: it reads each plate's name, fights only what
+/// counts and fights back. Any other stop, or further away, ends the step as before.
+func huntStartsNear(_ stop: String, at: MapPoint?, pin: MapPoint) -> Bool {
+    stop == "WALK_DANGER_AHEAD" && at.map { distance($0, pin) <= HuntLimits.startNear } == true
+}
+
 /// Whether a quest walk from `at` to `pin` starts. No position: WALK_HUD_UNREADABLE (never "arrived" unseen). Within
 /// `arrive`: there already. Beyond one walk: TOO_FAR_NEEDS_ROADS, unless it is a leg of a learned road (the road bends
 /// nowhere on it); the walk's own stops (danger, combat, the owner, the HUD, no progress, its limits) hold either way.

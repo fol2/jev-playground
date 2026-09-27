@@ -758,6 +758,10 @@ Run 33 (27 Sept, about 01:30) accepted Embracing the Elements, The Gift of Skysi
 - The world map drew Infestation Investigation as "..." on a dark disc, which `mapPins` did not find: no pin, no
   area, and twelve hunt decisions found no Cirrusfly. The dots are now found as a flat row and hovered.
 
+Run 34 (27 Sept, about 01:47) found the "..." pins and read their tooltips, but no cursor line parsed, so again no pin
+and `HUNT_NO_TARGET_FOUND`. OCR of the run's recording gave "Cursor: 45.8. 27.1" and "42.G. 22.9": `mapCursor` now takes a
+dot between numbers of one decimal each, and "G" for 6. `map_pin` events log the cursor's text.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

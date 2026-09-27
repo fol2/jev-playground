@@ -779,7 +779,11 @@ final class LiveQuestHost: QuestHost {
     /// it, in its own folder, with what is left to the deadline after the walk (review of #47: a walk of up to
     /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) {
+            let here = quester.body.look().map(\.point)
+            guard huntStartsNear(stop, at: here, pin: pin) else { return stop }
+            emit("hunt_near", ["stop": stop, "pin": [pin.x, pin.y], "at": orNull(here.map { [$0.x, $0.y] })])
+        }
         let seconds = min(HuntLimits.maxSeconds, deadline - hostNow())
         guard seconds > 0 else { return "HUNT_TIME_LIMIT" }
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
