@@ -886,6 +886,29 @@ Runs 42-45 were unattended, as before.
   frames and do not turn.
   A standing creature's plate does not move by itself. `--plan` does not turn.
 
+## M4n — objects on the ground, Jev's choice (27 Sept)
+
+The hunt could only fight, so a collect quest of objects on the ground was never done: Harvesting Windstones ended
+`HUNT_NO_TARGET_FOUND` in live runs 46 and 48. The owner's check of 27 Sept set the terms: the engine is Jev-driven,
+so the pick-up is a choice Jev makes, not a script's loop; and it sees through a learned model, not a pixel rule.
+
+- **PICK_UP_OBJECT**, a hunt skill in the search node of `skyborne-hunt-tools-v3`. The survey reads the objects in
+  view with the M5 object detector (`ObjectReader`, m5/README.md) while an objective is open.
+- **Admissibility (the script's part):** offered only with an object in view, an open objective, health for walking,
+  not in combat, and not after two pick-ups in a row that picked nothing up.
+- **The skill:** the object nearest the character's feet is hovered, as a human rests the pointer. Before that, the
+  pointer waits off every unit until no tooltip is left from before. Only a tooltip line that names an open objective
+  (`objective(for:)`) is right-clicked; Click-to-Move walks there and picks it up.
+  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
+  - An attack ends the wait. A pick-up that counts is progress, as a fight is, for the hunt's search limit.
+- **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
+  The HUNT offer tells Jev so.
+
+Proof (sim): `SimHunt` has objects on the ground whose tooltip is their name. It checks that PICK_UP_OBJECT is offered
+only in the cases above; that two Windstone Clusters in view make two pick-ups and complete the objective with no
+fight; and that an object whose tooltip names no objective is not clicked. The live hover, click and tracker read are
+not observed yet (F3).
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

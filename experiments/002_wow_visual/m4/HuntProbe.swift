@@ -15,7 +15,7 @@ enum HuntHUD {
     static let gameMenu = CGRect(x: 1150, y: 440, width: 260, height: 70)  // the Game Menu's title
 }
 
-let hunterPreference: [HuntAction] = [.fight, .eatDrink, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
+let hunterPreference: [HuntAction] = [.fight, .pickUp, .eatDrink, .rest, .toCreature, .toArea, .nextTarget, .lookAround, .detourRight90, .detourRight45,
                                       .detourLeft90, .detourLeft45, .backTrack] + HuntAction.compass
 
 /// The name above an untargeted plate bar (about 20 px text over a 15 px bar), OCR'd after a x3 upscale.
@@ -56,6 +56,7 @@ final class LiveHuntHost: HuntHost {
         self.sink = sink
         self.directory = directory
         self.log = log
+        log.emit("object_reader", ["loaded": LiveHuntHost.objectReader != nil, "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: HuntLimits.releaseCodes, clock: hostNow) { event, fields in
             var row = fields
             row["t"] = hostNow()
@@ -145,6 +146,7 @@ final class LiveHuntHost: HuntHost {
                 return label.filter(\.isLetter).count >= 4 ? sighting(bar, name: label, facing: facing, width: image.width, height: image.height) : nil
             }
         }
+        o.objects = objectsSeen(image, objectives: o.objectives)
         lastTarget = o.target
         lastObjectives = o.objectives
         emit("look", ["frame": frameNo - 1, "tracker": lines, "target": orNull(o.target), "alive": o.targetAlive,
@@ -153,6 +155,83 @@ final class LiveHuntHost: HuntHost {
                       "area": orNull(o.area.map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
                       "seen": o.seen.map { ["name": $0.name, "hostile": $0.hostile, "bearing": Int($0.bearing.rounded()), "near": $0.near] }])
         return o
+    }
+
+    /// The object detector (M5, ObjectReader), loaded once, before any hunt moves; nil without its private model.
+    static let objectReader: ObjectReader? = try? ObjectReader()
+
+    /// The objects the detector sees in a frame, as screen centres; none without its model or an open objective.
+    func objectsSeen(_ image: CGImage, objectives: [Objective]) -> [SeenObject] {
+        guard let reader = Self.objectReader, objectives.contains(where: \.unfinished) else { return [] }
+        let began = hostNow()
+        let found = ((try? reader.objects(image)) ?? []).map {
+            SeenObject(x: ($0.box[0] + $0.box[2]) / 2, y: ($0.box[1] + $0.box[3]) / 2, confidence: $0.confidence)
+        }
+        emit("objects", ["count": found.count, "ms": Int((hostNow() - began) * 1000),
+                         "at": found.prefix(5).map { [Int($0.x), Int($0.y), ($0.confidence * 100).rounded() / 100] }])
+        return found
+    }
+
+    /// A frame captured after `t`, or nil within 2.5 s.
+    private func frame(after t: Double) async -> CGImage? {
+        let start = hostNow()
+        while hostNow() - start < 2.5 {
+            if let latest = feed.latestFrame, latest.pts > t { return latest.image }
+            await sleep(0.05)
+        }
+        return nil
+    }
+
+    /// PICK_UP_OBJECT (M5): the object the detector sees nearest the character's feet is hovered, as a human rests the
+    /// pointer before clicking. Only a tooltip line that names an unfinished objective (objective(for:)) is right-clicked;
+    /// Click-to-Move walks there and picks it up. The pointer first waits off every unit until no tooltip is left from
+    /// before, so a fading one cannot confirm the wrong place. Its count rising within 8 s is the evidence; an attack ends
+    /// the wait.
+    func pickUp(objectives: [Objective]) async -> String {
+        guard let image = freshImage() else { return "no fresh frame" }
+        let feetY = 800.0 * Double(image.height) / Double(HUD.height)
+        guard let near = objectsSeen(image, objectives: objectives)
+                .min(by: { hypot($0.x - 1280, $0.y - feetY) < hypot($1.x - 1280, $1.y - feetY) }) else { return "no object in view" }
+        let bounds = session.window.frame
+        let routed: RoutedClickTarget
+        do { routed = try routedTarget(pid: session.app.processIdentifier, window: session.window.windowID, bounds: bounds) } catch {
+            return "no click target: \(error)"
+        }
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            CGPoint(x: bounds.minX + bounds.width * x / Double(HUD.width), y: bounds.minY + bounds.height * y / Double(HUD.height))
+        }
+        func move(_ x: Double, _ y: Double) -> Bool {
+            keys.withControl { Result { try NativeBackgroundClickTransport().move(target: routed, point: point(x, y)) } }.map { (try? $0.get()) != nil } ?? false
+        }
+        func tip(after t: Double) async -> [String] { (await frame(after: t)).map { upscaledText($0, QuestHUD.unitTip) } ?? [] }
+        func names(_ lines: [String]) -> Objective? { lines.lazy.compactMap { objective(for: $0, in: objectives) }.first }
+        guard move(1280, 60) else { return "cancelled: input ownership revoked" }
+        for _ in 0..<10 where names(await tip(after: hostNow() + 0.2)) != nil {}  // a tooltip from before fades
+        guard move(near.x, near.y) else { return "cancelled: input ownership revoked" }
+        let lines = await tip(after: hostNow() + 0.4)
+        emit("pick_up_hover", ["at": [Int(near.x), Int(near.y)], "tooltip": Array(lines.prefix(3))])
+        guard let counted = names(lines) else {
+            _ = move(1280, 60)
+            return "the tooltip read \"\(lines.first ?? "nothing")\", which names no unfinished objective; not clicked"
+        }
+        let request = NativeBackgroundClickDispatchRequest(target: routed, eventTapPointTopLeft: point(near.x, near.y),
+                                                           appKitPoint: point(near.x, near.y), clickCount: 1, mouseButton: .right)
+        guard let dispatched = keys.withControl({ Result { try NativeBackgroundClickTransport().dispatch(request) } }),
+              (try? dispatched.get()) != nil else { return "right-click failed or input ownership revoked" }
+        _ = move(1280, 60)
+        let clicked = hostNow()
+        while hostNow() - clicked < 8 {
+            await sleep(0.5)
+            if vitals()?.combat == true { return "attacked while picking up \(counted.text)" }
+            guard let seen = freshImage() else { continue }
+            let tracker = parseTracker(upscaledText(seen, HuntHUD.tracker))
+            if let now = tracker.first(where: { $0.quest == counted.quest && $0.text == counted.text }), now.done > counted.done {
+                return "picked up \(counted.text): \(now.done)/\(now.need)"
+            }
+            // the last one: the quest's lines give way to "Ready for turn-in"
+            if tracker.contains(where: { $0.quest == counted.quest && $0.text == Objective.ready }) { return "picked up \(counted.text): quest ready" }
+        }
+        return "right-clicked \(counted.text); its count did not rise within 8 s"
     }
 
     /// One M3 episode on a child input capability: its clock and budgets start fresh, and its frames go

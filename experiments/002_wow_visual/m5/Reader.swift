@@ -77,3 +77,31 @@ struct RedNameReader {
         return try MarkReader.classify(model, crop)
     }
 }
+
+/// The object detector (m5-perceive --obj-train, Objects.swift): quest objects on the ground ("object"), found tile by
+/// tile over the ground in view (ObjectTiles) and merged. Which object one is, the game's tooltip says (a hover).
+struct ObjectReader {
+    let model: VNCoreMLModel
+
+    init(models dir: URL = MarkReader.models) throws {
+        model = try VNCoreMLModel(for: MLModel(contentsOf: MLModel.compileModel(at: dir.appendingPathComponent("objects.mlmodel"))))
+    }
+
+    /// The objects of a frame at `minimum` confidence or more: x0, y0, x1, y1 in the frame, most confident first.
+    func objects(_ image: CGImage, minimum: Double = 0.5) throws -> [(box: [Double], confidence: Double)] {
+        var found: [(box: [Double], confidence: Double)] = []
+        let s = Double(ObjectTiles.side)
+        for o in ObjectTiles.origins(width: image.width, height: image.height) {
+            guard let tile = image.cropping(to: CGRect(x: o.x, y: o.y, width: ObjectTiles.side, height: ObjectTiles.side)) else { continue }
+            let request = VNCoreMLRequest(model: model)
+            request.imageCropAndScaleOption = .scaleFill
+            try VNImageRequestHandler(cgImage: tile).perform([request])
+            for r in (request.results as? [VNRecognizedObjectObservation]) ?? [] where Double(r.confidence) >= minimum {
+                let b = r.boundingBox  // normalised, its origin at the bottom left
+                found.append(([Double(o.x) + b.minX * s, Double(o.y) + (1 - b.maxY) * s, Double(o.x) + b.maxX * s, Double(o.y) + (1 - b.minY) * s],
+                              Double(r.confidence)))
+            }
+        }
+        return mergeDetections(found)
+    }
+}

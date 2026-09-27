@@ -151,7 +151,7 @@ final class GraphReplies: JevClient {
         let terminal = result.records.first?["question"] as! [String: Any]
         check((terminal["criteria"] as! [String: String])["DO:LOOK_AROUND"] != nil, "record actual terminal tool menu")
         check(result.memory?.goal == "complete the initial unfinished objectives", "task survives graph tool calls")
-        check(result.graphID == "skyborne-hunt-tools-v2", "actual policy identity in result")
+        check(result.graphID == "skyborne-hunt-tools-v3", "actual policy identity in result")
         let frozenWorld = SimHunt.field(clock: FightClock())
         graph = try load()
         let freeze = GraphReplies(["ENTER:search", "DO:LOOK_AROUND"])
@@ -162,7 +162,7 @@ final class GraphReplies: JevClient {
 
         // Jev can call the learning branch while hunting; it labels evidence, then returns to normal tools.
         let reviewWorld = SimHunt.field(clock: FightClock())
-        let reviewMemory = try ExperienceStore(scope: "skyborne-hunt-tools-v2")
+        let reviewMemory = try ExperienceStore(scope: "skyborne-hunt-tools-v3")
         let reviewFrame = huntExperienceFrame(reviewWorld.survey()!, blocked: [])!
         try reviewMemory.record(ExperienceCase(id: "seed", run: "prior", action: "GO_N", before: reviewFrame,
             after: nil, reported: "blocked in prior fixture", blocked: true, elapsed: 1))

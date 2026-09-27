@@ -1,5 +1,5 @@
 {
-  "id": "skyborne-hunt-tools-v2",
+  "id": "skyborne-hunt-tools-v3",
   "profile": "WoW Forever / Skyborne Shaman. Candidate hierarchy with bounded episodic recall for the existing calibrated Hunt skills; NOT level 1-20 or general quest qualification. Existing runtime action restrictions and legacy cost estimates still apply.",
   "root": "hunt",
   "nodes": {
@@ -22,11 +22,12 @@
       ]
     },
     "search": {
-      "question": "Choose how to find or select an objective creature using current visual cues and any loaded memory. Enter travel to select a direction or detour. Return to hunt when combat or recovery is the useful next step.",
+      "question": "Choose how to find or select an objective creature, or pick up an objective's object on the ground, using current visual cues and any loaded memory. Enter travel to select a direction or detour. Return to hunt when combat or recovery is the useful next step.",
       "skills": [
         "NEXT_TARGET",
         "LOOK_AROUND",
-        "GO_TO_QUEST_CREATURE"
+        "GO_TO_QUEST_CREATURE",
+        "PICK_UP_OBJECT"
       ],
       "branches": {
         "travel": "Choose local travel toward the quest area, a visible creature or a different heading."

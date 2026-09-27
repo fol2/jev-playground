@@ -360,6 +360,14 @@ struct Seen: Equatable {
     var near: Bool
 }
 
+/// An object on the ground the object detector (M5, ObjectReader) sees: its centre on screen and the detector's
+/// confidence. Which object it is, only a hover's tooltip says (PICK_UP_OBJECT).
+struct SeenObject: Equatable {
+    var x: Double
+    var y: Double
+    var confidence: Double
+}
+
 func sighting(_ bar: PlateBar, name: String, facing: Double, width: Int, height: Int) -> Seen {
     return Seen(name: name, hostile: bar.hostile, bearing: viewBearing(bar.centre, facing: facing, width: width),
                 near: Double(bar.y0) / Double(height) > HuntLimits.nearRow)
@@ -390,6 +398,7 @@ struct HuntObs: Equatable {
     var area: QuestArea? = nil
     var here: NavObs? = nil  // coordinates and facing, as a walk reads them
     var seen: [Seen] = []  // this view's plates, plus a fresh LOOK_AROUND's
+    var objects: [SeenObject] = []  // objects on the ground in view (M5); none without the detector's model
 }
 
 enum HuntAction: String, JevAction {
@@ -404,6 +413,7 @@ enum HuntAction: String, JevAction {
     case south = "GO_S", southWest = "GO_SW", west = "GO_W", northWest = "GO_NW"
     case rest = "REST"
     case eatDrink = "EAT_DRINK"
+    case pickUp = "PICK_UP_OBJECT"
 
     static let compass: [HuntAction] = [.north, .northEast, .east, .southEast, .south, .southWest, .west, .northWest]
     static let detours: [HuntAction] = [.detourLeft45, .detourRight45, .detourLeft90, .detourRight90, .backTrack]
@@ -445,6 +455,8 @@ enum HuntAction: String, JevAction {
             return "Stands still for 20 s to regain health and mana, about 40% of each. A fight can start only at 90% health or more. Ends early if something attacks."
         case .eatDrink:
             return "Sits to drink water and eat bread for 20 s: restores health and mana to full, far faster than standing. Only out of combat; ends early if something attacks, and standing up stops it."
+        case .pickUp:
+            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, a few seconds. Stops early if attacked."
         default:
             return ""
         }
@@ -491,6 +503,12 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
     }
     if !(last.map { $0.isWalk || $0 == .lookAround || $0 == .nextTarget } ?? false) { out.append(.nextTarget) }
     if last != .lookAround { out.append(.lookAround) }
+    // An object on the ground in view while an objective is open (M5): the pointer rests on it, and it is right-clicked only
+    // if its tooltip names that objective. Not after two in a row that picked nothing up.
+    let empty = steps.suffix(2).count == 2 && steps.suffix(2).allSatisfy { $0.action == .pickUp && !$0.result.hasPrefix("picked up") }
+    if !o.objects.isEmpty && o.objectives.contains(where: \.unfinished) && o.player >= HuntLimits.walkHealth && !empty {
+        out.append(.pickUp)
+    }
     if o.here != nil && o.player >= HuntLimits.walkHealth && steps.filter({ $0.action.isWalk }).count < HuntLimits.maxMoves {
         if let c = questCreature(o), open(c.bearing) { out.append(.toCreature) }
         if let a = o.area, !a.inside {
@@ -600,6 +618,9 @@ protocol HuntHost: NavBody {
     func survey() -> HuntObs?  // everything, OCR included; nil when the tracker is unreadable
     func vitals() -> HuntObs?  // pixels only (no OCR), for polling; nil without a fresh frame
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult
+    /// PICK_UP_OBJECT: the nearest object in view hovered, and right-clicked only when its tooltip names an unfinished
+    /// objective. A result that begins "picked up" counts it.
+    func pickUp(objectives: [Objective]) async -> String
 }
 
 extension HuntHost {
@@ -902,6 +923,9 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             let look = await lookAround(host)
             result = look.result
             if let here = host.look() { panorama = (here, look.seen) }
+        case .pickUp:
+            result = await host.pickUp(objectives: o.objectives)
+            if result.hasPrefix("picked up") { sinceFight = 0 }  // progress, as a fight is
         case .rest:
             result = await rest(host, seconds: HuntLimits.restSeconds)
         case .eatDrink:
@@ -958,6 +982,7 @@ final class SimHunt: HuntHost {
     var surveyBlind = false
     var frozen = false  // the capture has stalled: no fresh frame for vitals or a survey
     var readLines: ([String]) -> [String] = { $0 }  // what the tracker's OCR keeps of its lines
+    var objects: [Mob] = []  // objects on the ground; one picked up is no longer alive
     var eating = false  // sitting with food or water: regain 5% a second until standing up or attacked
 
     init(world: SimNav, mobs: [Mob], objectives: [Objective]) {
@@ -1044,7 +1069,26 @@ final class SimHunt: HuntHost {
             Seen(name: $0.name, hostile: $0.hostile, bearing: bearing(from: here, to: $0.point), near: distance(here, $0.point) <= 0.7)
         }
         if !platesMissed.isEmpty, platesMissed.removeFirst() { o.seen = [] }  // a frame whose plates OCR did not read
+        o.objects = objects.filter { inView($0, within: 1.2) }.map {
+            SeenObject(x: 1280 + 20 * angleError(bearing(from: here, to: $0.point), world.facing), y: 800 - 300 * distance(here, $0.point),
+                       confidence: 0.9)
+        }
         return o
+    }
+
+    /// The nearest object in view: its name is the tooltip; one that counts is walked to and picked up, 3 s.
+    func pickUp(objectives: [Objective]) async -> String {
+        let here: MapPoint = (world.x, world.y)
+        guard let i = objects.indices.filter({ inView(objects[$0], within: 1.2) })
+                .min(by: { distance(here, objects[$0].point) < distance(here, objects[$1].point) }) else { return "no object in view" }
+        guard let counted = objective(for: objects[i].name, in: objectives), let k = self.objectives.firstIndex(of: counted) else {
+            return "the tooltip read \"\(objects[i].name)\", which names no unfinished objective; not clicked"
+        }
+        (world.x, world.y) = (objects[i].x, objects[i].y)
+        objects[i].alive = false
+        self.objectives[k].done += 1
+        clock.t += 3
+        return "picked up \(objects[i].name), which counts for \"\(counted.text)\""
     }
 
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult {

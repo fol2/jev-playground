@@ -7,9 +7,9 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 218  // the current count: removing a check must lower this on purpose
-let minNavChecks = 365  // the current count: removing a check must lower this on purpose
+let minNavChecks = 371  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
-let minPerceptionChecks = 34  // M5: the current count: removing a check must lower this on purpose
+let minPerceptionChecks = 40  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
 let clickDir = "experiments/001_wow_fishing/probes/background-click/"
 let perceptionFile = navDir + "perception.jsonl"  // the accepted readings of the perception regression set
@@ -447,7 +447,7 @@ func motorProof(update: Bool) throws -> String {
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
         Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
         Build(output: perceive, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "Reader.swift", perceiveDir + "Train.swift",
-                                                         perceiveDir + "RedNames.swift", perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
+                                                         perceiveDir + "RedNames.swift", perceiveDir + "Objects.swift", perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
         // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
         Build(output: teach, sources: [perceiveDir + "Teacher.swift"]),
         Build(output: video, sources: [learnDir + "VideoJev.swift", sharedJSON]),
@@ -495,7 +495,7 @@ func motorProof(update: Bool) throws -> String {
     try interruptedDry([fight, "--dry-run"])
 
     let perceptionChecks = try suite(perceptionTests, "perception", minPerceptionChecks)
-    try refuses(perceive, [[], ["--bogus"], ["--propose", "x"], ["--sheet"], ["--sheet", "0"], ["--sheet", "x"], ["--sheet", "601"], ["--sheet-held"], ["--sheet-held", "0"], ["--sheet-held", "601"], ["--sheet-frames"], ["--sheet-frames", "0"], ["--sheet-frames", "601"], ["--baseline", "x"], ["--train", "x"], ["--prelabel", "x"], ["--audit"], ["--audit", "a", "b"], ["--red-propose", "x"], ["--red-sheet"], ["--red-sheet", "0"], ["--red-sheet", "601"], ["--red-audit"], ["--red-train", "x"], ["--red-baseline", "x"]])
+    try refuses(perceive, [[], ["--bogus"], ["--propose", "x"], ["--sheet"], ["--sheet", "0"], ["--sheet", "x"], ["--sheet", "601"], ["--sheet-held"], ["--sheet-held", "0"], ["--sheet-held", "601"], ["--sheet-frames"], ["--sheet-frames", "0"], ["--sheet-frames", "601"], ["--baseline", "x"], ["--train", "x"], ["--prelabel", "x"], ["--audit"], ["--audit", "a", "b"], ["--red-propose", "x"], ["--red-sheet"], ["--red-sheet", "0"], ["--red-sheet", "601"], ["--red-audit"], ["--red-train", "x"], ["--red-baseline", "x"], ["--obj-propose", "x"], ["--obj-sheet"], ["--obj-sheet", "0"], ["--obj-sheet", "601"], ["--obj-audit"], ["--obj-train", "x"], ["--obj-baseline", "x"]])
     try refuses(teach, [["--bogus"], ["--eval"], ["--eval", "a", "b"]])  // before the model is asked for, with or without Swift 6.4
     let navChecks = try suite(navTests, "nav", minNavChecks)
     try refuses(nav, [["--bogus"], ["--dry-run", "x"], ["--preflight", "x"], ["--replay"], ["--pixels"], ["--sim-jev"],

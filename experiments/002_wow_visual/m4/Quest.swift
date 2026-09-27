@@ -875,7 +875,8 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
         ("HUNT_\(i + 1)", QuestStep.hunt(q), (q.pin.map { "Walk to the area of \"\(q.title)\" (level \(q.level), \(away($0)) units away), then hunt" }
             ?? "Hunt for \"\(q.title)\" (level \(q.level)) from here, by the minimap's quest area (the map showed no area),")
             + " the creatures that the tracker's unfinished objectives name: fight, loot, rest and eat as the hunt chooses, up to "
-            + "\(HuntLimits.maxFights) fights. Objects on the ground are not picked up. The log reads: \(q.objective)")
+            + "\(HuntLimits.maxFights) fights. Objects on the ground that the objectives name are picked up only where the object "
+            + "detector sees them (PICK_UP_OBJECT). The log reads: \(q.objective)")
     }
     let back = danger && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
         + "a hostile creature's red name came into view ahead of it.")] : []

@@ -212,9 +212,10 @@ func framesDrawn(_ labels: [MarkLabel], limit: Int) -> [MarkLabel] {
 
 // MARK: - Red names (the walk rule's candidates, labelled by eye; RedNames.swift is the tool)
 
-/// One red-name candidate: its frame and box (x0, y0, x1, y1), with its label once audited: "name" (a hostile
-/// creature's red name), "text" (other red text, such as the UI's error line) or "none" (a body, a ring, terrain).
-struct RedRow: Codable, Equatable { var frame: String; var box: [Int]; var label: String? = nil }
+/// One audited box of a saved frame: its frame and box (x0, y0, x1, y1), with its label once audited. A red-name
+/// candidate is "name" (a hostile creature's red name), "text" (other red text, such as the UI's error line) or "none" (a
+/// body, a ring, terrain); an object candidate is "yes" or "no" (Objects.swift).
+struct BoxRow: Codable, Equatable { var frame: String; var box: [Int]; var label: String? = nil }
 
 /// The crop of a candidate: a square its width plus two heights (32 px at least), centred on it, inside the frame. A
 /// wider context crop let the classifier learn the scene (a dark forest meant a name) and drop an unseen creature's
@@ -226,12 +227,13 @@ func redCrop(_ box: [Int], width: Int, height: Int) -> (x: Int, y: Int, w: Int, 
 }
 
 /// The auditor's lines for the last sheets: "name 3 7 12", "text 4 5", "none 0 1 2", and "none *" for every id not
-/// named on another line. nil: a line that is neither, or an id off the sheets. Every id must end with a label.
-func redAuditLabels(_ text: String, count: Int) -> [Int: String]? {
+/// named on another line. nil: a line of another kind, or an id off the sheets. Every id must end with a label.
+/// `kinds`: the labels allowed (an object audit's are "yes" and "no").
+func redAuditLabels(_ text: String, count: Int, kinds: Set<String> = ["name", "text", "none"]) -> [Int: String]? {
     var labels: [Int: String] = [:], rest: String? = nil
     for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
         let f = line.split(separator: " ").map(String.init)
-        guard let label = f.first, ["name", "text", "none"].contains(label), f.count > 1 else { return nil }
+        guard let label = f.first, kinds.contains(label), f.count > 1 else { return nil }
         if f.count == 2 && f[1] == "*" { rest = label; continue }
         for id in f.dropFirst() {
             guard let n = Int(id), (0..<count).contains(n) else { return nil }
@@ -284,4 +286,72 @@ struct RedFrames: Equatable {
 let redDropConfidence = 0.8
 func redDrops(_ read: (label: String, confidence: Double)?) -> Bool {
     read.map { $0.label == "none" && $0.confidence >= redDropConfidence } ?? false
+}
+
+// MARK: - Objects on the ground (a learned detector in tiles; Objects.swift is the tool, ObjectReader the live reader)
+
+enum ObjectTiles {
+    static let side = 256  // a far crystal is 8 x 11 px (median of the first audit): 256 px tiles show it 1.6 times larger to the detector
+    static let stride = 224  // 32 px overlap: an object on a seam is whole in one tile
+    static let world = (30, 80, 2150, 1150)  // at 1320 high: the ground in view, left of the tracker, above the bar
+
+    /// The tiles' top-left corners over the world box of a frame, the box's rows scaled by the frame's height.
+    static func origins(width: Int, height: Int) -> [(x: Int, y: Int)] {
+        let s = Double(height) / 1320
+        let x0 = world.0, x1 = min(world.2, width), y0 = Int(Double(world.1) * s), y1 = min(Int(Double(world.3) * s), height)
+        func starts(_ a: Int, _ b: Int) -> [Int] {
+            guard b - a > side else { return [max(0, min(a, b - side))] }
+            return Array(Swift.stride(from: a, to: b - side, by: stride)) + [b - side]
+        }
+        return starts(y0, y1).flatMap { y in starts(x0, x1).map { (x: $0, y: y) } }
+    }
+
+    /// A training tile holding `box` (x0, y0, x1, y1): the box at a place set by `seed` (a hash of its frame), not
+    /// always the centre, inside the frame.
+    static func around(_ box: [Int], seed: UInt64, width: Int, height: Int) -> (x: Int, y: Int) {
+        let slack = side - 2 * max(box[2] - box[0], box[3] - box[1]) - 32
+        let dx = slack > 0 ? Int(seed % UInt64(slack)) - slack / 2 : 0, dy = slack > 0 ? Int((seed / 7919) % UInt64(slack)) - slack / 2 : 0
+        let cx = (box[0] + box[2]) / 2 + dx, cy = (box[1] + box[3]) / 2 + dy
+        return (max(0, min(width - side, cx - side / 2)), max(0, min(height - side, cy - side / 2)))
+    }
+}
+
+/// Detections of several tiles as one list: of two that overlap (intersection over union 0.3 or more) the more
+/// confident stays. Boxes are x0, y0, x1, y1 in the frame.
+func mergeDetections(_ found: [(box: [Double], confidence: Double)]) -> [(box: [Double], confidence: Double)] {
+    func iou(_ a: [Double], _ b: [Double]) -> Double {
+        let w = max(0, min(a[2], b[2]) - max(a[0], b[0])), h = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        let union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - w * h
+        return union > 0 ? w * h / union : 0
+    }
+    var kept: [(box: [Double], confidence: Double)] = []
+    for d in found.sorted(by: { $0.confidence > $1.confidence }) where !kept.contains(where: { iou($0.box, d.box) >= 0.3 }) {
+        kept.append(d)
+    }
+    return kept
+}
+
+/// A detector's objects against the audited boxes of one frame: a detection whose centre lies in a "yes" box grown by
+/// half its size each way is a hit (each box hit once); any other detection is false; a "yes" box no detection hit is missed.
+/// A box of any other label (such as "small", left out of a score) is neither: a detection on it counts for nothing.
+struct ObjectScore: Equatable {
+    var hits = 0, missed = 0, falseFound = 0
+    mutating func add(found: [[Double]], labelled: [BoxRow]) {
+        func on(_ cx: Double, _ cy: Double, _ b: [Int]) -> Bool {
+            let gw = Double(b[2] - b[0]) / 2, gh = Double(b[3] - b[1]) / 2
+            return cx >= Double(b[0]) - gw && cx <= Double(b[2]) + gw && cy >= Double(b[1]) - gh && cy <= Double(b[3]) + gh
+        }
+        var open = labelled.filter { $0.label == "yes" }.map(\.box)
+        let ignored = labelled.filter { $0.label != "yes" && $0.label != "no" }.map(\.box)
+        for f in found {
+            let cx = (f[0] + f[2]) / 2, cy = (f[1] + f[3]) / 2
+            if let i = open.firstIndex(where: { on(cx, cy, $0) }) {
+                hits += 1
+                open.remove(at: i)
+            } else if !ignored.contains(where: { on(cx, cy, $0) }) {
+                falseFound += 1
+            }
+        }
+        missed += open.count
+    }
 }

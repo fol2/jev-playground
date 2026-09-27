@@ -1,6 +1,6 @@
 // M5, red names: the walk's red-name rule (redNames, M4h) stops walks through the Juvenile Vuldren field (live runs 35,
 // 44, 45, 27 Sept): a red-brown body, a glint or a far fleck reads as a red name, and far names are too small for OCR.
-// So the rule's candidates are labelled by eye on contact sheets ("name", "text" or "none", RedRow), and a Create ML
+// So the rule's candidates are labelled by eye on contact sheets ("name", "text" or "none", BoxRow), and a Create ML
 // classifier learns them from a tight crop (redCrop). The walk drops only what it reads as "none" (RedNameReader,
 // Reader.swift), and only a model that drops the false ones on held-out runs without dropping a real name is used.
 // Frames, crops, labels and the model stay under runs/002_wow_visual/perception (private).
@@ -27,7 +27,7 @@ func redPropose() throws -> Int32 {
         let path = line.hasPrefix("./") ? String(line.dropFirst(2)) : line
         guard !path.isEmpty, !done.contains(path), let image = loadImage(runsRoot.appendingPathComponent(path)),
               image.width == HUD.width, image.height == HUD.height else { continue }
-        let found = redNames(pixels(image)).map { RedRow(frame: path, box: [$0.x0, $0.y0, $0.x1, $0.y1]) }
+        let found = redNames(pixels(image)).map { BoxRow(frame: path, box: [$0.x0, $0.y0, $0.x1, $0.y1]) }
         try appendRows(found, to: redCandidatesFile)
         try appendRows([FrameRow(frame: path, candidates: found.count)], to: redFramesFile)
         frames += 1
@@ -41,9 +41,8 @@ func redPropose() throws -> Int32 {
 /// and its id, for the auditor. With a model, they are grouped by what it reads (name, text, none), so a sheet is mostly
 /// one label; the auditor still judges every crop. The ids index red-sheet-index.json.
 func redSheet(limit: Int) throws -> Int32 {
-    let labelled = Set(rows(redLabelsFile, RedRow.self).map { "\($0.frame)|\($0.box)" })
-    var chosen = Array(rows(redCandidatesFile, RedRow.self).filter { !labelled.contains("\($0.frame)|\($0.box)") }.prefix(limit))
-    let cellW = 200, cellH = 220, cols = 8, perSheet = 48
+    let labelled = Set(rows(redLabelsFile, BoxRow.self).map { "\($0.frame)|\($0.box)" })
+    var chosen = Array(rows(redCandidatesFile, BoxRow.self).filter { !labelled.contains("\($0.frame)|\($0.box)") }.prefix(limit))
     var frames: [String: CGImage] = [:]
     if let reader = try? RedNameReader() {
         let order = ["name": 0, "text": 1, "none": 2]
@@ -53,6 +52,16 @@ func redSheet(limit: Int) throws -> Int32 {
         }
         chosen = chosen.indices.sorted { (read[$0], $0) < (read[$1], $1) }.map { chosen[$0] }
     }
+    contactSheets(chosen, name: "red", minView: 96, frames: &frames)
+    try JSONEncoder().encode(chosen).write(to: redSheetIndex)
+    print("\(chosen.count) candidates on \((chosen.count + 47) / 48) sheets in \(perceptionDir.path)")
+    return 0
+}
+
+/// Contact sheets for an auditor: 48 boxes a sheet, 8 a row, each drawn from a square crop around it (three box widths,
+/// `minView` px at least) with the box outlined and its id. Written to `name`-sheet-1.png and on.
+func contactSheets(_ chosen: [BoxRow], name: String, minView: Int, frames: inout [String: CGImage]) {
+    let cellW = 200, cellH = 220, cols = 8, perSheet = 48
     for (s, start) in stride(from: 0, to: chosen.count, by: perSheet).enumerated() {
         let page = Array(chosen[start..<min(chosen.count, start + perSheet)])
         let rowsN = (page.count + cols - 1) / cols
@@ -63,8 +72,8 @@ func redSheet(limit: Int) throws -> Int32 {
         for (i, c) in page.enumerated() {
             if frames[c.frame] == nil { frames[c.frame] = loadImage(runsRoot.appendingPathComponent(c.frame)) }
             guard let frame = frames[c.frame] else { continue }
-            // the auditor sees more than the classifier: three widths a side, 96 px at least
-            let view = min(max(96, 3 * (c.box[2] - c.box[0] + 1)), frame.width, frame.height), cx = (c.box[0] + c.box[2]) / 2, cy = (c.box[1] + c.box[3]) / 2
+            // the auditor sees more than a classifier: three widths a side, minView px at least
+            let view = min(max(minView, 3 * (c.box[2] - c.box[0] + 1)), frame.width, frame.height), cx = (c.box[0] + c.box[2]) / 2, cy = (c.box[1] + c.box[3]) / 2
             let r = (x: max(0, min(frame.width - view, cx - view / 2)), y: max(0, min(frame.height - view, cy - view / 2)), w: view, h: view)
             guard let crop = frame.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { continue }
             let col = i % cols, row = i / cols, side = Double(cellW - 4), scale = side / Double(r.w)
@@ -82,18 +91,15 @@ func redSheet(limit: Int) throws -> Int32 {
             CTLineDraw(CTLineCreateWithAttributedString(text), ctx)
         }
         guard let image = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(
-            perceptionDir.appendingPathComponent("red-sheet-\(s + 1).png") as CFURL, "public.png" as CFString, 1, nil) else { continue }
+            perceptionDir.appendingPathComponent("\(name)-sheet-\(s + 1).png") as CFURL, "public.png" as CFString, 1, nil) else { continue }
         CGImageDestinationAddImage(dest, image, nil)
         CGImageDestinationFinalize(dest)
     }
-    try JSONEncoder().encode(chosen).write(to: redSheetIndex)
-    print("\(chosen.count) candidates on \((chosen.count + perSheet - 1) / perSheet) sheets in \(perceptionDir.path)")
-    return 0
 }
 
 /// `--red-audit FILE`: the auditor's labels for the last sheets (redAuditLabels), appended to red-labels.jsonl.
 func redAudit(_ path: String) throws -> Int32 {
-    let shown = try JSONDecoder().decode([RedRow].self, from: Data(contentsOf: redSheetIndex))
+    let shown = try JSONDecoder().decode([BoxRow].self, from: Data(contentsOf: redSheetIndex))
     guard let labels = redAuditLabels(try String(contentsOfFile: path, encoding: .utf8), count: shown.count) else {
         fputs("HOLD: every id of the last sheets needs one label, name, text or none\n", stderr)
         return 2
@@ -110,7 +116,7 @@ func redTrain(final: Bool = false) throws -> Int32 {
     let crops = perceptionDir.appendingPathComponent("crops-red")
     try? FileManager.default.removeItem(at: crops)
     var frames: [String: CGImage] = [:], count: [String: Int] = [:]
-    for l in rows(redLabelsFile, RedRow.self) where runSplit(run(of: l.frame)) != .test {
+    for l in rows(redLabelsFile, BoxRow.self) where runSplit(run(of: l.frame)) != .test {
         guard let label = l.label else { continue }
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }
         guard let image = frames[l.frame] else { throw TrainError(description: "cannot read \(l.frame)") }
@@ -137,7 +143,7 @@ func redTrain(final: Bool = false) throws -> Int32 {
 func redBaseline() throws -> Int32 {
     let reader = try RedNameReader()
     var frames: [String: CGImage] = [:], scores: [Split: RedScore] = [:], decided: [Split: [(frame: String, label: String, kept: Bool)]] = [:]
-    for l in rows(redLabelsFile, RedRow.self) {
+    for l in rows(redLabelsFile, BoxRow.self) {
         guard let label = l.label else { continue }
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }
         guard let image = frames[l.frame] else { continue }
