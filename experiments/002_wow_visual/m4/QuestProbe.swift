@@ -310,8 +310,9 @@ final class QuestRun {
                 let x0 = max(0, spot.x - 40), box = CGRect(x: x0, y: max(0, spot.y - 140), width: QuestHUD.mapRight - x0, height: 180)
                 let shown = await frame()
                 let read = lines(box, shown).map { nameKey($0.text) }
-                let at = shown.flatMap { mapCursor(upscaledText($0, QuestHUD.mapCursor)) }
-                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "read": read])
+                let cursorText = shown.map { upscaledText($0, QuestHUD.mapCursor) } ?? []
+                let at = mapCursor(cursorText)
+                body.emit("map_pin", ["at": [Int(spot.x), Int(spot.y)], "cursor": orNull(at.map { [$0.x, $0.y] }), "cursor_text": cursorText, "read": read])
                 for i in quests.indices where quests[i].pin == nil && read.contains(nameKey(quests[i].title)) {
                     quests[i].pin = at  // unread, no pin: the fixed transform held on one map only (review of #47)
                 }

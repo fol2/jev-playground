@@ -815,6 +815,10 @@ extension NavTests {
               "live, 26 Sept: the map's own cursor line gives a pin's zone coordinates on any map; the player's line is not the cursor")
         check(mapCursor(["Cursor: 100.0, 7.25"]).map { $0 == (100, 7.25) } == true && mapCursor(["Cursor: 142.0, 7.0"]) == nil,
               "review of #47: the whole 0-100 range and any decimals parse; a number off the map does not")
+        check(mapCursor(["Cursor: 45.8. 27.1", "Plaver: 43.0.23.3"]).map { $0 == (45.8, 27.1) } == true
+              && mapCursor(["Cursor: 42.G. 22.9"]).map { $0 == (42.6, 22.9) } == true && mapCursor(["Cursor: 45.8.27.1"]).map { $0 == (45.8, 27.1) } == true
+              && mapCursor(["Cursor: 45.8.2"]) == nil,
+              "live run 34: the cursor line as OCR read it, a dot for the comma and \"G\" for 6; never the player's line")
     }
 
     /// A quest host with scripted reads and hand-in outcomes (every hand-in completes unless listed; every hunt completes unless listed).

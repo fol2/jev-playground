@@ -708,7 +708,7 @@ Rebuild from the repository root, with `/tmp/m5-perceive` built as in the [M5 RE
   view, at the click, and in view after), it read the one "!" the rules read, and it changed no action.
 - Offline: one nav check, on run 14's lines.
 
-### Live runs 15-31, unattended (26-27 Sept)
+### Live runs 15-33, unattended (26-27 Sept)
 
 The owner authorised unattended runs; each was announced, recorded (the screen, beside the engine, by ffmpeg) and
 studied frame by frame before the next. Recordings are private and kept off the repository. Every row is live.
@@ -741,6 +741,22 @@ Run 31 (27 Sept, about 01:00) took Infestation Investigation from Elatrell Feath
 - **Hunt.** "42,2,23.7" did not parse, and after LOOK_AROUND nothing was admissible without a position; the empty
   request ended the hunt `HUD_UNREADABLE`. `parseCoords` takes a decimal comma, and such a survey is read again
   (the sim check fails without the fix).
+
+Run 32 (27 Sept, about 01:25) turned to the pin and handed in Harmony in Balance: `COMPLETED`, 80 XP, Vuldren Hide
+Bracers chosen as the larger upgrade (+15 against +7).
+- The NPC's greeting then listed two new quests and stayed open; the character pane was read under it, so the equip
+  was `UNCONFIRMED`. Now the offers a completion shows are taken in turn, and the panel is closed first.
+- A "!" tooltip names NPCs, and the panel's title is the NPC's name: Ventaari's title was clicked, not his offer.
+  `namedEntry` takes only a quest entry.
+- "42.G,24.3" on every frame for 3 s stopped a walk: "G" and a Cyrillic "З" read as 6 and 3.
+
+Run 33 (27 Sept, about 01:30) accepted Embracing the Elements, The Gift of Skysight and Harvesting Windstones.
+- Rorian's "!" read as "g": an entry is one icon character and a capitalised title (`questEntry`), and one whose
+  quest is not in the log is an offer.
+- While standing, 43.3 read as 48.3 and as 3.3 on single frames, and a hunt walk "moved 59.55". `PositionTrack`
+  drops a reading further from the last than a character can move; three that agree are the place.
+- The world map drew Infestation Investigation as "..." on a dark disc, which `mapPins` did not find: no pin, no
+  area, and twelve hunt decisions found no Cirrusfly. The dots are now found as a flat row and hovered.
 
 ## Limits
 

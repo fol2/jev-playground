@@ -549,11 +549,19 @@ func mapPixel(_ p: MapPoint) -> (x: Double, y: Double) { (mapOrigin.x + p.x * ma
 
 /// The map's own "Cursor: 42.3, 22.9" line, in zone coordinates whatever map it shows (live, 26 Sept: a new
 /// character's map opened on Thendal Village, not Zephras Isle, so the fixed transform above did not hold).
+/// OCR reads a "6" as "G" and the comma as a dot (live run 34, 27 Sept: "Cursor: 42.G. 22.9" and "45.8. 27.1", so no pin
+/// was placed and the hunt had no area). A dot between the numbers needs one decimal on each side, so it reads one way.
 func mapCursor(_ lines: [String]) -> MapPoint? {
-    let text = lines.joined(separator: " ")
-    guard let m = text.range(of: #"Cursor:?\s*\d{1,3}(\.\d+)?\s*,\s*\d{1,3}(\.\d+)?"#, options: .regularExpression) else { return nil }
-    let numbers = text[m].split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
-    return numbers.count == 2 && numbers.allSatisfy { (0...100).contains($0) } ? (numbers[0], numbers[1]) : nil
+    let text = String(lines.joined(separator: " ").map { ["G": "6", "З": "3"][$0] ?? $0 })
+    let patterns = [#"Cursor:?\s*(\d{1,3}(?:\.\d+)?)\s*,\s*(\d{1,3}(?:\.\d+)?)"#, #"Cursor:?\s*(\d{1,3}\.\d)\s*\.\s*(\d{1,3}\.\d)(?!\d)"#]
+    for pattern in patterns {
+        let range = NSRange(text.startIndex..., in: text)
+        guard let m = try? NSRegularExpression(pattern: pattern).firstMatch(in: text, range: range),
+              let a = Range(m.range(at: 1), in: text).flatMap({ Double(text[$0]) }),
+              let b = Range(m.range(at: 2), in: text).flatMap({ Double(text[$0]) }) else { continue }
+        return (0...100).contains(a) && (0...100).contains(b) ? (a, b) : nil
+    }
+    return nil
 }
 
 /// A north-up minimap pixel to zone coordinates, from the player at its centre (M4a: 19 px per y unit).
