@@ -776,7 +776,8 @@ dot between numbers of one decimal each, and "G" for 6. `map_pin` events log the
 Run 35 (27 Sept, about 01:57) read every pin, the hunt's at 45.8, 27.1. The walk there stopped `DANGER_AHEAD` 1.9 from
 it: two level-1 Juvenile Vuldren, one's red-brown body read as a red name. Only RETREAT was offered, and the run ended.
 Near a kill quest's pin red names are most likely its creatures, so a hunt's walk stopped by one within 3 units starts
-the hunt there (`huntStartsNear`): the hunt reads each plate's name, fights only what counts, and fights back.
+the hunt there (`huntStartsNear`): the hunt reads each plate's name, fights only what counts, and fights back. That was a
+script's decision; since M4o it is Jev's (`FROM_HERE`).
 
 Run 36 (27 Sept, about 02:04) walked to 2.8 from the hunt's pin. There the quest area's blue band crossed the minimap
 arrow's tip, the facing read 258-344° for 131°, and the walk turned on the spot until `NO_PROGRESS`. The arrow's tail
@@ -878,6 +879,7 @@ Runs 42-45 were unattended, as before.
 | 45 | With the body filter, the same walks still stopped `DANGER_AHEAD`: small red detections far off, too small to read, in the Vuldren field |
 | 46 | With the learned red-name reader (M5): Jev chose to hunt for Harvesting Windstones, a collect-from-the-ground quest; the hunt found no creature to count (`HUNT_NO_TARGET_FOUND`). The next quest read ended the run `POSITION_UNREADABLE`: a Pesky Cirrusfly's nameplate lay over the coordinates under the minimap |
 | 47 | After the quest read turned when a plate hid the coordinates (#56): the read found the place, then the hunt's walk to Harvesting Windstones read the coordinates once, under the same Cirrusfly's plate, and was refused `WALK_HUD_UNREADABLE`, which ends a run |
+| 48 | A plate over the coordinates: one turn and the place read (`position_turn`). Windstones and the Cirrusfly Queen: no creature to count. Skysight: the walk stopped `DANGER_AHEAD` 1.8 from the Elemental Convergence at real red names (Al'Aketh Converts, level 3; the learned reader kept them), so Skysight was never cast; Jev chose `RETREAT` and the run ended `NOTHING_TO_HAND_IN_OR_TAKE`. No death |
 
 **Limits of M4m.**
 - The walk's red-name check still stops walks through the Vuldren field. It sees far red detections that are too
@@ -924,6 +926,29 @@ only in the cases above; that two Windstone Clusters in view make two pick-ups a
 fight; that an object whose tooltip names no objective is not clicked, nor hovered more than twice between walks;
 that a unit's tooltip or a kill objective is never picked up; and that Jev's state lists the objects. The live hover, click and tracker read are
 not observed yet (F3).
+
+## M4o — Jev chooses to start a stopped step from where it stands (27 Sept)
+
+Run 48 stopped Skysight's walk 1.8 from the Elemental Convergence at real red names, and the quest was never done. A
+script rule would have cast it there, as `huntStartsNear` started a hunt near its area since run 35. The owner's line
+(27 Sept): the engine is Jev-driven, and a script does not make gameplay choices. So both are now one option for Jev.
+
+- **`FROM_HERE`** (quest graph `skyborne-quest-tools-v7`). A walk to a hunt's area, or to the place where an ability
+  is used "near", may stop for a red name ahead within 3 map units (`HuntLimits.startNear`) of that place, as the
+  next quest read measures it (`stepStartsNear`). The next request then offers the step again from here, beside
+  `RETREAT` and whatever else is open.
+- **What it runs.** The same step with no pin, so the host does not walk: the hunt starts where the character
+  stands, or the ability is cast there. Its criterion says why the walk stopped and how far from the place.
+- **What is not offered.** A stop further away, a hand-in's or accept's walk, or a bag item's use (it has no place).
+- **Evidence (sim).** `HuntTests` checks the offer and its absence, and a run in which Jev chooses it for Skysight
+  and the ability is used with no walk.
+- **Evidence (live, 27 Sept, runs 50-51 on a local build of this PR with #59 and #60).**
+  - Run 50: the Cirrusfly Queen's walk stopped 1.3 from its area, and FROM_HERE was offered. Jev chose the
+    Windstones hunt instead.
+  - Run 51: Jev chose FROM_HERE for the Queen (a hunt from there found no Queen), and for Skysight. Skysight was
+    cast 1.9 from the Convergence's pin; the quest did not complete. So "near" for the Convergence is nearer than
+    3 map units, and a use from there spends the step for nothing. A use-at's `startNear` is a candidate to narrow
+    once the Convergence's reach is measured.
 
 ## Limits
 

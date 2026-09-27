@@ -919,16 +919,22 @@ extension NavTests {
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
+        var pins: [MapPoint?] = []  // each hunt's and use's pin; none: from here, no walk
+        /// A step from here (no pin) takes "KEY HERE" when listed, else "KEY".
+        func outcome(_ key: String, _ quest: PlannedQuest) -> String? {
+            pins.append(quest.pin)
+            return quest.pin == nil ? outcomes[key + " HERE"] ?? outcomes[key] : outcomes[key]
+        }
         func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
             handed.append("HUNT " + quest.title); budgets.append(min(HuntLimits.maxSeconds, deadline - clock)); clock += huntTakes
-            return outcomes["HUNT " + quest.title] ?? "HUNTED"
+            return outcome("HUNT " + quest.title, quest) ?? "HUNTED"
         }
         var roads: [[MapPoint]] = [], roadTakes = 0.0
         func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
             handed.append("ROAD " + quest.title); roads.append(legs); clock += roadTakes; return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
         }
         func useItem(_ quest: PlannedQuest, item: String) async -> String {
-            handed.append("USE " + item); return outcomes["USE " + item] ?? "USED"
+            handed.append("USE " + item); return outcome("USE " + item, quest) ?? "USED"
         }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
@@ -1118,6 +1124,38 @@ extension NavTests {
         check(skyOffers.map(\.skill) == ["USE_1"] && skyOffers[0].criterion.contains("from the bar")
               && skyOffers[0].criterion.contains("at the quest's place") && usesNear(skysight) && !usesNear(embracing),
               "a bar ability a use-at quest names is offered as a use at the quest's place when it says \"near\"")
+        // Live runs 35 and 48: a walk a red name stopped within startNear of its place offers its step FROM_HERE, Jev's choice
+        // beside RETREAT (the owner, 27 Sept: Jev decides, not a script). The step then runs with no pin: no walk.
+        let infest = PlannedQuest(title: "Infestation Investigation", level: 2, ready: false, objective: "- 3/8 Pesky Cirrusfly slain", pin: (45.8, 27.1))
+        func stoppedAt(_ at: MapPoint, _ step: QuestStep, _ q: PlannedQuest) -> [(skill: String, step: QuestStep, criterion: String)] {
+            questOffers(QuestRead(quests: [q], player: at, missing: [], abilities: ["Skysight"]), failed: [step.key], stopped: step)
+        }
+        let huntHere = stoppedAt((44.6, 26.5), .hunt(infest), infest)
+        check(huntHere.map(\.skill) == ["RETREAT", "FROM_HERE"] && huntHere[1].criterion.hasPrefix("Hunt for \"Infestation Investigation\" from here")
+              && { if case .hunt(let q) = huntHere[1].step { return q.pin == nil && q.title == infest.title }; return false }(),
+              "live run 35: a hunt's walk stopped 1.3 from its area offers the hunt from here, with no pin, beside RETREAT")
+        func noHere(_ offers: [(skill: String, step: QuestStep, criterion: String)]) -> Bool { offers.first?.skill == "RETREAT" && !offers.contains { $0.skill == "FROM_HERE" } }
+        check(noHere(stoppedAt((42, 24), .hunt(infest), infest)) && noHere(stoppedAt((44.6, 26.5), .handIn(infest), infest))
+              && noHere(stoppedAt((42.7, 23.4), .use(embracing, item: "Humming Recall Crystal"), embracing)),
+              "not 4.9 away, not for a hand-in's walk, and not for a use that belongs to no place")
+        let grove = FakeQuests([QuestRead(quests: [infest], player: (44, 26), missing: []), QuestRead(quests: [infest], player: (44.6, 26.5), missing: []),
+                                QuestRead(quests: [infest], player: (44.6, 26.5), missing: [])])
+        grove.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Infestation Investigation HERE": "HUNTED_SOME"]
+        let herder = CannedGraph(["DO:HUNT_1", "DO:FROM_HERE", "DO:HUNT_1"])
+        _ = await runQuests(host: grove, jev: herder, graph: graph()!)
+        check(herder.offered.count == 3 && herder.offered[1].contains("DO:FROM_HERE") && herder.offered[2].contains("DO:HUNT_1")
+              && grove.pins.count == 3 && grove.pins[1] == nil && grove.pins[2] != nil,
+              "review of #58: a hunt from here that took some of its kills is offered again, as HUNT with its walk")
+        let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
+                                      QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
+                                      QuestRead(quests: [], player: (47.0, 20.6), missing: [])])
+        convergence.outcomes = ["USE Skysight": "WALK_DANGER_AHEAD", "USE Skysight HERE": "USED_ABILITY"]
+        let chooser = CannedGraph(["DO:USE_1", "DO:FROM_HERE"])
+        let usedHere = await runQuests(host: convergence, jev: chooser, graph: graph()!)
+        check(chooser.offered.count == 2 && chooser.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:FROM_HERE", "DO:RETREAT"]
+              && convergence.handed == ["USE Skysight", "USE Skysight"] && convergence.pins.count == 2 && convergence.pins[1] == nil
+              && usedHere.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "live run 48: Skysight's walk stopped 1.8 from the Convergence; Jev chose FROM_HERE and it was cast there, with no walk")
         check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
               && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
               && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: [QuestStep.hunt(winds).key]).isEmpty,

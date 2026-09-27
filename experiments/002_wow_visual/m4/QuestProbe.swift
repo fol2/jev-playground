@@ -896,7 +896,7 @@ final class LiveQuestHost: QuestHost {
     }
 
     /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then
-    /// its key, and time for its cast. A bag item is right-clicked where the character stands (QuestRun.useItem).
+    /// its key, and time for its cast. With no pin (FROM_HERE, Jev's choice after a walk stopped near it) there is no walk. A bag item is right-clicked where the character stands (QuestRun.useItem).
     func useItem(_ quest: PlannedQuest, item: String) async -> String {
         let outcome: String
         if let key = abilities[item] {
@@ -985,15 +985,11 @@ final class LiveQuestHost: QuestHost {
         return outcome
     }
 
-    /// Walk to the quest's area (from here when the map showed none), then one M4b hunt, as `--hunt` runs
+    /// Walk to the quest's area (from here when the map showed none, or when Jev chose FROM_HERE), then one M4b hunt, as `--hunt` runs
     /// it, in its own folder, with what is left to the deadline after the walk (review of #47: a walk of up to
     /// 180 s came before the budget). A hunt that ends with keys held stays tracked for the exit sweep.
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String {
-        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) {
-            let here = await quester.position(turn: false)  // five frames; no turning beside a danger
-            guard huntStartsNear(stop, at: here, pin: pin) else { return stop }
-            emit("hunt_near", ["stop": stop, "pin": [pin.x, pin.y], "at": orNull(here.map { [$0.x, $0.y] })])
-        }
+        if let pin = quest.pin, let stop = await walk(to: pin, label: quest.title) { return stop }  // FROM_HERE: Jev's choice
         let seconds = min(HuntLimits.maxSeconds, deadline - hostNow())
         guard seconds > 0 else { return "HUNT_TIME_LIMIT" }
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
