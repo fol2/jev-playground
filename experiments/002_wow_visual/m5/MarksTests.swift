@@ -18,7 +18,29 @@ struct MarksTests {
         split()
         scores()
         audits()
+        redNameLabels()
         print("perception checks passed: \(checks)")
+    }
+
+    static func redNameLabels() {
+        let crop = redCrop([1128, 631, 1152, 639], width: 2560, height: 1320)
+        check(crop.w == 43 && crop.h == 43 && crop.x == 1119 && crop.y == 614 && redCrop([0, 0, 80, 10], width: 2560, height: 1320).w == 103
+              && redCrop([2550, 1310, 2559, 1319], width: 2560, height: 1320).x == 2528,
+              "a red name's crop is a square its width plus two heights (32 at least), centred, inside the frame")
+        check(redAuditLabels("name 3 7\ntext 4\nnone *", count: 10).map { $0[3] == "name" && $0[7] == "name" && $0[4] == "text" && $0[0] == "none" && $0.count == 10 } == true
+              && redAuditLabels("name 3 7", count: 10) == nil && redAuditLabels("name 12\nnone *", count: 10) == nil
+              && redAuditLabels("maybe 1\nnone *", count: 10) == nil,
+              "an audit labels every id of the sheets, name, text or none; an id off them, or another word, holds")
+        var s = RedScore()
+        for (label, kept) in [("name", true), ("name", false), ("none", true), ("none", false), ("none", false), ("text", true)] {
+            s.add(label: label, kept: kept)
+        }
+        check(s == RedScore(namesKept: 1, namesDropped: 1, falseKept: 1, falseDropped: 2),
+              "a filter's score counts names and false ones, kept and dropped; other red text is not scored")
+        let f = RedFrames([("a", "name", false), ("a", "name", true), ("b", "name", false), ("b", "none", true), ("c", "none", false),
+                           ("c", "text", false), ("d", "text", true), ("e", "none", true)])
+        check(f == RedFrames(named: 2, missed: 1, clear: 3, falseStops: 1),
+              "a frame with a name is missed only when none of its names is kept; one without is a false stop if a none is kept")
     }
 
     static func frame(_ paint: (inout [UInt8], Int) -> Void) -> RGBA {

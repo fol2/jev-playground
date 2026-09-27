@@ -71,7 +71,7 @@ Rebuild and run from the repository root:
 ```sh
 V=experiments/002_wow_visual
 swiftc -O -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift \
-  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift \
+  $V/m4/Nav.swift $V/m4/Hunt.swift $V/m4/Quest.swift $V/m4/Roads.swift $V/m5/Marks.swift $V/m5/Reader.swift $V/m5/Train.swift $V/m5/RedNames.swift \
   $V/m5/PerceiveTool.swift $V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift \
   $V/runtime/Experience.swift -o /tmp/m5-perceive
 DEVELOPER_DIR=/Applications/Xcode-27.0.0-beta.5.app/Contents/Developer xcrun swiftc -O -parse-as-library $V/m5/Teacher.swift -o /tmp/m5-teach

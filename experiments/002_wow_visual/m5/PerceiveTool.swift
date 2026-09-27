@@ -363,6 +363,14 @@ struct PerceiveTool {
             case ("--roads", 1): exit(try roads())
             case ("--audit", 2): exit(try audit(args[1]))
             case ("--kinds", let n) where n >= 2: exit(try kinds(Array(args.dropFirst())))
+            case ("--red-propose", 1): exit(try redPropose())
+            case ("--red-sheet", 2):
+                guard let n = Int(args[1]), (1...600).contains(n) else { break }
+                exit(try redSheet(limit: n))
+            case ("--red-audit", 2): exit(try redAudit(args[1]))
+            case ("--red-train", 1): exit(try redTrain())
+            case ("--red-train", 2) where args[1] == "final": exit(try redTrain(final: true))
+            case ("--red-baseline", 1): exit(try redBaseline())
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n, wholeFrames: true))
@@ -375,7 +383,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME...\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME... | --red-propose | --red-sheet N | --red-audit FILE | --red-train [final] | --red-baseline\n", stderr)
         exit(64)
     }
 }

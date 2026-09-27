@@ -447,7 +447,7 @@ func motorProof(update: Bool) throws -> String {
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
         Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
         Build(output: perceive, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "Reader.swift", perceiveDir + "Train.swift",
-                                                         perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
+                                                         perceiveDir + "RedNames.swift", perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
         // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
         Build(output: teach, sources: [perceiveDir + "Teacher.swift"]),
         Build(output: video, sources: [learnDir + "VideoJev.swift", sharedJSON]),
