@@ -492,6 +492,12 @@ struct NavTests {
         let stopped = await runNav(body: wary, jev: scripted(), destination: d)
         check(stopped.outcome == "DANGER_AHEAD" && stopped.decisions == 1 && stopped.runtime?.status == .blocked && !wary.keys.holding,
               "runNav ends DANGER_AHEAD after the move a red name stopped: a walk never goes on into it")
+        let fleeing = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        fleeing.hostiles = [(40, 27)]
+        var safety = d
+        safety.passesDanger = true
+        let fled = await runNav(body: fleeing, jev: scripted(), destination: safety)
+        check(fled.outcome != "DANGER_AHEAD" && fleeing.y < 29, "review of #72: a walk to safety goes on past a red name ahead")
 
         let swept = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
         swept.keys.releaseAll()

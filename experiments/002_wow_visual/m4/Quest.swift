@@ -684,6 +684,8 @@ enum QuestLimits {
                                                             ("Valanaar", (58.2, 78.4))]
     static let safeArrive = 1.0
     static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
+    static let safeRounds = 4  // fights and walks on the way to safety
+    static let safeSeconds = 240.0  // after the run's 25 minutes, inside the envelope's 30
     static let maxSteps = 12
     // The run envelope allows 30 min a run. No step starts after 25 min; a hunt gets what is left of
     // them, at most its own 15, so the last step's walk and fights have 5 min of margin.
@@ -843,7 +845,27 @@ func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now
 /// Whether a quest run that ended so walks to a safe place before it exits: every end but the owner's takeover, keys
 /// held, a failed input handoff and death.
 func leavesDanger(_ outcome: String) -> Bool {
-    !(outcome == "OWNER_TOOK_FOCUS" || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
+    !(outcome.contains("OWNER") || outcome.hasSuffix("KEYS_HELD") || outcome.contains("HANDOFF") || outcome.contains("DEAD"))
+}
+
+/// The way to safety in rounds (M4r): in combat, a fight back first (SAFETY's, as M4i's); out of it, the walk; a walk
+/// that met combat is fought and walked again. At most `rounds`, none started at or after `deadline`. "SAFE" on
+/// arrival; a fight not won ends it with "FIGHT_" and its outcome, a walk's other end with "WALK_" and its. Live run 65
+/// (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and it died.
+func leaveDangerRounds(_ rounds: Int, until deadline: Double, now: () -> Double, inCombat: () async -> Bool,
+                       fightBack: () async -> String, walk: () async -> String) async -> String {
+    for _ in 0..<rounds {
+        if now() >= deadline { return "SAFE_TIME_LIMIT" }
+        if await inCombat() {
+            let fought = await fightBack()
+            guard QuestLimits.fightWon.contains(fought) else { return "FIGHT_" + fought }
+            continue
+        }
+        let walked = await walk()
+        if walked == "ARRIVED" { return "SAFE" }
+        if walked != "COMBAT" { return "WALK_" + walked }
+    }
+    return "SAFE_ROUNDS"
 }
 
 /// The nearest safe place within one walk of `at`, unless the character is already at one.
@@ -1010,7 +1032,9 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         host.emit("quests_done", ["outcome": outcome, "steps": r.steps.map { ["quest": $0.quest, "outcome": $0.outcome] }])
         return r
     }
-    while r.steps.count < QuestLimits.maxSteps {
+    // Jev's steps are counted, not SAFETY's fight backs: run 65 spent its twelve on five walks attacked and their fights
+    // back, and ended STEP_LIMIT in combat among hostiles (review of #72).
+    while r.steps.filter({ $0.quest != "fight back" }).count < QuestLimits.maxSteps {
         if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }

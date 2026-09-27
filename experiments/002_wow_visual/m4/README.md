@@ -1025,13 +1025,21 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
   Shen'dar, Valanaar), by their NPCs' places in the town research.
 - **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
-  - the owner's takeover;
+  - the owner's takeover, whatever step it stopped;
   - keys held;
   - a failed input handoff;
   - death.
-- **How.** One walk, at most 180 s, inside the envelope's 30 minutes. Its moves are a fixed preference: straight,
-  then the detours. It makes no model call, so a run that ended on a failed Jev call still walks.
-- **Evidence.** Sim only: `HuntTests` covers which ends walk and the nearest village. Live: not yet run.
+- **How.** At most four rounds (`leaveDangerRounds`). In combat, a round is one M3 fight back, SAFETY's as in M4i.
+  Out of combat, it is one walk of at most 180 s. A walk that meets combat is fought, then walked again. A lost
+  fight, or any other walk end, stops it. No round starts four minutes after the run's 25, inside the envelope's 30.
+  - The walk's moves are a fixed preference: straight, then the detours. It makes no model call, so a run that ended
+    on a failed Jev call still walks.
+  - It walks on past a red name ahead (`passesDanger`): stopping among hostiles is what it leaves. Live run 65 met
+    combat at once, ended, and the character died where it stood.
+- **Steps.** SAFETY's fights back no longer use Jev's twelve steps. Run 65 spent them on five attacked walks and their
+  fights, and ended `STEP_LIMIT` in combat.
+- **Evidence.** Sim only. `HuntTests` covers which ends walk, the nearest village, the rounds and the steps.
+  `NavTests` covers a walk to safety past a red name. Live: not yet run.
 
 ## Limits
 

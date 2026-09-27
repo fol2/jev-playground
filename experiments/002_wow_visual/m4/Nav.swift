@@ -338,6 +338,9 @@ struct NavDestination: Equatable {
     let x: Double
     let y: Double
     var arrive = NavLimits.arriveDefault
+    // A walk to safety (M4r) walks on past a red name ahead: stopping among hostiles is what it leaves (review of #72).
+    // Combat still stops it, and is fought back.
+    var passesDanger = false
     var point: MapPoint { (x, y) }
 }
 
@@ -527,7 +530,7 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
         here = o
         if o.combat || o.player < FightLimits.playerSafety || body.ownerTookFocus() { ranOut = false; break }
         if distance(o.point, d.point) < d.arrive { attempt.arrived = true; ranOut = false; break }
-        if o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
+        if !d.passesDanger, o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
             attempt.warned = true; ranOut = false; break
         }
         let now = body.now()

@@ -984,15 +984,21 @@ final class LiveQuestHost: QuestHost {
         guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),
               let safe = safePlace(from: at) else { return }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
-        walks += 1
-        let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let legs = newWalker(folder)
-        walker = legs
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
-        let walked = await runNav(body: legs, jev: ScriptedJev(preference: preference),
-                                  destination: NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive))
-        emit("leave_danger_end", ["controller": "SAFETY", "outcome": walked.outcome])
+        let end = await leaveDangerRounds(QuestLimits.safeRounds, until: runDeadline + QuestLimits.safeSeconds, now: now,
+                                          inCombat: { self.combatNow() == true }, fightBack: { await self.fightBack() }) {
+            guard !self.ownerTookFocus(), self.walker?.holding != true else { return "OWNER_OR_KEYS" }
+            self.walks += 1
+            let folder = self.quester.body.directory.appendingPathComponent(String(format: "walk%d", self.walks))
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let legs = self.newWalker(folder)
+            self.walker = legs
+            let walked = await runNav(body: legs, jev: ScriptedJev(preference: preference),
+                                      destination: NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive,
+                                                                  passesDanger: true))
+            return walked.outcome
+        }
+        emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])
     }
 
     func handIn(_ quest: PlannedQuest) async -> String {

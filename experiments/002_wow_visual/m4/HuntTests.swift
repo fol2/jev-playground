@@ -1049,6 +1049,12 @@ extension NavTests {
         let lost = await runQuests(host: beaten, jev: CannedGraph(["DO:HAND_IN_1"]), graph: graph()!)
         check(lost.outcome == "FIGHT_JEV_STOP" && beaten.handed == ["The Gift of Skysight", "FIGHT_BACK"],
               "a fight that does not end in a kill, even one Jev stopped, ends the quest run: it may still be under attack")
+        let besieged = FakeQuests(Array(repeating: QuestRead(quests: hub, player: thendal, missing: []), count: QuestLimits.maxSteps))
+        besieged.outcomes = ["The Gift of Skysight": "WALK_COMBAT"]
+        let every = CannedGraph(Array(repeating: "DO:HAND_IN_1", count: QuestLimits.maxSteps + 1))
+        let siege = await runQuests(host: besieged, jev: every, graph: graph()!)
+        check(every.offered.count == QuestLimits.maxSteps && siege.steps.count == 2 * QuestLimits.maxSteps,
+              "review of #72 (live run 65): SAFETY's fights back do not use Jev's steps")
         let danger = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: []),
                                  QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: [], player: thendal, missing: [])])
         danger.outcomes = ["The Gift of Skysight": "WALK_DANGER_AHEAD"]  // slot 1: nearer
@@ -1186,6 +1192,27 @@ extension NavTests {
         check(["WALK_HUD_UNREADABLE", "WALK_JEV_FAILED", "NOTHING_TO_HAND_IN_OR_TAKE", "TIME_LIMIT", "WALK_LOW_HEALTH"].allSatisfy(leavesDanger)
               && !["OWNER_TOOK_FOCUS", "WALK_KEYS_HELD", "HUNT_KEYS_HELD", "INPUT_HANDOFF_FAILED", "FIGHT_PLAYER_DEAD"].contains(where: leavesDanger),
               "every run end walks to safety but the owner's takeover, held keys, a failed handoff and death")
+        check(!["WALK_OWNER_TOOK_FOCUS", "HUNT_OWNER_TOOK_FOCUS", "FIGHT_OWNER_TOOK_FOCUS"].contains(where: leavesDanger),
+              "review of #72: the owner's takeover ends no walk to safety, whatever step it stopped")
+        func wayRounds(_ combat: [Bool], _ fights: [String], _ walks: [String], clock: [Double] = []) async -> (String, [String]) {
+            var combat = combat, fights = fights, walks = walks, clock = clock, done: [String] = []
+            let end = await leaveDangerRounds(QuestLimits.safeRounds, until: 100, now: { clock.isEmpty ? 0 : clock.removeFirst() },
+                                              inCombat: { combat.isEmpty ? false : combat.removeFirst() },
+                                              fightBack: { done.append("fight"); return fights.removeFirst() },
+                                              walk: { done.append("walk"); return walks.removeFirst() })
+            return (end, done)
+        }
+        let (wayFought, wayFoughtSteps) = await wayRounds([true, false], ["KILLED_AND_LOOTED"], ["ARRIVED"])
+        let (wayMet, wayMetSteps) = await wayRounds([false, true, false], ["KILLED_NO_CORPSE"], ["COMBAT", "ARRIVED"])
+        check(wayFought == "SAFE" && wayFoughtSteps == ["fight", "walk"] && wayMet == "SAFE" && wayMetSteps == ["walk", "fight", "walk"],
+              "review of #72 (live run 65): in combat the way to safety fights back first; a walk that meets combat is fought and walked again")
+        let (wayLost, _) = await wayRounds([true], ["PLAYER_DEAD"], [])
+        let (wayStuck, _) = await wayRounds([false], [], ["NO_PROGRESS"])
+        let (wayEndless, wayEndlessSteps) = await wayRounds([false, true, false, true], ["KILLED_AND_LOOTED", "KILLED_AND_LOOTED"], ["COMBAT", "COMBAT"])
+        let (wayLate, wayLateSteps) = await wayRounds([false], [], ["COMBAT"], clock: [0, 100])
+        check(wayLost == "FIGHT_PLAYER_DEAD" && wayStuck == "WALK_NO_PROGRESS" && wayEndless == "SAFE_ROUNDS" && wayEndlessSteps.count == QuestLimits.safeRounds
+              && wayLate == "SAFE_TIME_LIMIT" && wayLateSteps == ["walk"],
+              "the way to safety ends on a lost fight or a walk's other end, and within its rounds and its time")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
               && same(safePlace(from: (44, 40)), 43.4, 44.8),
               "the nearest village within one walk; none when already there or too far")
