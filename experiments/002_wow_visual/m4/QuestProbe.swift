@@ -1134,7 +1134,8 @@ final class LiveQuestHost: QuestHost {
         let level = town.isEmpty ? nil : await quester.readLevel()
         if let level, let t = trainedAt, level < t { trainedAt = nil; try? FileManager.default.removeItem(at: QuestHUD.characterMemory) }
         return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys),
-                         level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count)
+                         level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count,
+                         gearSettled: !gearUnchecked && !upgradeInBags)
     }
 
     /// M4x, a RULE (the owner, 27 Sept: "we should always wear better gear first when non-battle"): out of combat, before the
@@ -1156,7 +1157,8 @@ final class LiveQuestHost: QuestHost {
     /// A town stop (M4u): walk to where the NPC is talked to, open its window by its name, then sell the junk or train.
     /// A trainer's window seen at a level is remembered (character.json, private): TRAIN is offered again only at a higher one.
     func visit(_ npc: TownNPC) async -> String {
-        // M4x: no junk is sold while an upgrade may lie in the bags unworn (review of #80: Sell All Junk sells grey gear).
+        // M4x: no junk is sold while an upgrade may lie in the bags unworn (review of #80: Sell All Junk sells grey gear). The
+        // read offers no vendor then (gearSettled); this holds should the gear change between the read and the visit.
         if npc.role == "vendor" && (gearUnchecked || upgradeInBags) { return "GEAR_UNSETTLED" }
         if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
         guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }

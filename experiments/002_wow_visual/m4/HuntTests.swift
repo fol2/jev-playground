@@ -1163,6 +1163,11 @@ extension NavTests {
         check(questTitle("8 Cirrusflies Slain") == nil && questTitle("0/15 Windstone Cluster", bare: true) == nil
               && readQuestLog(slain, shown: 2).quests.map(\.title) == ["The Cirrusfly Queen"] && !readQuestLog(slain, shown: 2).bare,
               "review of #80: a bare level is never a title unasked, nor one that overshoots the log's count")
+        var unsettled = QuestRead(quests: [], player: (42.8, 24.0), missing: [], level: 4, trainedAt: 3)
+        let settledOffers = townOffers(unsettled, npcs: book, failed: []).map(\.skill)
+        unsettled.gearSettled = false
+        check(settledOffers.contains("SELL_JUNK") && townOffers(unsettled, npcs: book, failed: []).map(\.skill) == ["TRAIN"],
+              "second review of #80: while an upgrade may lie in the bags unworn, the vendor is not offered (the trainer is)")
         check(npcWindowShown(tip([("Uualia Suncrest", 216, 165), ("Buyback", 300, 560)])) && !npcWindowShown(beltTip),
               "M4x: a merchant's window, whoever's, holds the equip back (a right-click there sells)")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])

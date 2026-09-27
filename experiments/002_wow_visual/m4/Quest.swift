@@ -687,6 +687,7 @@ struct QuestRead {
     var level: Int? = nil  // the character's, from its own unit tooltip (M4u)
     var trainedAt: Int? = nil  // the level at the last visit to the class trainer, from the character's memory (M4u)
     var bagsUsed: Int? = nil  // the bags' slots with an item, when read (M4u)
+    var gearSettled = true  // M4x: no upgrade may lie in the bags unworn, so junk may be sold
 }
 
 protocol QuestHost: AnyObject {
@@ -1362,7 +1363,9 @@ func townOffers(_ read: QuestRead, npcs: [TownNPC], failed: Set<String>) -> [(sk
     }
     // The bags are read only for a use-at quest; unread, they may be full of loot, so the vendor is offered and Jev weighs it
     // (review of #77: a count required before offering left SELL_JUNK unoffered on every run without a use-at quest).
-    if let v = near.first(where: { $0.role == "vendor" }), (read.bagsUsed ?? TownLimits.sellAt) >= TownLimits.sellAt {
+    // M4x: not while an upgrade may lie in the bags unworn, as Sell All Junk sells grey gear (second review of #80: a refused
+    // visit counted as the run's one, and the vendor was never offered again once the gear settled).
+    if read.gearSettled, let v = near.first(where: { $0.role == "vendor" }), (read.bagsUsed ?? TownLimits.sellAt) >= TownLimits.sellAt {
         out.append(("SELL_JUNK", .town(v), "Walk to \(v.name), a vendor in \(v.hub) (\(away(v)) units away), and sell every grey item "
             + "in the bags with one Sell All Junk Items (the game asks to confirm). "
             + (read.bagsUsed.map { "\($0) bag slots are in use" } ?? "The bags were not read this step")

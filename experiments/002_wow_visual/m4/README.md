@@ -1228,8 +1228,8 @@ character's, and Sell All Junk had sold such grey gear before.
   (`WALK_NO_PROGRESS`). The hand-in returns `COMPLETED_TO_WEAR` and marks the gear unchecked, and the next log read's
   right-click RULE puts it on. `command`, `wearing` and the character pane's boxes are gone.
 - Review of #80: a check that leaves an upgrade unworn is tried once more, and until it is worn (or while the gear is
-  unchecked) a vendor stop returns `GEAR_UNSETTLED` before walking, so Sell All Junk never sells it; `--turn-in` puts its
-  reward on too. MotorProof holds both: the NPC-window guard before the right-click, and the vendor refusal.
+  unchecked) the read offers no vendor (`gearSettled`), and a vendor stop would return `GEAR_UNSETTLED` before walking, so Sell
+  All Junk never sells it; `--turn-in` puts its reward on too. MotorProof holds both: the NPC-window guard before the right-click, and the vendor refusal.
 - Also here (live run 75): OCR dropped the brackets of a ready quest's title beside its "?" ("4 Return to Rorian"), the log read
   2 of 3 quests and the run stopped `LOG_INCOMPLETE`. `readQuestLog` reads again with bare levels (a level before a capital)
   only when a read falls short of the log's own count, and takes it only when it then matches (review of #80: an objective
