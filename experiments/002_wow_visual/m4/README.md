@@ -1186,6 +1186,23 @@ sought its "?" where the character stood. Its ender is Yala Windwatcher in Thend
   hovering for an NPC is logged as "(a player)", never by name.
 - **Evidence.** Sim: `HuntTests` (the pin filled, a map pin kept, an unknown quest left alone; the offer names the ender).
   Live: the next run.
+## M4w — heal before walking on (27 Sept)
+
+The owner, 27 Sept: buff and heal "are not in the skills chain but they are needed when needed". Live run 70: a hunt ended out
+of combat under 30% health, the way to safety set off at once, got stuck on the ground, and the character died there.
+
+- `recover` (pure): out of combat and under 60% health, the bar's heal is cast on the character, at most three casts, until
+  60%; not in combat (the fight answers that), not with mana under 20%, not without a fresh HUD.
+- `LiveQuestHost.healBeforeWalking` runs it before every quest walk but a retreat (which leaves the danger first), and before
+  each walk on the way to safety (M4r). Logged as `recover`, controller RULE.
+- Review of #79: a heal goes to the selected unit, which after a talk is a friendly NPC, so F1 (the default Target Self)
+  selects the character before the first cast, and Esc drops it after, only while a target shows. Checked live: F1 put the
+  character in the target frame (read 0.99), and Esc cleared it (0.0) without the Game Menu. The owner's takeover stops each
+  cast, and the heal's time comes out of the safety walk's own seconds.
+- Also here: the town stop's name search covers the view but the tracker (live run 73: Windshaper Boro's name stood right of
+  the first box, and the visit ended `NPC_NOT_OPENED`), and each look logs `town_search`.
+- Evidence: sim (`HuntTests`: healed in two casts; not hurt; in combat; no mana; still hurt after three; aimed and cleared
+  once; the owner stops the casts). Live: the next run.
 
 ## Limits
 

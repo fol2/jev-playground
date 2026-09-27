@@ -52,6 +52,7 @@ enum FightLimits {
     static let maxSteps = 120  // Jev's decisions plus the steps its chains run without a call
     static let maxSeconds = 150.0
     static let playerSafety = 0.3
+    static let buffAtHealth = 0.6  // in combat, the start's RULE enchant only at this health or more (review of #79)
     static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
     static let startHealth = 0.9
     // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
@@ -571,6 +572,17 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     guard var prev = await freshObservation(host) else { return finish("NO_FRESH_FRAME") }
     if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
+    // The owner's tactic (23 Sept): buff before every fight; and 27 Sept: buff and heal "are not in the skills chain but they
+    // are needed when needed". A weapon enchant on the bar that is not active is cast first, as a rule, not Jev's choice
+    // (live run 72: BUFF_WEAPON was offered in every decision and never chosen). Once a fight; after it, it stays Jev's offer.
+    // Not while hurt in combat: there healing comes first, and a cast's global cooldown is not spent on the enchant (review of #79).
+    if tactics?.kit.has(.buff) == true, !prev.buff, !prev.casting, !prev.combat || prev.player >= FightLimits.buffAtHealth,
+       !host.wowFrontmost() {
+        lastResult = await host.perform(.buffWeapon, observation: prev, episode: &episode)
+        lastAction = FightAction.buffWeapon.rawValue
+        host.emit("reflex", ["controller": "RULE", "trigger": "weapon enchant not active at the fight's start", "does": lastAction,
+                             "result": lastResult])
+    }
 
     loop: while decisions < FightLimits.maxDecisions && steps < FightLimits.maxSteps && host.now() < FightLimits.maxSeconds {
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }

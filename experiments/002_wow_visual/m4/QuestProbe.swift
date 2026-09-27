@@ -20,6 +20,7 @@ enum QuestHUD {
     static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
     static let enter: UInt16 = 36
     static let escape: UInt16 = 53
+    static let targetSelf: UInt16 = 122  // F1, the default Target Self (M4w: a heal goes to the selected unit)
     static let characterPane: UInt16 = 8  // C
     static let bags: UInt16 = 11  // B, the backpack (the default binding; M4m)
     /// The character select screen's "Enter World" button (27 Sept), below the selected character's name, which is left out.
@@ -50,7 +51,9 @@ enum QuestHUD {
     // M4u: the town stop, from the live frames of 27 Sept (direct observation). Each window part is placed from its title
     // line's left-top as OCR reads it (the merchant's and the trainer's windows open at the left, where the quest dialogue does).
     static let characterMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/character.json")  // private: level last trained
-    static let townView = CGRect(x: 512, y: 200, width: 1536, height: 640)  // where an NPC's name is sought, read at twice its size
+    // Where an NPC's name is sought, read at twice its size: the view but the tracker at the right (live run 73: Windshaper
+    // Boro's name stood at x 2130-2270, outside the first box, 512-2048, and the visit ended NPC_NOT_OPENED).
+    static let townView = CGRect(x: 100, y: 200, width: 2160, height: 640)
     static let portrait = (x: 764.0, y: 995.0)  // the character's own portrait: its unit tooltip names its level
     static let junkButton = (dx: 12.0, dy: 411.0)  // Sell All Junk Items, the coin bag under the merchant's grid
     static let junkTip = (dx: 20.0, dy: 355.0, width: 240.0, height: 40.0)  // its tooltip, just above it
@@ -586,7 +589,7 @@ final class QuestRun {
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
             // A player's tooltip (the character's own included) is not logged by name (review of #77).
-            let logged = read.contains { $0.contains("(Player)") } ? ["(a player)"] : Array(read.prefix(3))
+            let logged = read.contains { $0.lowercased().contains("(player)") } ? ["(a player)"] : Array(read.prefix(3))
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": logged, "name": name, "again": again])
             switch unitCheck(read, name: name, declined: clearing ? [] : declined) {  // a fading tooltip is not this unit's
             case .declined: metOne = true; return false
@@ -635,7 +638,10 @@ final class QuestRun {
     /// right-click and wait for the window. The dialogue box's lines, or nil.
     func openByName(_ name: String, until deadline: Double = .infinity) async -> [TipLine]? {
         func found(_ image: CGImage?) -> TipLine? {
-            upscaledLines(QuestHUD.townView, image).first { sameUnit($0.text, name) || (likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3) }
+            let read = upscaledLines(QuestHUD.townView, image)
+            let hit = read.first { sameUnit($0.text, name) || (likeName($0.text, name) && nameKey($0.text).count >= nameKey(name).count - 3) }
+            body.emit("town_search", ["name": name, "lines": read.count, "found": hit != nil])  // what each look read (live run 73)
+            return hit
         }
         var image = await frame()
         var line = found(image)
@@ -934,6 +940,7 @@ final class QuestRun {
             }
         }
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
+            guard hostNow() < deadline, !body.ownerTookFocus() else { return "OWNER_OR_TIME" }  // review of #78
             let opened = await openAtMark(want: "question") { await page($0) }
             guard let open = opened.dialog else { return opened.failure! }
             dialog = open
@@ -1066,6 +1073,31 @@ final class LiveQuestHost: QuestHost {
         return "BACK_" + (await fight(inCombat: true))
     }
 
+    /// The HUD on a frame no older than the fight's age limit; nil without one.
+    private func vitalsNow() -> Obs? {
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+        return observe(rgba(frame.image), plates: false)
+    }
+
+    /// Out of combat and hurt, heal before walking on (RULE; recover): F1 (the default Target Self) selects the character, the
+    /// bar's heal is cast on it, and Esc drops the selection after, only while a target shows (Esc with none is the Game Menu).
+    func healBeforeWalking() async {
+        guard !ownerTookFocus() else { return }
+        let outcome = await recover(read: { self.vitalsNow() }, aim: {
+            await self.quester.tap(QuestHUD.targetSelf)
+            await self.quester.sleep(0.3)
+        }, cast: {
+            guard !self.ownerTookFocus() else { return false }
+            await self.quester.tap(FightLimits.heal)
+            await self.quester.sleep(RecoverLimits.castSeconds)
+            return true
+        }, clear: {
+            if (self.vitalsNow()?.target ?? 0) > 0, !self.ownerTookFocus() { await self.quester.tap(QuestHUD.escape) }
+        })
+        if outcome != "NOT_HURT" { emit("recover", ["controller": "RULE", "rule": "the owner: heal when needed", "outcome": outcome]) }
+    }
+
     /// The HUD's combat (the ring and the bars) on a frame no older than the fight's age limit; nil without one.
     private func combatNow() -> Bool? {
         guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
@@ -1158,6 +1190,7 @@ final class LiveQuestHost: QuestHost {
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests. Checked before any turn to read the place.
         if walker?.holding == true { return "WALK_KEYS_HELD" }
+        if !retreating { await healBeforeWalking() }  // a retreat leaves the danger first; a heal would stand in it
         // A plate over the coordinates must not refuse the walk (live run 47); a retreat does not turn beside the danger.
         // Only the coordinates are read here: the arrow is the walk's own first look (runNav).
         let at = await quester.position(turn: !retreating)
@@ -1200,6 +1233,9 @@ final class LiveQuestHost: QuestHost {
         let end = await leaveDangerRounds(QuestLimits.safeWalks, until: envelopeEnd, now: now,
                                           inCombat: { self.combatNow() != false }, fightBack: { await self.fightBack() }) { seconds in
             guard !self.ownerTookFocus(), self.walker?.holding != true else { return "OWNER_OR_KEYS" }
+            let healing = hostNow()
+            await self.healBeforeWalking()  // live run 70: it set off under 30% health, got stuck, and died
+            let seconds = seconds - (hostNow() - healing)  // the heal's time comes out of this walk's (review of #79)
             self.walks += 1
             let folder = self.quester.body.directory.appendingPathComponent(String(format: "walk%d", self.walks))
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
