@@ -1143,11 +1143,18 @@ func role(_ s: Skill) -> SkillRole? {
 let fightRoles: [SkillRole] = [.bolt, .heal]
 let huntRoles = fightRoles + [.drink, .food]
 
+let duplicateTooltip = "one tooltip on two slots (was the pointer moved?)"
+
+/// Whether a bar read is read once more, slower, before its problems stop a run: only for one tooltip on two slots. A client
+/// just launched fetches item data as each tooltip opens, so a slot's tooltip can still be the slot's before (live run 49,
+/// 27 Sept: "-" read water without its Use line, then "=" read water where Tough Jerky was).
+func rereadsBar(_ problems: [String]) -> Bool { problems.contains(duplicateTooltip) }
+
 /// The first slot of each role; problems name what a live run must not start without.
 func assignRoles(_ bar: [Skill?], required: [SkillRole] = huntRoles) -> (keys: [SkillRole: UInt16], problems: [String]) {
     var keys: [SkillRole: UInt16] = [:], problems: [String] = []
     let names = bar.compactMap { $0?.name }
-    if Set(names).count != names.count { problems.append("one tooltip on two slots (was the pointer moved?)") }
+    if Set(names).count != names.count { problems.append(duplicateTooltip) }
     for (i, skill) in bar.enumerated() where i < SkillHUD.keys.count {
         if let skill, let r = role(skill), keys[r] == nil { keys[r] = SkillHUD.keys[i] }
     }

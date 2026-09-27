@@ -403,9 +403,9 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
     func point(_ x: Double, _ y: Double) -> CGPoint {
         CGPoint(x: bounds.minX + bounds.width * x / Double(HUD.width), y: bounds.minY + bounds.height * y / Double(HUD.height))
     }
-    func read(_ i: Int) async throws -> Skill? {
+    func read(_ i: Int, settle: Double = 0.6) async throws -> Skill? {
         try NativeBackgroundClickTransport().move(target: routed, point: point(SkillHUD.slot1X + SkillHUD.pitch * Double(i), SkillHUD.slotY))
-        try? await Task.sleep(nanoseconds: 600_000_000)
+        try? await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000))
         let lines = feed.latestFrame?.image.cropping(to: tooltipBox).map { crop in
             tooltipLines(ocr(crop).map { ($0.0, $0.1.minX * tooltipBox.width, (1 - $0.1.maxY) * tooltipBox.height) })
         } ?? []
@@ -427,7 +427,12 @@ func readSkillBar(_ session: Session, _ feed: FrameFeed, _ log: Log, required: [
     if let remembered, let print, !memoryHolds(remembered, read: readNow, changed: Set(changedSlots(remembered.print, print))) {
         for i in SkillHUD.names.indices where !readNow.keys.contains(i) { readNow[i] = try await read(i) }
     }
-    let bar: [Skill?] = SkillHUD.names.indices.map { i in readNow.keys.contains(i) ? readNow[i]! : remembered?.skills[i] ?? nil }
+    var bar: [Skill?] = SkillHUD.names.indices.map { i in readNow.keys.contains(i) ? readNow[i]! : remembered?.skills[i] ?? nil }
+    if rereadsBar(assignRoles(bar, required: required).problems) {
+        log.emit("skill_bar_reread", ["settle_s": 1.5, "t": hostNow()])
+        for i in SkillHUD.names.indices { readNow[i] = try await read(i, settle: 1.5) }
+        bar = SkillHUD.names.indices.map { readNow[$0] ?? nil }
+    }
     for (i, key) in SkillHUD.names.enumerated() {
         let skill = bar[i]
         log.emit("skill_slot", ["key": key, "name": orNull(skill?.name), "role": orNull(skill.flatMap(role)?.rawValue),

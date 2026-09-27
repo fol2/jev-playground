@@ -270,6 +270,8 @@ struct FightTests {
               "live, 26 Sept: a level-1 bar with no weapon enchant still fights")
         check(assignRoles(bar.enumerated().map { $0.offset == 4 ? bar[1] : $0.element }).problems.first?.contains("two slots") == true,
               "one tooltip on two slots holds a live run (the pointer was contested)")
+        check(rereadsBar([duplicateTooltip]) && rereadsBar(["no heal skill on the bar", duplicateTooltip]) && !rereadsBar(["no heal skill on the bar"]) && !rereadsBar([]),
+              "live run 49: only one tooltip on two slots reads the bar once more, slower, before it holds the run")
         check(parseTooltip(["Earth Shock", "30 Mana"]) == nil, "no tooltip footer: not a tooltip")
         // Slot 8 live: the edge of a "Juvenile Vuldren" nameplate sat above the tooltip, inside the crop.
         let boxes: [(text: String, x: Double, y: Double)] = [
