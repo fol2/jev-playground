@@ -182,6 +182,14 @@ final class LiveHuntHost: HuntHost {
         return (o, seen.fields)
     }
 
+    /// M4ad: the view's depth by column for the hunt's steering walks (walkOn), on the latest fresh frame.
+    func viewColumns() -> [Double]? {
+        guard let reader = loadedDepth.reader, let frame = runtimeFrame(session, feed) else { return nil }
+        return try? reader.columns(frame.image)
+    }
+    func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)] { loadBumps() }
+    func remember(bumps: [(at: MapPoint, heading: Double, side: Double)]) { saveBumps(bumps) }
+
     /// The object detector (M5, ObjectReader), loaded once, before any hunt moves; nil without its private model.
     static let objectReader: ObjectReader? = try? ObjectReader()
 
