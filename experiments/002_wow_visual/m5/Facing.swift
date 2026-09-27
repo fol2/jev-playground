@@ -49,7 +49,9 @@ func facingLabels() throws -> Int32 {
             for (chain, folder) in zip(chains, folders) {
                 for (i, j) in zip(chain, chain.dropFirst()) {
                     let a = mine[i], b = mine[j]
-                    guard let fa = value(a, "facing"), let fb = value(b, "facing"), let ta = value(a, "t"), let tb = value(b, "t"),
+                    // The rule's own reading: a look since #63 logs it apart from the fused facing it acted on.
+                    func rule(_ row: [String: Any]) -> Double? { row.keys.contains("facing_rule") ? value(row, "facing_rule") : value(row, "facing") }
+                    guard let fa = rule(a), let fb = rule(b), let ta = value(a, "t"), let tb = value(b, "t"),
                           tb - ta <= 0.6, abs(angleError(fa, fb)) <= 8 else { continue }
                     let path = "\(run)/\(folder)/\(prefix)\(String(format: "%03d", a["frame"] as! Int)).jpg"
                     if fm.fileExists(atPath: runsRoot.appendingPathComponent(path).path) { out.append(FacingRow(frame: path, facing: fa)) }
@@ -63,20 +65,6 @@ func facingLabels() throws -> Int32 {
     let split = Dictionary(grouping: out) { runSplit(run(of: $0.frame)) }.mapValues(\.count)
     print("\(out.count) steady frames: " + Split.allCases.map { "\($0.rawValue) \(split[$0] ?? 0)" }.joined(separator: ", "))
     return 0
-}
-
-/// The looks of one folder each: chains of indices into `frames` that start at a 0 followed by a 1 and go up by one. Any
-/// other frame (a quest read's position look) is passed over, even inside a chain.
-func lookChains(_ frames: [Int]) -> [[Int]] {
-    var chains: [[Int]] = []
-    for (i, f) in frames.enumerated() {
-        if f == 0, i + 1 < frames.count, frames[i + 1] == 1 {
-            chains.append([i])
-        } else if let last = chains.last?.last, f == frames[last] + 1 {
-            chains[chains.count - 1].append(i)
-        }
-    }
-    return chains
 }
 
 /// `--facing-train [final]`: a Create ML classifier of the arrow's crop into bearings every 10 degrees, on the training

@@ -106,6 +106,8 @@ final class LiveNavBody: NavBody {
         self.log = log
         let red = Self.loadedRedReader
         log.emit("red_reader", ["loaded": red.reader != nil, "ms": red.ms, "t": hostNow()])
+        let began = hostNow(), facing = facingReader  // compiled here, not on a walk's first frame (review of #63)
+        log.emit("facing_reader", ["loaded": facing != nil, "ms": Int((hostNow() - began) * 1000), "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: NavLimits.releaseCodes, clock: hostNow) { event, fields in
             var row = fields
             row["t"] = hostNow()

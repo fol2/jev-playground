@@ -54,6 +54,8 @@ struct MarksTests {
               "a crop turned 90 degrees clockwise moves what lay north of the centre to the east, 180 to the south")
         check(FacingCrop.label(0) == "000" && FacingCrop.label(94) == "090" && FacingCrop.label(356) == "000" && FacingCrop.label(345) == "350"
               && FacingCrop.label(215 + 90) == "310", "a bearing's class is the nearest 10 degrees, and 360 is 000")
+        check(lookChains([0, 0, 1, 2, 1, 3, 0, 1, 7]) == [[1, 2, 3, 5], [6, 7]] && lookChains([0, 2, 3]).isEmpty && lookChains([]).isEmpty,
+              "a folder's looks are a chain from 0 up by one; a quest read's looks (a lone 0, a 1 out of turn) are passed over")
     }
 
     static func objectTiles() {

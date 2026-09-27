@@ -140,6 +140,8 @@ All boxes are capture pixels of the 2560×1320 window.
   - A walk that cannot read its place for three looks turns right once on the spot (0.15 s of E, about 25°): an icon
     beside the arrow stays where it is while the arrow turns off it. In live run 54 (27 Sept), standing still, the rule
     read 130 and the reader 250 on every frame (the arrow faced about 130), and the walk ended `HUD_UNREADABLE`.
+    A hunt does the same before its last unread survey with nothing to offer: in live run 55 the walks got to the
+    Windstones' area this way (seven turns), and the hunt there then ended `HUD_UNREADABLE` on an unread facing.
 - **Position: the coordinates text under the minimap** (x 2322, y 300, 200×34). It is OCR'd
   after a ×3 upscale and parsed as `44.8,28.1`, `44.8, 28.1` or `44.7.27.9`.
   - It was read on all 61 saved frames at this layout.

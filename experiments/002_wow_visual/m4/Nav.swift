@@ -91,6 +91,18 @@ func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?)
     }
 }
 
+/// One turn on the spot (NavLimits.unstickTurn of E, about 25 degrees), W lifted first, when the place cannot be read: a
+/// quest icon beside the minimap arrow stays where it is while the arrow turns off it (live run 54, 27 Sept: standing
+/// still, the rule read 130 and the learned reader 250 on every frame, and the walk ended HUD_UNREADABLE).
+func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, emit: (String, [String: Any]) -> Void) async {
+    keys.lift(FightLimits.forward)
+    emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
+    keys.grant(FightLimits.turnRight, seconds: NavLimits.unstickTurn + NavLimits.forwardWatchdog)
+    keys.press(FightLimits.turnRight)
+    await sleep(NavLimits.unstickTurn)
+    keys.lift(FightLimits.turnRight)
+}
+
 /// Facing from the minimap arrow as a compass bearing (0 north, 90 east). The arrow is a silver cone
 /// with a navy dot at its tail; quest icons often sit beside it and their highlights are silver too.
 /// So only silver connected to the navy dot counts, and the facing is the ray from the dot along which
@@ -523,14 +535,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             if misses == NavLimits.unreadableLimit / 2 {
-                // One turn on the spot: a quest icon beside the arrow stays where it is while the arrow turns off it (live run
-                // 54, 27 Sept: standing still, the rule read 130 and the learned reader 250 on every frame, and the walk ended).
-                body.keys.lift(FightLimits.forward)
-                body.emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
-                body.keys.grant(FightLimits.turnRight, seconds: NavLimits.unstickTurn + NavLimits.forwardWatchdog)
-                body.keys.press(FightLimits.turnRight)
-                await body.sleep(NavLimits.unstickTurn)
-                body.keys.lift(FightLimits.turnRight)
+                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit)
             }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
             continue

@@ -394,3 +394,17 @@ func turnedCrop(_ image: CGImage, degrees: Double, dots: [(x: Double, y: Double,
     for d in dots { c.fillEllipse(in: CGRect(x: d.x - d.r, y: -d.y - d.r, width: 2 * d.r, height: 2 * d.r)) }  // y points up here
     return c.makeImage()
 }
+
+/// The looks of one folder each: chains of indices into `frames` that start at a 0 followed by a 1 and go up by one. Any
+/// other frame (a quest read's position look) is passed over, even inside a chain.
+func lookChains(_ frames: [Int]) -> [[Int]] {
+    var chains: [[Int]] = []
+    for (i, f) in frames.enumerated() {
+        if f == 0, i + 1 < frames.count, frames[i + 1] == 1 {
+            chains.append([i])
+        } else if let last = chains.last?.last, f == frames[last] + 1 {
+            chains[chains.count - 1].append(i)
+        }
+    }
+    return chains
+}

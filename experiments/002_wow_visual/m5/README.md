@@ -445,7 +445,8 @@ walk, hunt: frame -> FacingReader (the arrow's crop, classes every 10 degrees) +
     looks fall between them.
   - A first matching by frame number alone put walk 1's bearings on walk 2's frames: a crop sheet showed arrows facing
     north labelled south. A run whose chains do not fit its folders is left out.
-  - Walk looks now log their frame's file.
+  - Walk looks now log their frame's file, and the rule's own reading (`facing_rule`) apart from the fused facing.
+    The labels take the rule's reading, never a fused one.
 - **Training crops.** Each training crop is also turned by 60 to 300 degrees, so every bearing is seen on many backgrounds.
   Half of them get one or two yellow dots beside the arrow, as quest icons sit there.
   - Turning by every 30 degrees (8448 crops) failed in Create ML ("Failed to create CVPixelBufferPool"), as did a
