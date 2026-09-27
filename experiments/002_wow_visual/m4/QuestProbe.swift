@@ -384,23 +384,30 @@ final class QuestRun {
     /// As a human does before clicking: rest the pointer on the NPC and read the game's unit tooltip (bottom
     /// right) until it names the NPC whose green name is under the mark, or shows an NPC (npcTip). nil: no point did,
     /// or the name was unreadable (live, 25 Sept: three clicks below Dalia's "?" found the ground beside her).
-    func onUnit(_ mark: QuestMark, in image: CGImage) async -> (x: Double, y: Double)? {
+    /// `declined`: NPCs whose dialogue this search has opened and closed as someone else's; a mark over one is skipped
+    /// (`declined` true), never clicked blind (live run 40, 27 Sept: Windshaper Boro's "?", the only mark in view, opened
+    /// his panel instead of the hand-in's NPC).
+    func onUnit(_ mark: QuestMark, in image: CGImage, declined: [String] = []) async -> (point: (x: Double, y: Double)?, declined: Bool) {
         let bottom = mark.body - 2.4 * mark.h
         let box = CGRect(x: mark.nameX - 160, y: mark.nameTop - 6, width: 320, height: bottom - mark.nameTop + 12)
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         // An unread name leaves the NPC's own tooltip to confirm it (npcTip).
         let name = nameLine(lines(box, image), nameX: mark.nameX, nameTop: mark.nameTop)?.text ?? ""
+        let met = { (line: String) in declined.contains { sameUnit(line, $0) } }
+        if met(name) { return (nil, true) }
+        var metOne = false
         let start = hostNow()
         /// Whether the tooltip names the NPC once the pointer rests at `p`, on a frame captured after the move:
         /// a frame from before it must not answer for this point. Any line of the box may (the box can hold
         /// other text above the tooltip); only a line that is the name matches. nil: no fresh frame.
-        func shows(at p: (x: Double, y: Double), again: Bool = false) async -> Bool? {
+        func shows(at p: (x: Double, y: Double), again: Bool = false, clearing: Bool = false) async -> Bool? {
             hover(p.x, p.y)
             let moved = hostNow()
             await sleep(0.4)
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
+            if !clearing, read.contains(where: met) { metOne = true; return false }  // a fading tooltip is not this unit's
             return read.contains { sameUnit($0, name) } || npcTip(read)
         }
         /// Off every unit until the tooltip has gone: two fresh reads in a row without the name, at most ten
@@ -408,20 +415,20 @@ final class QuestRun {
         func cleared() async -> Bool {
             var reads: [Bool?] = []
             for _ in 0..<10 {
-                reads.append(await shows(at: (1280, 60)))
+                reads.append(await shows(at: (1280, 60), clearing: true))
                 if tooltipGone(reads) { return true }
             }
             return false
         }
-        guard await cleared() else { return nil }
-        for point in hoverPoints(mark) where hostNow() - start < QuestLimits.hoverSeconds {
+        guard await cleared() else { return (nil, metOne) }
+        for point in hoverPoints(mark) where hostNow() - start < QuestLimits.hoverSeconds && !metOne {
             guard await shows(at: point) == true else { continue }
             // Confirmed only if it goes when the pointer leaves and comes back when it returns: this point's own,
             // not one still fading from the point before.
-            guard await cleared() else { return nil }
-            if await shows(at: point, again: true) == true { return point }
+            guard await cleared() else { return (nil, metOne) }
+            if await shows(at: point, again: true) == true { return (point, false) }
         }
-        return nil
+        return (nil, metOne)
     }
 
     /// Turn to face `pin`, as a human turns to the NPC on arriving: a walk ends facing the way it went (live run 31, 27 Sept:
@@ -473,14 +480,17 @@ final class QuestRun {
             return (nil, "NO_QUEST_MARK_IN_VIEW")
         }
         var blind: (x: Double, y: Double)? = nil  // the last click the tooltip did not confirm
+        var declined: [String] = []  // NPCs whose panel opened here and was someone else's: never clicked again in this search
         for _ in 0..<3 {
             guard let mark = marks.first else { break }
             clicks += 1
             write(image, to: body.directory.appendingPathComponent(String(format: "click%d.jpg", clicks)), type: .jpeg)  // what it was chosen on
             // Where the last unconfirmed click went, the hover already failed: no second sweep, no second click.
             if repeatsClick((mark.x, mark.body), blind, h: mark.h) { marks.removeFirst(); continue }
-            let confirmed = await onUnit(mark, in: image)
-            body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull()])
+            let unit = await onUnit(mark, in: image, declined: declined)
+            let confirmed = unit.point
+            body.emit("unit", ["mark": [Int(mark.x), Int(mark.y)], "at": confirmed.map { [Int($0.x), Int($0.y)] } as Any? ?? NSNull(), "declined": unit.declined])
+            if unit.declined { marks.removeFirst(); continue }
             // A target only the learned reader found is clicked only where a hover confirmed an NPC, never blind.
             if confirmed == nil, learnedOnly.contains(where: { $0.x == mark.x && $0.y == mark.y }) { marks.removeFirst(); continue }
             let point = confirmed ?? (mark.x, mark.body)
@@ -494,10 +504,12 @@ final class QuestRun {
             case .other(let dialog): seen = dialog
             }
             body.emit("other_dialogue", ["mark": [Int(mark.x), Int(mark.y)], "lines": seen.prefix(4).map(\.text), "panel": panelOpen(seen)])
-            if panelOpen(seen) {  // someone else's: close it and try the next mark
+            if panelOpen(seen) {  // someone else's: close it and try the next mark, or look round for one (live run 40)
+                if let who = seen.first?.text { declined.append(who) }
                 await tap(QuestHUD.escape)
                 await sleep(0.8)
                 marks.removeFirst()
+                if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
             } else {  // nothing opened: Click-to-Move walked towards it; look again, over a few frames while the
                 // view settles (live run 12, 26 Sept: beside Ailee Farheart the first frame found no mark; a later one did)
                 for _ in 0..<3 {

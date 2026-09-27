@@ -789,6 +789,14 @@ slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `F
 failed: the last tracker read "12] Infestation Investigation", so the quest's name changed and its kills counted for
 nothing. `parseTracker` now drops a marker ("** ", "› ") and a level tag whose bracket read as "1".
 
+Run 39 (27 Sept, about 02:31) killed the eighth Cirrusfly: Infestation Investigation read "Ready for turn-in".
+- The hunt still ended `NO_TARGET_FOUND`: its tracker read "3 12] Infestation Investigation", a finished quest's "?"
+  icon as "3". The tracker now drops leading icons of one or two characters on title lines, never on a count line.
+- The hunt's failure was remembered by the quest's title, which was also its hand-in's key, so the hand-in was never
+  offered. A hunt now fails by its own key (`stepKey`).
+- Jev was offered only a hunt for Harvesting Windstones, whose 15 Windstone Clusters are objects on the ground. The
+  hunt cannot take objects, and found nothing. Taking objects is not built yet.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
