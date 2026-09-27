@@ -29,9 +29,12 @@ extension NavTests {
         check(parseTracker(["[1] Harmony in Balance", "- 0/8 Juvenile Vuldren slain"]) == [Objective(quest: "Harmony in Balance", done: 0, need: 8, text: "Juvenile Vuldren slain")]
               && parseTracker(["(12] Agitators", "- 0/6 Roiling Winds destroyed"]).first?.quest == "Agitators",
               "live run 22: a title led by its quest's level (\"[1] \") is still a title")
-        let titles = ["12] Infestation Investigation", "[41 Harvesting Windstones", "** [2] Infestation Investigation", "› [4] The Gift of Skysight"]
+        let titles = ["12] Infestation Investigation", "[41 Harvesting Windstones", "** [2] Infestation Investigation", "› [4] The Gift of Skysight",
+                      "3 12] Infestation Investigation", "? 12] Infestation Investigation", "3 [2] Infestation Investigation"]
         check(titles.map { parseTracker([$0, "- 7/8 Pesky Cirrusfly slain"]).first?.quest }
-              == ["Infestation Investigation", "Harvesting Windstones", "Infestation Investigation", "The Gift of Skysight"]
+              == ["Infestation Investigation", "Harvesting Windstones", "Infestation Investigation", "The Gift of Skysight",
+                  "Infestation Investigation", "Infestation Investigation", "Infestation Investigation"]
+              && parseTracker(["3 12] Infestation Investigation", "Reaay for turn-in"]) == [Objective(quest: "Infestation Investigation", done: 1, need: 1, text: Objective.ready)]
               && parseTracker(["Agitators", "- 12/15 Windstone Cluster"]).first.map { $0.done == 12 && $0.need == 15 } == true,
               "live run 38: a level tag with a bracket read as \"1\", or a marker before it, still leaves the title; counts keep their digits")
         check(parseTracker(["Agitators", "6/6 Roiling Winds destroyed"]).first?.unfinished == false, "6/6 is finished")
@@ -1010,9 +1013,14 @@ extension NavTests {
         check(offered.map(\.skill).filter { $0.hasPrefix("HAND_IN") } == ["HAND_IN_1"]
               && (Set(hunted) == ["HUNT_1 Agitators", "HUNT_2 Wind Shards"] || Set(hunted) == ["HUNT_1 Wind Shards", "HUNT_2 Agitators"]),
               "a kill and a collect quest are hunted; one 20 units away is not, nor the ready quest")
+        // Live run 39: the hunt that killed the last Cirrusfly ended NO_TARGET_FOUND; its failure must not hide the hand-in.
+        let infested = PlannedQuest(title: "Infestation Investigation", level: 2, ready: true, objective: "Ready for turn-in", pin: (43.7, 24.9))
+        let afterHunt = questOffers(QuestRead(quests: [infested], player: (45.1, 27), missing: []), failed: [QuestStep.hunt(infested).key])
+        check(afterHunt.first?.skill == "HAND_IN_1" && QuestStep.hunt(infested).key != QuestStep.handIn(infested).key,
+              "a failed hunt is remembered apart from its quest's hand-in, which is offered once the quest is ready")
         check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
               && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
-              && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: ["Agitators"]).isEmpty,
+              && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: [QuestStep.hunt(winds).key]).isEmpty,
               "a hunt's criterion says where it starts; a failed hunt is not offered again")
         let start = [Objective(quest: "Agitators", done: 0, need: 6, text: "Roiling Winds destroyed")]
         let four = [Objective(quest: "Agitators", done: 4, need: 6, text: "Roiling Winds destroyed")]

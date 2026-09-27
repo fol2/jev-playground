@@ -683,12 +683,20 @@ enum QuestStep {
     }
     var key: String {  // what a failure is remembered by
         switch self {
-        case .handIn(let q), .hunt(let q): return q.title
+        case .handIn(let q): return q.title
+        // Its own key: a hunt that fails once its quest is done must not block the hand-in (live run 39, 27 Sept: the last
+        // Cirrusfly was killed, the hunt ended NO_TARGET_FOUND, and "Ready for turn-in" was never offered).
+        case .hunt(let q): return "HUNT " + q.title
         case .accept(let g): return "!" + g.key
         case .road(let q, _): return "ROAD " + q.title
         case .retreat: return "RETREAT"
         }
     }
+}
+
+/// The key a quest's step here fails by: its hunt's while it has creatures or objects to take, else its hand-in's.
+func stepKey(_ q: PlannedQuest) -> String {
+    [.kill, .collect].contains(questKind(q)) ? QuestStep.hunt(q).key : QuestStep.handIn(q).key
 }
 
 /// Whether a hunt starts where its walk stopped. A walk stops at a red name ahead, and near a kill quest's pin red names are
@@ -765,7 +773,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
                 + "\(g.names.isEmpty ? "nothing" : g.names.joined(separator: ", "))) and accept the quest it offers.")
     }
     let hunted = questPlan(read.quests, from: read.player).filter { q in
-        [.kill, .collect].contains(questKind(q)) && !failed.contains(q.title)
+        [.kill, .collect].contains(questKind(q)) && !failed.contains(stepKey(q))
             && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false
     }
     let hunts = hunted.prefix(QuestLimits.huntSlots).enumerated().map { i, q in
@@ -781,7 +789,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, r
     // ponytail: no map check; the run envelope is Zephras Isle, where the roads were learned. Compare the zone's
     // name above the minimap with roads.subzones before runs leave it.
     let far = questPlan(read.quests, from: read.player).filter { q in
-        [.handIn, .travel, .kill, .collect].contains(questKind(q)) && !failed.contains(q.title) && !failed.contains("ROAD " + q.title)
+        [.handIn, .travel, .kill, .collect].contains(questKind(q)) && !failed.contains(stepKey(q)) && !failed.contains("ROAD " + q.title)
             && q.pin.map { distance(read.player, $0) > QuestLimits.maxLeg } == true
     }
     let routed = far.lazy.compactMap { q in route(roads, from: read.player, to: q.pin!).map { (q, $0) } }.prefix(QuestLimits.roadSlots)
@@ -842,7 +850,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads)
         if offers.isEmpty {
-            let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains($0.title) }
+            let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
         let decision: GraphDecision
