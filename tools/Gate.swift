@@ -24,13 +24,15 @@ let visualDir = "experiments/002_wow_visual/"
 let motorDir = visualDir + "m0/", seekDir = visualDir + "m1/", fightDir = visualDir + "m3/", navDir = visualDir + "m4/"
 let runtimeDir = visualDir + "runtime/"
 let perceiveDir = visualDir + "m5/"  // learned perception: candidates, a local labelling teacher, a learned reader, scores
+let engineDir = visualDir + "engine/"  // the decision architecture v2 skeleton: world model, reflexes, loop, planner, judge, report
 let learnDir = visualDir + "learning/"  // video/research evidence; VideoJev.swift --check proves it offline
 let sharedJSON = runtimeDir + "JSON.swift"
 
 let gateCode: Set<String> = ["tools/sdlc", "tools/Gate.swift", "tools/MotorProof.swift", "tools/FishingProof.swift",
                              "tools/Merge.swift", "tools/GateTests.swift", "tests/test_maintenance.cjs"]
 let policy: Set<String> = ["AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore", ".github/pull_request_template.md",
-                           "docs/agents/ai-sdlc.md", ".github/workflows/ai-sdlc.yml", ".github/workflows/ai-sdlc-maintain.yml"]
+                           "docs/agents/ai-sdlc.md", "docs/architecture.md", ".github/workflows/ai-sdlc.yml",
+                           ".github/workflows/ai-sdlc-maintain.yml"]
 let fishingCode: Set<String> = Set("""
     analyse.swift background.swift build.sh decision.swift dotenv.swift jev.swift live.swift loot.swift motion.swift
     probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
@@ -49,6 +51,7 @@ let motorPaths: Set<String> = Set(
        "QuestProbe.swift", "Roads.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
     + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "RedNames.swift", "Objects.swift", "Facing.swift", "Teacher.swift", "Train.swift", "README.md"]
         .map { perceiveDir + $0 }
+    + ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift", "README.md"].map { engineDir + $0 }
     + [visualDir + "README.md", learnDir + "VideoJev.swift", learnDir + "knowledge/zephras-roads.json", learnDir + "knowledge/zephras-town.json", learnDir + "knowledge/zephras-quests.json"])
 /// Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.
 let retired: [String: String] = Dictionary(uniqueKeysWithValues:

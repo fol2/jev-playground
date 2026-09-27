@@ -21,7 +21,8 @@ pixels → visual decoder → structured state + relevant knowledge
                     fresh outcome → next learning question
 ```
 
-Start with [AGENTS.md](AGENTS.md). The [AI-SDLC operating model](docs/agents/ai-sdlc.md)
+Start with [AGENTS.md](AGENTS.md). The [target architecture](docs/architecture.md) states what
+Jev judges and what code decides. The [AI-SDLC operating model](docs/agents/ai-sdlc.md)
 connects the learning, playing and engineering loops under the four rules. Scripts
 replace unnecessary AI work in the control loop; the model is reserved for choices
 that benefit from context. Every run must identify which controller actually acted.

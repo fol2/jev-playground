@@ -96,6 +96,7 @@ CI is hosted, source-only and provider-free; its repair issue is not a running w
 Gameplay failures feed bounded learning; preserve the last accepted policy, add a
 regression and revalidate changes. No silent live self-edit.
 
+Load docs/architecture.md before changing the decision path.
 Load docs/agents/ai-sdlc.md for the learning lifecycle, rollout, gates and run envelope;
 experiments/README.md for evidence conventions; experiments/002_wow_visual/learning/README.md
 for existing research/replay; M0–M4 READMEs for actual runtime limits. CLAUDE.md imports

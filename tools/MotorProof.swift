@@ -433,6 +433,7 @@ func motorProof(update: Bool) throws -> String {
     let navTests = out("nav-tests"), nav = out("m4-nav"), memory = out("hunt-experience.json")
     let seekTests = out("seek-tests"), seek = out("m1-seek")
     let perceptionTests = out("perception-tests"), perceive = out("m5-perceive"), teach = out("m5-teach")
+    let engineTests = out("engine-tests")  // the decision architecture v2 skeleton: pure Foundation, no live path yet
     let fightSources = [motorDir + "Motor.swift", seekDir + "Plate.swift", fightDir + "Fight.swift"]
     let navSources = fightSources + [navDir + "Nav.swift", navDir + "Hunt.swift", navDir + "Quest.swift", navDir + "Roads.swift"]
     let seekShell = [motorDir + "Motor.swift", motorDir + "Probe.swift", seekDir + "Seek.swift", seekDir + "Plate.swift", seekDir + "SeekProbe.swift"]
@@ -469,7 +470,10 @@ func motorProof(update: Bool) throws -> String {
         // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
         Build(output: teach, sources: [perceiveDir + "Teacher.swift"]),
         Build(output: video, sources: [learnDir + "VideoJev.swift", sharedJSON]),
+        Build(output: engineTests, sources: ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift"]
+            .map { engineDir + $0 }),
     ])
+    let engineChecks = try suite(engineTests, "engine", 60)
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)
@@ -562,7 +566,7 @@ func motorProof(update: Bool) throws -> String {
     let seen = try perception(nav, tmp)  // last: it loads every core, and the dry-runs above time their key-ups
     func show(_ value: JSON?) -> String { value?.text() ?? "None" }
     let slowest = (late.number ?? 0) >= (seekLate.number ?? 0) ? late : seekLate
-    return "Experience: \(experienceChecks) checks. Decision graph: \(graphChecks) checks and native tool/skill/recall dry-run passed. "
+    return "Engine skeleton: \(engineChecks) checks. Experience: \(experienceChecks) checks. Decision graph: \(graphChecks) checks and native tool/skill/recall dry-run passed. "
         + "M0/M1/M3/M4 motor proof passed: \(checks) + \(seekChecks) + \(fightChecks) + \(navChecks) fake-time checks, argument refusal, "
         + "release under a 400 ms observer stall (max \(slowest.text()) ms late), SIGINT release, the simulated "
         + "M1 loop (\(pulses.text()) pulses), the simulated M3 fight (\(show(fightSummary["decisions"])) "
