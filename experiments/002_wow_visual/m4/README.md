@@ -794,8 +794,9 @@ a Cirrusfly selected in front of the character. None landed a blow.
   `target_cue_changed` while one Pesky Cirrusfly stayed selected ("Pesky Cirrusfly Л Л4О", "Pesky Cirrusfiy 4 84О").
   Its cue is now its name's Latin words only.
 - In the same run the hunt for the Cirrusfly Queen read every Pesky Cirrusfly as counting ("Cirrusfly" shared) and
-  walked toward them. A plate now counts only if each word of four letters or more in the objective's creature name
-  shares a four-letter run with it.
+  walked toward them. For a kill objective a plate now counts only if each word of four letters or more in the
+  objective's creature name shares a four-letter run with it. A collect objective names an item the creature drops, so
+  it keeps the looser rule.
 
 Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
 slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as

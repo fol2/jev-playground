@@ -208,8 +208,11 @@ extension NavTests {
         func plate(_ name: String) -> Seen { Seen(name: name, hostile: false, bearing: 0, near: false) }
         check(counts(plate("Pesky Cirrusfly"), queen) == nil && counts(plate("Pesky Cirrushly"), queen) == nil && counts(plate("Cirrusfly Queen"), queen) != nil
               && counts(plate("Roiling Wind"), winds) != nil && counts(plate("Rolling WWinds"), winds) != nil
-              && counts(plate("luvenile Vuldren ЛОРAУ"), vuldren) != nil && counts(plate("Pesky Cirrusfly"), vuldren) == nil,
-              "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren")
+              && counts(plate("luvenile Vuldren ЛОРAУ"), vuldren) != nil && counts(plate("Pesky Cirrusfly"), vuldren) == nil
+              && counts(plate("Pesky Cirrusfly"), [Objective(quest: "Infestation Investigation", done: 3, need: 8, text: "Pesky Cirrusfly slain")]) != nil
+              && counts(plate("AI' Aketh Convert"), [Objective(quest: "Agitators", done: 0, need: 7, text: "Al'Aketh Convert slain")]) != nil
+              && counts(plate("Scrawny Ursera"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
+              "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren, a Pesky Cirrusfly for its own kills, \"AI' Aketh\" for Al'Aketh, and a creature for the item it drops (review of #60)")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]

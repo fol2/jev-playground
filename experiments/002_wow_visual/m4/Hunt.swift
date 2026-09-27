@@ -409,15 +409,17 @@ func merged(_ older: [Seen], _ newer: [Seen]) -> [Seen] {
 }
 
 /// The unfinished objective a sighted creature counts for. Plate names are read small, so two shared
-/// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind), and each word of four letters or more in the objective's
-/// creature name must share one: "Pesky Cirrusfly" shares "Cirrusfly" with "Cirrusfly Queen slain" but not "Queen"
-/// (live run 48, 27 Sept: the Queen's hunt read every Pesky Cirrusfly as counting and walked toward them).
+/// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind). For a kill objective each word of four letters or more in
+/// its creature name must share one too: "Pesky Cirrusfly" shares "Cirrusfly" with "Cirrusfly Queen slain" but not "Queen"
+/// (live run 48, 27 Sept: the Queen's hunt read every Pesky Cirrusfly as counting and walked toward them). A collect
+/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60).
 func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
-    let plate = creature.name.lowercased().filter(\.isLetter)
+    let plate = nameKey(creature.name)
     return objectives.first { o in
         guard o.unfinished, fuzzyNameMatch(o.text, [creature.name]) else { return false }
-        var words = o.text.split(separator: " ").map { Array($0.lowercased().filter(\.isLetter)) }
-        if let last = words.last, ["slain", "destroyed", "killed", "defeated"].contains(String(last)) { words.removeLast() }
+        var words = o.text.split(separator: " ").map { Array(nameKey(String($0))) }
+        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else { return true }
+        words.removeLast()
         return words.filter { $0.count >= 4 }.allSatisfy { w in (0...(w.count - 4)).contains { plate.contains(String(w[$0..<$0 + 4])) } }
     }
 }
