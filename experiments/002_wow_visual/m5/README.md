@@ -284,8 +284,9 @@ score was seen, and none is picked by it:
   - Video frames are compressed and scaled, and the game's own frames are few. More video can pull the reader
     towards what videos look like.
 - It named every kind right, on every split.
-- The learned reader stays in shadow. What it needs is held-out marks from the live game, which the next live runs
-  bring (stage three logs them).
+- The learned reader does not replace the rules: `questMarks` still finds the marks. At this stage it stayed in shadow;
+  since live runs 21 and 31 a second, lazy instance acts in two bounded ways (see "The kind the rules cannot name" below).
+  What promotion needs is held-out marks from the live game, which the live runs bring (stage three logs them).
 
 ## The kind the rules cannot name (live run 31, 27 Sept)
 
@@ -306,7 +307,8 @@ checked each crop by eye):
 
 ## Next
 
-1. Audit the shadow's live frames. Promote the learned reader only when it beats the rules on held-out frames.
+1. Audit the shadow's live frames. Let the learned reader replace the rules' marks only when it beats them on held-out
+   frames; until then it only adds hover-confirmed targets and names kinds (6 px and more).
 2. An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
 3. The same detector then takes the HUD anchors (minimap, portrait, action bar, target frame), so boxes
    follow the layout instead of fixed pixels.

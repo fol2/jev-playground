@@ -664,6 +664,7 @@ func lookAround(_ host: HuntHost) async -> (result: String, seen: [Seen]) {
             let tabbed = await selectNearest(host)
             if host.survey()?.targetAlive == true { return ("attacked; turned \(step * 90)° and " + tabbed, seen) }
         }
+        host.keys.grant(FightLimits.turnRight, seconds: HuntLimits.lookSeconds + NavLimits.forwardWatchdog)  // lifted if this stalls
         guard host.keys.press(FightLimits.turnRight) else { return ("keys released", seen) }
         await host.sleep(HuntLimits.lookSeconds)
         host.keys.lift(FightLimits.turnRight)

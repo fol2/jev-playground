@@ -407,8 +407,11 @@ final class QuestRun {
             guard let seen = await frame(after: moved + 0.3) else { return nil }
             let read = lines(QuestHUD.unitTip, seen).map(\.text)
             body.emit("hover", ["at": [Int(p.x), Int(p.y)], "tooltip": Array(read.prefix(3)), "name": name, "again": again])
-            if !clearing, read.contains(where: met) { metOne = true; return false }  // a fading tooltip is not this unit's
-            return read.contains { sameUnit($0, name) } || npcTip(read)
+            switch unitCheck(read, name: name, declined: clearing ? [] : declined) {  // a fading tooltip is not this unit's
+            case .declined: metOne = true; return false
+            case .confirmed: return true
+            case .other: return false
+            }
         }
         /// Off every unit until the tooltip has gone: two fresh reads in a row without the name, at most ten
         /// (live run 5: Dalia's tooltip faded for about 2 s, four reads, after the pointer left her).
@@ -438,7 +441,8 @@ final class QuestRun {
         for _ in 0..<3 {
             guard let o = body.look(), let pulse = turnPulse(angleError(bearing(from: o.point, to: pin), o.facing)) else { return }
             body.emit("face", ["pin": [pin.x, pin.y], "at": [o.x, o.y], "facing": Int(o.facing.rounded())])
-            body.keys.press(pulse.code)
+            body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls (review of #53)
+            guard body.keys.press(pulse.code) else { return }
             await sleep(Double(pulse.ms) / 1000)
             body.keys.lift(pulse.code)
             await sleep(0.4)
@@ -451,7 +455,8 @@ final class QuestRun {
     func lookAround(want: String? = nil) async -> (CGImage, [QuestMark])? {
         guard let pulse = turnPulse(45) else { return nil }
         for _ in 0..<8 {
-            body.keys.press(pulse.code)
+            body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)  // lifted if this stalls (review of #53)
+            guard body.keys.press(pulse.code) else { return nil }
             await sleep(Double(pulse.ms) / 1000)
             body.keys.lift(pulse.code)
             let turned = hostNow()

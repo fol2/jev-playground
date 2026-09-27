@@ -544,6 +544,17 @@ extension NavTests {
               && !sameUnit("Dalia the Collector", "Dalia the Collectors Apprentice"),
               "a part of the name, or a longer name holding it, is someone else")
         // Live run 17, 26 Sept: under Rorian's "?", his tooltip and players' (names changed here).
+        // Review of #53, on live hovers: the green names read for Rorian are like his tooltip's; Boro's over a firefly's is not.
+        let rorian = ["Rorian the Dayseeker", "Level 20", "Press F6 to submit an issue for this Creature"]
+        let garbled = ["Roriee", "Lorian the Dry", "Roxiar", "Root", "coen ce badeeke", "Veios Rapu, Npoten the Digiseefer"]
+        check(garbled.allSatisfy { unitCheck(rorian, name: $0, declined: []) == .confirmed }
+              && unitCheck(["Fireflies", "Level 1", "Press F6 to submit an issue for this Creature"], name: "Windshaper Boro", declined: []) == .other
+              && unitCheck(["Juvenile Vuldren", "Level 1 Beast"], name: "Elatrell Featherlight", declined: []) == .other
+              && unitCheck(["Windshaper Boro", "Shaman Trainer", "Level 5"], name: "", declined: ["Windshaper Boro"]) == .declined
+              && unitCheck(["Level 20"], name: "", declined: ["Windshaper Boro"]) == .other
+              && unitCheck(["Ventaari Brightwish", "Windshapers", "Level 5"], name: "", declined: []) == .confirmed
+              && unitCheck(rorian, name: "Befeshgar h a depafeke", declined: []) == .other,
+              "a hover confirms by the name, or an NPC's tooltip like the green name (any NPC's when none read); never a declined one")
         check(npcTip(["Rorian the Dayseeker", "Level 20", "Press F6 to submit an issue for this Creature"]) && npcTip(["Ailee Farheart", "Level 1"])
               && !npcTip(["A Player", "Level 2 Windshaper Skyborne (Player)", "Druid"]) && !npcTip([]) && !npcTip(["Rorian the Dayseeker"]),
               "an NPC's tooltip has a level line and no \"(Player)\"; a player's, an empty one or a bare name is not")

@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 218  // the current count: removing a check must lower this on purpose
-let minNavChecks = 355  // the current count: removing a check must lower this on purpose
+let minNavChecks = 356  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 29  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -347,6 +347,13 @@ func navTrap() throws {
     if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")
         || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {
         throw GateError("F10 and F11 are not released by every key set that can press them")
+    }
+    // A turn key is granted before it goes down, so the watchdog lifts it if the task stalls (review of #53).
+    for (file, text) in [("Nav.swift", navCore), ("Hunt.swift", huntCore), ("QuestProbe.swift", quest)] {
+        let lines = text.components(separatedBy: "\n")
+        for (i, line) in lines.enumerated() where line.contains(".press(pulse.code)") || line.contains(".press(FightLimits.turnRight)") {
+            guard i > 0, lines[i - 1].contains(".grant(") else { throw GateError("\(file): a turn key is pressed without a watchdog grant") }
+        }
     }
     // M5's learned reader in shadow is never waited for: the busy check returns at once, and every read, the model
     // load included, runs in the queue's closure (review, #50: a synchronous read delayed clicks and retries).

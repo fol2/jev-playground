@@ -419,6 +419,8 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
                 if body.keys.isDown(forward) {
                     body.keys.grant(forward, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 }
+                // A turn key held too: the watchdog lifts it if this task stalls (review of #53).
+                body.keys.grant(pulse.code, seconds: Double(pulse.ms) / 1000 + NavLimits.forwardWatchdog)
                 body.keys.press(pulse.code)
                 await body.sleep(Double(pulse.ms) / 1000)
                 body.keys.lift(pulse.code)

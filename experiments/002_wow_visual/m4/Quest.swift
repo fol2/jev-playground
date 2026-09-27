@@ -418,6 +418,38 @@ func npcTip(_ tooltip: [String]) -> Bool {
     return lines.contains { $0.hasPrefix("level ") } && !lines.contains { $0.contains("(player)") }
 }
 
+/// Whether a misread green name is still this unit's name: most of the shorter name's letters appear in order in the
+/// longer (a longest common subsequence), 60% at least. On live hovers Rorian the Dayseeker's misread names scored 0.62-1.00
+/// ("coen ce badeeke", "Lorian the Dry", "Roriee") and names over other units 0.15-0.56 ("Windshaper Boro" over "Fireflies": 0.22).
+/// Rorian's worst reads ("Befeshgar h a depafeke" 0.39, "Recian de Deyrestar Ved" 0.50) do not confirm; the click goes to the mark.
+func likeName(_ a: String, _ b: String) -> Bool {
+    let x = Array(nameKey(a)), y = Array(nameKey(b))
+    guard min(x.count, y.count) >= 3 else { return false }
+    var row = [Int](repeating: 0, count: y.count + 1)
+    for c in x {
+        var diagonal = 0
+        for j in y.indices {
+            let up = row[j + 1]
+            row[j + 1] = c == y[j] ? diagonal + 1 : max(row[j + 1], row[j])
+            diagonal = up
+        }
+    }
+    return Double(row[y.count]) >= 0.6 * Double(min(x.count, y.count))
+}
+
+enum UnitCheck: Equatable { case confirmed, declined, other }
+
+/// What a hover's unit tooltip says of the NPC under a quest mark, whose green name read `name`. A declined NPC (its panel
+/// was opened and closed as someone else's) is never confirmed. The tooltip confirms by a line that is the name, or by an
+/// NPC's tooltip (npcTip) whose name line is like the green name, or any NPC's when no name was read. Review of #53: an
+/// NPC tooltip alone confirmed any unit with a level line (live: "Fireflies", Level 1, under Windshaper Boro's mark).
+func unitCheck(_ tooltip: [String], name: String, declined: [String]) -> UnitCheck {
+    if tooltip.contains(where: { line in declined.contains { sameUnit(line, $0) } }) { return .declined }
+    if tooltip.contains(where: { sameUnit($0, name) }) { return .confirmed }
+    guard npcTip(tooltip), let unit = tooltip.first, !unit.lowercased().hasPrefix("level") else { return .other }
+    return nameKey(name).count < 3 || likeName(unit, name) ? .confirmed : .other
+}
+
 /// Whether a line read in the quest dialogue is the quest's title. The title is drawn in a decorative
 /// capital face that OCR misreads a letter at a time (live run 5, 25 Sept: "HARVEStinG WinostonES" for
 /// Harvesting Windstones, and the open page was taken for another quest's and closed). One letter in
