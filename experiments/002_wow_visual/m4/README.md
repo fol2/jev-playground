@@ -1309,6 +1309,41 @@ memory (M4d) is keyed by the zone's name and the tracker's text, which change wi
 - Evidence: sim (`HuntTests`: each step's stale reads). Live run 81 (two steps, each after a walk of more than 3 units): the
   level was read once for two steps; the bags twice, the second by the gear check this now leaves out.
 
+## M4ac — the steering walk (27 Sept)
+
+The owner, 27 Sept, watching walks stop against a boulder, spin round and climb cliffs: "rethink the entire pathfinding ... depth
+map and pre-calculate the pathfinding realtime, then the input is to adjust for the path finding. jev can interrupt but it
+should be optional. think deeper, think harder, think smarter." The walker made a Jev call before each 3 s move, tried fixed
+45 and 90 degree detours blind, walked straight lines across unknown ground, and spun to read its place.
+
+What robots do. A tuned classical pipeline (a map and a planner on a GPS and compass) does very well in cluttered 3D places,
+and even walking straight at the goal gets 40-50% SPL there (Mishkin, Dosovitskiy and Koltun 2019, "Benchmarking Classic and
+Learned Navigation in Complex 3D Environments"); a reactive planner scores headings by how open they are and how near the goal
+(the vector field histogram, Borenstein and Koren 1991; follow the gap); per image column, what stands up from the ground is
+the free space (stixels; the horizon approach to monocular obstacles); and a planner caught by an obstacle follows it on one
+side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordinates) and compass (the arrow) are read each tick.
+
+- The path: by the learned roads whenever they lead there (the owner's "roads by preference"; players walked round the cliffs
+  and rocks), round the places walks stopped (M4z), for any walk farther than 2 units; straight otherwise and for a retreat.
+- `runSteer`: the path in one go, with no model call: each tick (0.25 s) pure pursuit of a point 1 unit on along it; the aim
+  bent by `steerAim` toward the view's clearest column near it (20 columns of Depth Anything V2 small, 25 ms), a column costing
+  its nearness past 0.6 and none past 0.8 taken; W held and Q/E pulses. A block (W down 1.5 s, under 0.1 moved) keeps that
+  heading off near there, and the walk keeps to the more open side, along the obstacle, until 0.8 from where it was blocked
+  (Bug2); nothing open in view turns 60 degrees to a side, never round; a view near in every column (a slope or wall across)
+  lets W go and turns in place. It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
+  without progress along the path since the last block (NO_PROGRESS, which M4z remembers).
+- Quest walks and the way to safety steer; `JEV_WALKER=jev` walks as before, for a side-by-side comparison. The nav tool's
+  `--execute` steers too, round M4z's stops.
+- Jev: none per move. The quest-level steps remain Jev's.
+- Evidence. Offline, the heading's depth column predicted a block at AUC 0.67-0.69 over 350 live moves: a steering bias, the
+  block watch its guard. Sim (`NavTests`, SimNav's keys and boxes, depth cast as rays): open ground straight; a wall seen in
+  depth walked round with no block (net turn 20-24 degrees); blind, round it with 2 blocks and no spin (net 23 degrees); a road
+  path round a box in one go. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
+  road (41.6, 25.6; 41.0, 25.7; 40.3, 26.5) with no model call and no spin, bumped 3 times at the end, ran up the slope under
+  the pin, and stopped for combat (a level-4 Scrawny Ursera). The slope read 0.81-0.93 across the view and the road 0.45-0.7,
+  where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. That fix is not yet
+  seen live.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

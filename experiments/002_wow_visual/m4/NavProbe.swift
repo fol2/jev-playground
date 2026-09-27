@@ -426,8 +426,19 @@ func navExecute(_ command: NavCommand) async throws -> Int32 {
         "ghost": command.ghost,
     ]
     body.emit("start", ["run_id": run.id, "mode": "execute", "x": start.x, "y": start.y, "facing": start.facing])
-    guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
-    let result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
+    // M4ac: the steering walk along the learned roads (JEV_WALKER=jev: a move Jev chooses at a time, as before).
+    let result: NavResult
+    if ProcessInfo.processInfo.environment["JEV_WALKER"] != "jev" {
+        let stuck: [MapPoint] = ((try? Data(contentsOf: QuestHUD.stuckMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
+            .compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }  // M4z's stops, as a quest walk avoids them
+        let legs = distance(start.point, destination.point) > QuestLimits.steerRoadFrom
+            ? ((try? RoadGraph.load()).flatMap { $0 }.flatMap { route($0, from: start.point, to: destination.point, avoid: stuck) }.map { Array($0.dropLast()) } ?? []) : []
+        body.emit("steer_path", ["legs": legs.map { [$0.x, $0.y] }])
+        result = await runSteer(body: body, path: legs, destination: destination)
+    } else {
+        guard await warmJev(key) != nil else { throw ProbeError("Jev did not answer a warm-up question within 30 s") }
+        result = await runNav(body: body, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
+    }
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     try recordRun(result, into: run.url, manifest: manifest)

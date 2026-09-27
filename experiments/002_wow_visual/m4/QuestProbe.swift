@@ -1031,6 +1031,9 @@ final class LiveQuestHost: QuestHost {
     var trainedAt: Int? = characterMemory()["trained_at_level"] as? Int
     var history: [String: StepMemory] = stepHistory(characterMemory())
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
+    /// M4ac: walks steer along the learned roads with the view's depth (runSteer), the model free; JEV_WALKER=jev walks as
+    /// before, a move Jev chooses at a time (runNav), for a side-by-side comparison.
+    let steering = ProcessInfo.processInfo.environment["JEV_WALKER"] != "jev"
     /// M4z: where quest walks stopped (NO_PROGRESS), from the memory; a straight walk passing one goes by road.
     var stuck: [MapPoint] = ((try? Data(contentsOf: QuestHUD.stuckMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
         .compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
@@ -1283,6 +1286,30 @@ final class LiveQuestHost: QuestHost {
         case .walk: break
         }
         if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
+        if steering {
+            // M4ac (the owner, 27 Sept: "rethink the entire pathfinding"): the path by the learned roads whenever they lead there
+            // (players walked round the cliffs and rocks), round the places walks stopped (M4z); straight when none does, for a
+            // retreat, or a short way. Then one steering walk along it, with no model call.
+            var path: [MapPoint] = []
+            if !retreating, !road, let roads, let at, distance(at, pin) > QuestLimits.steerRoadFrom,
+               let legs = route(roads, from: at, to: pin, avoid: stuck) {
+                path = Array(legs.dropLast())
+                let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
+                emit("steer_path", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length)])
+            }
+            let length = zip([at ?? pin] + path + [pin], path + [pin]).map { distance($0, $1) }.reduce(0, +)
+            let seconds = min(max(NavLimits.maxSeconds, 2 * length / NavLimits.runSpeed), max(0, runDeadline - hostNow()))
+            walks += 1
+            let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let legs = newWalker(folder)
+            walker = legs
+            let walked = await runSteer(body: legs, path: path, destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y,
+                                                                                          arrive: arrive, seconds: seconds))
+            guard !legs.holding else { return "WALK_KEYS_HELD" }
+            if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }
+            return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
+        }
         // A straight line that leaves the learned roads is walked by them, leg by leg (the owner, 27 Sept: obstacles and
         // cliffs), and so is one that passes where a walk stopped before (M4z), to the road's place nearest the pin. A retreat
         // goes straight back over the ground it crossed; a road's own leg is already on the road.
@@ -1324,6 +1351,8 @@ final class LiveQuestHost: QuestHost {
               let safe = safePlace(from: at) else { return }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
+        // M4ac: by the learned roads to the safe place, and steered (no model call either way).
+        let safePath = steering ? (roads.flatMap { route($0, from: at, to: safe, avoid: stuck) }.map { Array($0.dropLast()) } ?? []) : []
         // Its end leaves death recovery its time (M4s).
         let envelopeEnd = runDeadline - QuestLimits.runSeconds + QuestLimits.envelopeSeconds - QuestLimits.reviveSeconds
         let end = await leaveDangerRounds(QuestLimits.safeWalks, until: envelopeEnd, now: now,
@@ -1337,9 +1366,10 @@ final class LiveQuestHost: QuestHost {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let legs = self.newWalker(folder)
             self.walker = legs
-            let walked = await runNav(body: legs, jev: ScriptedJev(preference: preference),
-                                      destination: NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive,
-                                                                  toSafety: true, seconds: seconds))
+            let destination = NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive,
+                                             toSafety: true, seconds: seconds)
+            let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination)
+                                       : await runNav(body: legs, jev: ScriptedJev(preference: preference), destination: destination)
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])

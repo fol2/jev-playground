@@ -543,7 +543,11 @@ enum SteerLimits {
     static let waypointReach = 0.6  // a waypoint within this is passed
     static let columns = 20  // across the frame's width
     static let focal = 1280.0  // px of the 2560-wide frame: a 90-degree view, the client's default; the loop corrects the rest
-    static let clearBelow = 0.55  // a column's nearness (ahead-over-here disparity) under this is open ground
+    // A column's nearness (ahead-over-here disparity) under clearBelow is open ground; from impassable it is not walked into.
+    // Live, the first steering walk (27 Sept) read the road at 0.45-0.7 and the slope it climbed at 0.81-0.93 in every column,
+    // and walked on up it, as only 1.0 was out of bounds; offline, blocked moves read a median 0.83 and open ones 0.47.
+    static let clearBelow = 0.6
+    static let impassable = 0.8
     static let nearPenalty = 300.0  // degrees of aim error that a column at nearness clearBelow + 1 costs
     static let blockCone = 35.0  // after a block, headings within this of it are off for blockMemory seconds near there
     static let blockMemory = 12.0
@@ -588,7 +592,7 @@ func steerAim(want: Double, columns: [Double]?, blocked: [Double], side: Double?
         if blocked.contains(where: { abs(angleError($0, angle)) <= SteerLimits.blockCone }) { return .infinity }
         if let side, angle * side < -5 { return .infinity }
         return abs(angleError(angle, toward)) + max(0, columns[i] - SteerLimits.clearBelow) * SteerLimits.nearPenalty
-            + (columns[i] >= 1 ? .infinity : 0)
+            + (columns[i] >= SteerLimits.impassable ? .infinity : 0)
     }
     if let best = (0..<n).min(by: { cost($0) < cost($1) }), cost(best).isFinite { return columnBearing(best, of: n) }
     if let side { return SteerLimits.sideTurn * side }
@@ -724,7 +728,10 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
             body.emit("steer", row)
             lastLog = now
         }
-        if abs(aim) > NavLimits.stopToTurn {
+        // A view near in every column is a slope or a wall across the way: W is let go and the walk turns in place, then looks
+        // again, rather than run on into it while turning (live, 27 Sept: it ran up a slope that read 0.81-0.93 across).
+        let walled = columns.map { !$0.isEmpty && $0.allSatisfy { $0 >= SteerLimits.impassable } } ?? false
+        if abs(aim) > NavLimits.stopToTurn || walled {
             body.keys.lift(forward)
             trail.removeAll()
         }
@@ -735,7 +742,7 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
             await body.sleep(Double(pulse.ms) / 1000)
             body.keys.lift(pulse.code)
         }
-        if abs(aim) <= NavLimits.stopToTurn {
+        if abs(aim) <= NavLimits.stopToTurn && !walled {
             if !body.keys.isDown(forward) { body.keys.press(forward) }
             body.keys.grant(forward, seconds: NavLimits.forwardWatchdog)
         }

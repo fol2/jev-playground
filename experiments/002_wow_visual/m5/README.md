@@ -499,8 +499,8 @@ The owner, 27 Sept: Apple's models that understand the 3D world from 2D pictures
   (`runs/002_wow_visual/perception/models/DepthAnythingV2SmallF16.mlpackage`, from `apple/coreml-depth-anything-v2-small`,
   Apache-2.0), compiled once per process; `viewDepth` (Nav.swift, pure) turns its disparity into the ahead, left and right
   ratios. Without the model, walks go on without them.
-- M4 walks give Jev the ratios as `view_depth` in each move's state, read on the latest frame once per decision; the goal
-  text explains them. No rule acts on them: Jev weighs them, and each decision record keeps them for a live evaluation.
+- M4's old walker (JEV_WALKER=jev) gives Jev the ratios as `view_depth` in each move's state; the steering walk (M4ac) steers
+  by 20 columns of the same ratio (`depthColumns`), read once a tick.
 - Evidence: offline as above (a side tool in the scratchpad; the frames are private). Sim: `NavTests` on synthetic grids and
   the state packet. Live: the next run.
 
