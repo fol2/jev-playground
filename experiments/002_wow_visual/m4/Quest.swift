@@ -828,6 +828,17 @@ func walkLegs(_ legs: [MapPoint], until deadline: Double, now: () -> Double, wal
     return "BY_ROAD"
 }
 
+/// A walk round a gap by the roads (M4q): the route's legs in turn (walkLegs), the last to the caller's `arrive` and the
+/// others to RoadLimits.gapArrive; nil on arrival, else the first outcome that ends it. No leg starts at or after
+/// `deadline`, the run's (review of #69).
+func roadGapWalk(_ legs: [MapPoint], arrive: Double, until deadline: Double, now: () -> Double,
+                 walk: (Int, MapPoint, Double) async -> String?) async -> String? {
+    let outcome = await walkLegs(legs, until: deadline, now: now) { i, leg in
+        await walk(i, leg, i == legs.count - 1 ? arrive : RoadLimits.gapArrive)
+    }
+    return outcome == "BY_ROAD" ? nil : outcome
+}
+
 /// A hunt's code as a quest step. HUNTED: its objectives are complete. HUNTED_SOME: a limit ended it after
 /// a count rose or a quest became ready, so the step may be offered again. Otherwise "HUNT_" and its code.
 func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String {

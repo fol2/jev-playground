@@ -16,6 +16,7 @@ enum RoadLimits {
     // A route keeps a jog of its trail wider than this (about 0.75 s of running), so a leg does not cut across a lip the
     // players walked round (the owner, 27 Sept: bad at cliffs; review note on legs simplified at `bend`).
     static let lip = 0.15
+    static let gapArrive = 0.3  // a gap walk's inner legs end this near their waypoint, a jog's corner (review of #69)
     static let minPart = 10  // places a part of the roads needs; a smaller one is an OCR slip's island (pruned)
     // A stand's approach is walked to within this: at 0.5, a walk to Rorian's ramp ended 0.45 north of it, and the
     // straight click from there ran under his bridge again (live run 19, 26 Sept).

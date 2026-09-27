@@ -842,6 +842,7 @@ final class LiveQuestHost: QuestHost {
     var walker: LiveNavBody?
     var walkedFrom: MapPoint?
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
+    var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
@@ -961,11 +962,9 @@ final class LiveQuestHost: QuestHost {
         if !retreating, !road, let roads, let at, straightLeavesRoads(at, pin, roads), let legs = route(roads, from: at, to: pin) {
             let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
             emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length)])
-            let outcome = await walkLegs(legs, until: hostNow() + QuestLimits.roadGapSeconds, now: now) { i, leg in
-                await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true,
-                           arrive: i == legs.count - 1 ? arrive : 0.5)
+            return await roadGapWalk(legs, arrive: arrive, until: min(runDeadline, hostNow() + QuestLimits.roadGapSeconds), now: now) { i, leg, reach in
+                await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true, arrive: reach)
             }
-            return outcome == "BY_ROAD" ? nil : outcome
         }
         walks += 1
         let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
@@ -1103,6 +1102,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
                                                        fightTactics: tactics) },
                              huntGraph: hunting, tactics: tactics)
     host.roads = roads
+    host.runDeadline = hostNow() + QuestLimits.runSeconds
     // The bar's other skills ("Skysight", from a quest) are abilities a use-at quest may name (M4m).
     host.abilities = Dictionary(bar.slots.compactMap { slot, skill in
         role(skill) == nil ? SkillHUD.names.firstIndex(of: slot).map { (skill.name, SkillHUD.keys[$0]) } : nil }, uniquingKeysWith: { a, _ in a })

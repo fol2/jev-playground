@@ -264,6 +264,15 @@ struct NavTests {
 
     /// walkLegs with a scripted clock and walk: legs in turn, the first stop ends the road, no leg after the deadline.
     static func roadLegs() async {
+        var reaches: [Double] = [], gapClock = 0.0
+        let gapArrived = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.15, until: 100, now: { gapClock }) { _, _, reach in
+            reaches.append(reach); gapClock += 10; return nil
+        }
+        let gapFailed = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.5, until: 100, now: { 0 }) { i, _, _ in i == 1 ? "WALK_NO_PROGRESS" : nil }
+        gapClock = 0
+        let gapLate = await roadGapWalk([(1, 1), (2, 2), (3, 3)], arrive: 0.5, until: 15, now: { gapClock }) { _, _, _ in gapClock += 10; return nil }
+        check(gapArrived == nil && reaches == [RoadLimits.gapArrive, RoadLimits.gapArrive, 0.15] && gapFailed == "WALK_NO_PROGRESS" && gapLate == "ROAD_TIME_LIMIT",
+              "review of #69: a gap walk's inner legs end at 0.3, its last at the caller's arrival; a failed leg ends it; no leg starts after the run's deadline")
         let legs: [MapPoint] = [(40, 25), (40, 30), (42, 44)]
         var clock = 0.0, walked: [Int] = []
         func run(_ stops: [Int: String], deadline: Double, legTakes: Double = 60) async -> String {

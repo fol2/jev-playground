@@ -664,7 +664,7 @@ where players walk: the zone coordinates under the minimap, on every frame.
   - The file holds the places' map coordinates, the ways, the subzone names read and the videos' run names:
     no frame, character name or label.
 - **Routes** (`route`). From any place within 3 units of the player, along the ways, off at a place within 3
-  units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.3
+  units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.15 since M4q, was 0.3
   units) to where the road bends, so a straight road is one leg.
 - **The consumer: the quest run** (`skyborne-quest-tools-v5`; v6 adds USE_1, M4m).
   - `ROAD_1` and `ROAD_2` are offered only when nothing is left within one walk: the owner's order, this
