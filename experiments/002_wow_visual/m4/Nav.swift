@@ -67,7 +67,7 @@ enum NavLimits {
     static let recentMoves = 6
     static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
-    static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, FightLimits.zoomIn, 36, 8, 37, 53]  // M4c/d: Enter, C (character pane), L (map), Esc
+    static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, FightLimits.zoomIn, 36, 8, 37, 53, 11]  // M4c/d: Enter, C (character pane), L (map), Esc; M4m: B (bags)
 }
 
 typealias MapPoint = (x: Double, y: Double)
@@ -718,7 +718,7 @@ struct NavCommand: Equatable {
         case preflight = "--preflight", dryRun = "--dry-run", replay = "--replay", pixels = "--pixels", simJev = "--sim-jev"
         case execute = "--execute"
         case huntDryRun = "--hunt-dry-run", huntSimJev = "--hunt-sim-jev", hunt = "--hunt", turnIn = "--turn-in", plan = "--plan"
-        case quests = "--quests", zoom = "--zoom"
+        case quests = "--quests", zoom = "--zoom", bags = "--bags"
     }
     let mode: Mode
     var profile: KeyProfile?
@@ -754,7 +754,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     }
     var seen: Set<String> = []
     while let option = rest.popFirst() {
-        guard [.execute, .simJev, .hunt, .turnIn, .plan, .quests, .zoom, .huntDryRun, .huntSimJev].contains(mode) else { throw ProbeError("\(mode.rawValue) takes no arguments") }
+        guard [.execute, .simJev, .hunt, .turnIn, .plan, .quests, .zoom, .bags, .huntDryRun, .huntSimJev].contains(mode) else { throw ProbeError("\(mode.rawValue) takes no arguments") }
         if mode == .execute && option == "--ghost" {
             guard !command.ghost else { throw ProbeError("'--ghost' is repeated") }
             command.ghost = true
@@ -778,7 +778,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
         case (.simJev, "--scenario"):
             guard navScenarios.contains(value) else { throw ProbeError("--scenario needs open, wall or pocket") }
             command.scenario = value
-        case (.execute, "--keys"), (.hunt, "--keys"), (.turnIn, "--keys"), (.plan, "--keys"), (.quests, "--keys"), (.zoom, "--keys"):
+        case (.execute, "--keys"), (.hunt, "--keys"), (.turnIn, "--keys"), (.plan, "--keys"), (.quests, "--keys"), (.zoom, "--keys"), (.bags, "--keys"):
             guard value == "wqe", let profile = KeyProfile(rawValue: value) else {
                 throw ProbeError("--keys needs wqe, confirmed in-game")
             }
@@ -814,7 +814,7 @@ func parseNav(_ arguments: [String]) throws -> NavCommand {
     }
     if mode == .simJev && command.scenario == nil { throw ProbeError("--sim-jev requires --scenario open|wall|pocket") }
     if mode == .hunt && command.profile == nil { throw ProbeError("--hunt requires --keys wqe, confirmed in-game") }
-    if [.plan, .quests, .zoom].contains(mode) && command.profile == nil { throw ProbeError("\(mode.rawValue) requires --keys wqe, confirmed in-game") }
+    if [.plan, .quests, .zoom, .bags].contains(mode) && command.profile == nil { throw ProbeError("\(mode.rawValue) requires --keys wqe, confirmed in-game") }
     if mode == .quests && command.graph == nil { throw ProbeError("--quests requires --graph PATH: Jev chooses each quest step") }
     if mode == .turnIn && (command.profile == nil || command.quest == nil) {
         throw ProbeError("--turn-in requires --keys wqe and --quest NAME")

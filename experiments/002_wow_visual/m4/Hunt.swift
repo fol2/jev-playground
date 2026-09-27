@@ -272,6 +272,19 @@ enum RedNameScan {
 /// Every red name in the game view: cells of red whose green stays near its blue (orange wings and the
 /// Juvenile Vuldren's red-brown fur have green well above blue) joined along a line, thin, made of short
 /// strokes, nearly every red pixel within 2 px of the dark outline. Replayed on 975 saved frames: README M4h.
+/// The red names that can be a hostile creature's: a hostile's name is drawn red only beyond plate range, so a red "name"
+/// just under a neutral (yellow) plate is that creature's own red-brown body. Live runs 35 and 44 (27 Sept): walks to
+/// quest places stopped DANGER_AHEAD at a level-1 Juvenile Vuldren, its body 59 px under its plate and up to 25 px right
+/// of its end. A candidate whose centre lies within `margin` of a neutral plate's span and up to `below` px under it is
+/// dropped; the review of #54 narrowed both (from 60 and 160), so a hostile name under another creature's plate stays.
+func dangerNames(_ names: [RedName], plates: [PlateBar], margin: Double = 30, below: Int = 80) -> [RedName] {
+    names.filter { n in
+        !plates.contains { p in
+            !p.hostile && n.centre >= Double(p.x0) - margin && n.centre <= Double(p.x1) + margin && n.y0 > p.y1 && n.y0 - p.y1 <= below
+        }
+    }
+}
+
 func redNames(_ image: RGBA) -> [RedName] {
     let w = image.width, h = image.height, s = RedNameScan.self
     guard image.pixels.count == w * h * 4 else { return [] }

@@ -25,6 +25,7 @@ let navUsage = """
            m4-nav --turn-in --keys wqe --quest NAME   at the quest's NPC; no Jev call
            m4-nav --plan --keys wqe                   read the quest log and map pins; print the zone-first order
            m4-nav --zoom --keys wqe [--seconds S]     set the engine's zoom (F11 S s back from the widest view); save zoom.png
+           m4-nav --bags --keys wqe                   list the backpack's items (hover each slot); nothing is clicked
            m4-nav --quests --graph PATH --keys wqe [--fight-graph PATH] [--hunt-graph PATH]   Jev chooses each quest step within one walk
     Live keys: W, Q, E; a hunt adds Tab, Esc and the bar's skills, a turn-in Enter and chat commands.
     Recovery: m0-probe --release --keys wqe
@@ -137,9 +138,10 @@ final class LiveNavBody: NavBody {
             return nil
         }
         let hud = observe(pixels, plates: false)
-        let warnings = names.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
+        let danger = names.isEmpty ? [] : dangerNames(names, plates: nameplates(pixels))  // not a neutral creature's body
+        let warnings = danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
         var fields: [String: Any] = ["frame": frameNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
-        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] } }
+        if !names.isEmpty { fields["red_names"] = names.map { [$0.x0, $0.y0, $0.x1, $0.y1] }; fields["danger"] = danger.count }
         emit("look", fields)
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
                       warnings: warnings)
@@ -405,6 +407,7 @@ struct M4Nav {
             case .turnIn: exit(try await questExecute(command))
             case .plan: exit(try await planExecute())
             case .zoom: exit(try await zoomExecute(command.zoomIn))
+            case .bags: exit(try await bagsExecute())
             case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!)),
                                                        fightGraph: command.fightGraph, huntGraph: command.huntGraph))
             }

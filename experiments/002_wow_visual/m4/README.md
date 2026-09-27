@@ -650,7 +650,7 @@ where players walk: the zone coordinates under the minimap, on every frame.
 - **Routes** (`route`). From any place within 3 units of the player, along the ways, off at a place within 3
   units of the goal: the shortest by ground distance. The places are then simplified (Douglas-Peucker, 0.3
   units) to where the road bends, so a straight road is one leg.
-- **The consumer: the quest run** (`skyborne-quest-tools-v5`).
+- **The consumer: the quest run** (`skyborne-quest-tools-v5`; v6 adds USE_1, M4m).
   - `ROAD_1` and `ROAD_2` are offered only when nothing is left within one walk: the owner's order, this
     zone first, stays a rule of admissibility.
   - Each goes to a quest beyond one walk, in the owner's order, that the roads reach. Its criterion gives
@@ -823,6 +823,59 @@ red name 3.6 units short of her pin, and Jev chose RETREAT.
   - Harvesting Windstones: objects on the ground.
   - The Gift of Skysight and Embracing the Elements: use an item or ability at a place.
   - None of the last three has a skill yet.
+
+## M4m — use the item or ability a quest names; enter the world again (27 Sept)
+
+After run 41 the character stood idle for 70 minutes, and the game logged out to the character select screen.
+Runs 42-45 were unattended, as before.
+
+- **Entering the world.** At the character select screen, the run (and `--bags`) reads "Enter World" below the
+  selected character, presses Enter, and waits up to 90 s for the minimap's coordinates
+  (`enterWorldIfAtSelect`).
+  - The selected character is the one last played. Its name is never read or logged.
+  - Live: in the world 16 s after Enter.
+- **The bags.** `readBags` opens the Combined Backpack with B when its title is not in view. It places the slots
+  from the title's position: the first 94 px below, 10 a row, 45 px apart. It hovers each slot in the order the
+  bag fills, until two in a row are empty.
+  - An item's name is the topmost line in its tooltip's column, above the game's item footer (`bagItemName`).
+  - Live: all seven items were read, and the slots fell within 2 px of the recon's measure.
+  - `m4-nav --bags --keys wqe` lists the items. Nothing is clicked.
+- **USE_1** (quest graph `skyborne-quest-tools-v6`). A use-at quest whose objective names a bag item or a bar
+  ability is offered as a use (`questItem`: the longest name its objective holds).
+  - An item is right-clicked, after its slot is hovered again and still names it. A text panel that names it is
+    closed with Esc, and Esc is pressed only then. The use counts (`USED`) only when that panel opened.
+  - An ability is used by its key on the bar. The run first walks to the quest's pin when the objective says
+    "near" (`usesNear`). There is no evidence at the key, so it never makes its quest a hand-in (`USED_ABILITY`).
+  - A use is not offered again that run.
+  - A used quest whose objective then sends the player to someone ("... then speak with Windshaper Boro") is
+    offered as a hand-in (`talksAfterUse`). Its log line does not change.
+- **Tracking.** After the logout no quest was tracked. The objectives tracker was empty, and a hunt read no
+  objective (run 42: `HUD_UNREADABLE`). The quest read now ticks each empty tracking checkbox
+  (`questTracked`: 29-33 yellow pixels in a ticked box on the saved logs, none in an empty one).
+- **A partial log stops the run.** The "..." icon of a quest in progress read as "..• " before its level.
+  - Two of three quests went unread, and run 43 ended with nothing left to do. Five characters are now allowed
+    before "[".
+  - The log's own count ("Quests: 3/40") is read, and a parse that finds fewer quests stops the run
+    `LOG_INCOMPLETE`.
+- **A neutral creature's body is no red name.** A hostile's name is drawn red only beyond plate range. A red
+  "name" whose centre lies within 30 px of a neutral plate's span and up to 80 px under it is that creature's body
+  (`dangerNames`; the review of #54 narrowed it from 60 and 160).
+  - Runs 35 and 44 had stopped at a Juvenile Vuldren's red-brown body.
+  - The 24 Sept nest's real red name, level with a plate beside it, stays a danger.
+
+| Run | Outcome (live) |
+|---|---|
+| 42 | USED the Humming Recall Crystal: its text panel opened ("As you touch the glowing crystal a draft of wind stirs around you...") and Esc closed it. The next hunt read no objective: no quest was tracked |
+| 43 | Ticked four quests, used the crystal, and handed in Embracing the Elements to Windshaper Boro: COMPLETED, "Experience gained: 85" |
+| 44 | Walks to the Elemental Convergence (Skysight, key 9) and its retreat stopped `DANGER_AHEAD` at a Vuldren's body |
+| 45 | With the body filter, the same walks still stopped `DANGER_AHEAD`: small red detections far off, too small to read, in the Vuldren field |
+
+**Limits of M4m.**
+- The walk's red-name check still stops walks through the Vuldren field. It sees far red detections that are too
+  small to read, and some are real names (M4h's 70). OCR cannot tell them apart. A learned classifier trained on
+  the saved walk frames, which keep every red name, is the next step.
+- Objects on the ground (Harvesting Windstones) still have no skill.
+- The bags are read on every quest read that has a use-at quest, about 0.9 s a filled slot.
 
 ## Limits
 

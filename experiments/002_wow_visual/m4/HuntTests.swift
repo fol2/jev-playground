@@ -767,6 +767,8 @@ extension NavTests {
               "a level's bracket misread as 1, and an icon read before it, still start a quest")
         check(questTitle("[12] Rise of the Grove")!.level == 12 && questTitle("[11] Eleven")!.title == "Eleven"
               && questTitle("[151 Fifteen")!.level == 15 && questTitle("[5]The Next Step")!.title == "The Next Step"
+              && questTitle("..• [3] The Cirrusfly Queen")?.title == "The Cirrusfly Queen" && questTitle(".•) [4] The Gift of Skysight")?.level == 4
+              && questCount(["Quests: 3/40"]) == 3 && questCount(["Quests: 12 / 40"]) == 12 && questCount(["Search Quest Log"]) == nil
               && questTitle("Report to [Boros]") == nil && questTitle("Camping") == nil,
               "two-digit levels read whole; a true bracket needs no space after it; a bracket inside an objective does not start a quest")
         check(questTitle("to [4] Camp") == nil && questTitle("- [5] Phantom") == nil && questTitle(") [6] The Adventurer")!.prefixed
@@ -869,6 +871,9 @@ extension NavTests {
         var roads: [[MapPoint]] = [], roadTakes = 0.0
         func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
             handed.append("ROAD " + quest.title); roads.append(legs); clock += roadTakes; return outcomes["ROAD " + quest.title] ?? "BY_ROAD"
+        }
+        func useItem(_ quest: PlannedQuest, item: String) async -> String {
+            handed.append("USE " + item); return outcomes["USE " + item] ?? "USED"
         }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
@@ -1029,6 +1034,35 @@ extension NavTests {
         let afterHunt = questOffers(QuestRead(quests: [infested], player: (45.1, 27), missing: []), failed: [QuestStep.hunt(infested).key])
         check(afterHunt.first?.skill == "HAND_IN_1" && QuestStep.hunt(infested).key != QuestStep.handIn(infested).key,
               "a failed hunt is remembered apart from its quest's hand-in, which is offered once the quest is ready")
+        // M4m, live recon 27 Sept: bag slots' tooltips read with the backpack's own text below them.
+        let crystalTip = tip([("Ventaari Brightwish", 1780, 700), ("Humming Recall Crystal", 2089, 1030), ("Unique", 2089, 1046),
+                              ("Combined Back", 2255, 1042), ("«Right Click to Read»", 2089, 1061),
+                              ("Press F6 to submit an issue for this Item", 2089, 1077), ("50", 2530, 1215)])
+        check(bagItemName(crystalTip) == "Humming Recall Crystal"
+              && bagItemName(tip([("Chipped Claw", 1954, 1030), ("Sell Price: 4", 1954, 1046), ("Press F6 to submit an issue for this Item", 1954, 1061)])) == "Chipped Claw"
+              && bagItemName([]) == nil && bagItemName(tip([("Combined Backpack", 2255, 1042), ("Search", 2180, 1075), ("50", 2530, 1215)])) == nil
+              && bagItemName(tip([("Rorian the Dayseeker", 2250, 1060), ("Level 20", 2250, 1076), ("Press F6 to submit an issue for this Creature", 2250, 1092)])) == nil,
+              "a bag slot's item is the topmost line in its tooltip's column, above the game's item footer; world text is not")
+        let embracing = PlannedQuest(title: "Embracing the Elements", level: 2, ready: false,
+                                     objective: "Examine the Humming Recall Crystal then speak with Windshaper Boro in Thendal Grove.", pin: (42.6, 23.3))
+        let skysight = PlannedQuest(title: "The Gift of Skysight", level: 4, ready: false, objective: "Use Skysight near the Elemental Convergence",
+                                    pin: (48.3, 19.9))
+        let bag = ["Tough Jerky", "Refreshing Spring Water", "Hearthstone", "Ancient Heirloom", "Chipped Claw", "Ruined Pelt", "Humming Recall Crystal"]
+        check(questItem(embracing, items: bag) == "Humming Recall Crystal" && questItem(skysight, items: bag) == nil
+              && questItem(embracing, items: ["Crystal", "Humming Recall Crystal"]) == "Humming Recall Crystal",
+              "a use-at quest's item is the longest bag item its objective names; one it names no item for has none")
+        let withBag = QuestRead(quests: [embracing, skysight], player: (42.6, 23.9), missing: [], items: bag)
+        let useOffers = questOffers(withBag, failed: [])
+        check(useOffers.map(\.skill) == ["USE_1"] && useOffers.first?.criterion.contains("Humming Recall Crystal") == true
+              && questOffers(withBag, failed: [QuestStep.use(embracing, item: "").key]).isEmpty
+              && questOffers(QuestRead(quests: [embracing], player: (42.6, 23.9), missing: []), failed: []).isEmpty,
+              "USE_1 is offered for the item a use-at quest names in the bags; not once used or failed, nor with the bags unread")
+        // Live run 43's bar: key 9 held "Skysight" (2 min cooldown, 0.5 s cast), which The Gift of Skysight uses near its place.
+        let barRead = QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight", "Walk on Air"])
+        let skyOffers = questOffers(barRead, failed: [])
+        check(skyOffers.map(\.skill) == ["USE_1"] && skyOffers[0].criterion.contains("from the bar")
+              && skyOffers[0].criterion.contains("at the quest's place") && usesNear(skysight) && !usesNear(embracing),
+              "a bar ability a use-at quest names is offered as a use at the quest's place when it says \"near\"")
         check(offered.first { $0.skill.hasPrefix("HUNT") && $0.criterion.contains("\"Agitators\"") }?.criterion.contains("units away") == true
               && offered.first { $0.criterion.contains("\"Wind Shards\"") }?.criterion.contains("from here") == true
               && questOffers(QuestRead(quests: [winds], player: thendal, missing: []), failed: [QuestStep.hunt(winds).key]).isEmpty,
@@ -1055,6 +1089,27 @@ extension NavTests {
         let fruitless = await runQuests(host: dry, jev: CannedGraph(["DO:HUNT_1"]), graph: graph()!)
         check(fruitless.outcome == "NOTHING_TO_HAND_IN_OR_TAKE" && dry.handed == ["HUNT Agitators"],
               "a hunt that found nothing fails its step, which is not offered again")
+        // M4m: the quest graph offers USE_1; an item used once is not used again while the log still names it.
+        let crystal = PlannedQuest(title: "Embracing the Elements", level: 2, ready: false,
+                                   objective: "Examine the Humming Recall Crystal then speak with Windshaper Boro in Thendal Grove.", pin: nil)
+        let packed = QuestRead(quests: [crystal], player: thendal, missing: [], items: ["Tough Jerky", "Humming Recall Crystal"])
+        let user = FakeQuests([packed, packed, packed])
+        user.outcomes = ["Embracing the Elements": "DIALOGUE_NOT_OPEN"]
+        let usedRun = await runQuests(host: user, jev: CannedGraph(["DO:USE_1", "DO:HAND_IN_1"]), graph: graph()!)
+        check(user.handed == ["USE Humming Recall Crystal", "Embracing the Elements"] && usedRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "the quest graph offers USE_1 for the item a quest names; used once, it is not offered again, and its quest, which "
+              + "then sends the player to someone, is offered as a hand-in (live run 42)")
+        // Review of #54: a use without its evidence (no panel) fails its step, and its quest is not taken for a hand-in.
+        let idle = FakeQuests([packed, packed])
+        idle.outcomes = ["USE Humming Recall Crystal": "ITEM_NO_EFFECT"]
+        let idleRun = await runQuests(host: idle, jev: CannedGraph(["DO:USE_1"]), graph: graph()!)
+        check(idle.handed == ["USE Humming Recall Crystal"] && idleRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "an item used with no effect seen fails its step; no hand-in is offered for its quest")
+        var box = [UInt8](repeating: 30, count: 1200 * 500 * 4)
+        for y in 255...265 { for x in 1078...1084 { let k = (y * 1200 + x) * 4; box[k] = 240; box[k + 1] = 200; box[k + 2] = 60 } }
+        let list = RGBA(width: 1200, height: 500, pixels: box)
+        check(questTracked(list, x: 1082, y: 259) && !questTracked(list, x: 1082, y: 303),
+              "a quest's checkbox holding the yellow tick is tracked; an empty one is not (live run 42: no quest tracked after a logout)")
         let killed = FakeQuests([QuestRead(quests: [winds], player: thendal, missing: []), QuestRead(quests: [winds], player: thendal, missing: [])])
         killed.outcomes = ["HUNT Agitators": "HUNT_DEAD"]
         let died = await runQuests(host: killed, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)
