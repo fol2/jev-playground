@@ -707,10 +707,20 @@ struct StepMemory: Equatable {
 func recordStep(_ memory: [String: StepMemory], key: String, outcome: String, level: Int?) -> [String: StepMemory] {
     var memory = memory
     let worked = ["COMPLETED", "ACCEPTED", "HUNTED", "BY_ROAD", "USED", "SOLD", "TRAINED", "RETREATED", "KILLED"].contains { outcome.hasPrefix($0) }
-    let silent = ["OWNER", "TIME_LIMIT", "COMBAT", "DANGER", "KEYS_HELD", "HANDOFF", "UNREADABLE"].contains { outcome.contains($0) }
+    let silent = ["OWNER", "TIME_LIMIT", "COMBAT", "DANGER", "KEYS_HELD", "HANDOFF", "UNREADABLE", "JEV_FAILED", "LOW_HEALTH"].contains { outcome.contains($0) }
         || ["GEAR_UNSETTLED", "NO_JUNK"].contains(outcome) || outcome.hasPrefix("NOTHING_TO_") || outcome.hasPrefix("BACK_")
     if worked { memory[key] = nil } else if !silent { memory[key] = StepMemory(fails: (memory[key]?.fails ?? 0) + 1, last: outcome, level: level) }
     return memory
+}
+
+/// The records as the character's memory holds them (JSON: {"steps": {key: {"fails", "last", "level"}}}); a record without
+/// its count is dropped, a missing or partial file reads as none.
+func stepHistory(_ memory: [String: Any]) -> [String: StepMemory] {
+    ((memory["steps"] as? [String: Any]) ?? [:]).compactMapValues { value in
+        (value as? [String: Any]).flatMap { d in
+            (d["fails"] as? Int).map { StepMemory(fails: $0, last: d["last"] as? String ?? "", level: d["level"] as? Int) }
+        }
+    }
 }
 
 /// A step's criterion with its record, so Jev can leave a step that keeps failing the same way (live runs 77 and 78: the

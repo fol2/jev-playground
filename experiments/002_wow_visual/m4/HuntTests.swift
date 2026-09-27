@@ -1131,6 +1131,13 @@ extension NavTests {
         check(memory["HUNT Harvesting Windstones"] == StepMemory(fails: 2, last: "HUNT_NO_TARGET_FOUND", level: 4) && unmoved == memory
               && recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "HUNTED 3", level: 5).isEmpty,
               "M4y: a failure adds to the step's record; the owner's takeover, the clock or nothing to sell leave it; a success forgets it")
+        // Second review of #81: the records survive the memory's JSON as the host writes and reads it (live run 80 read run 79's).
+        let written = try? JSONSerialization.data(withJSONObject: ["trained_at_level": NSNull(), "steps": ["HUNT Foul Matriarch":
+            ["fails": 1, "last": "WALK_NO_PROGRESS", "level": 4], "HUNT Broken": ["last": "X"]]])
+        let read = written.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        check(stepHistory(read) == ["HUNT Foul Matriarch": StepMemory(fails: 1, last: "WALK_NO_PROGRESS", level: 4)] && stepHistory([:]).isEmpty
+              && ["WALK_JEV_FAILED", "HUNT_JEV_FAILED", "WALK_LOW_HEALTH"].reduce(memory) { recordStep($0, key: "HUNT Harvesting Windstones", outcome: $1, level: 4) } == memory,
+              "second review of #81: the records read back from the memory's JSON; a Jev failure or a low-health stop is silent")
         let stones = PlannedQuest(title: "Harvesting Windstones", level: 4, ready: false, objective: "0/15 Windstone Cluster", pin: (43.0, 25.3))
         var recalled = QuestRead(quests: [stones], player: thendal, missing: [])
         recalled.history = memory

@@ -1027,9 +1027,7 @@ final class LiveQuestHost: QuestHost {
     /// From the character's memory (private, under runs/): the level at the last visit to the trainer (M4u), and each step's
     /// record across runs (M4y).
     var trainedAt: Int? = characterMemory()["trained_at_level"] as? Int
-    var history: [String: StepMemory] = ((characterMemory()["steps"] as? [String: [String: Any]]) ?? [:]).compactMapValues { d in
-        (d["fails"] as? Int).map { StepMemory(fails: $0, last: d["last"] as? String ?? "", level: d["level"] as? Int) }
-    }
+    var history: [String: StepMemory] = stepHistory(characterMemory())
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread

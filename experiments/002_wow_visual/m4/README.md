@@ -1269,7 +1269,8 @@ the in-run `failed` set is forgotten when a run ends.
   them; a run's Jev reads the record in the hunt's criterion and the outcome is remembered). Live run 79: `step_memory` logged
   "HUNT Foul Matriarch" failed once (`WALK_NO_PROGRESS`, the walk west stopped against a boulder at 40.7,22.9, as in run 78)
   and "HUNT Harvesting Windstones" once (`HUNT_HUD_UNREADABLE`, now silent: that record was dropped), and the character's
-  memory held them; that Jev reads them in the next run is still to be seen live.
+  memory held them. Live run 80: the Foul Matriarch hunt's criterion read run 79's record ("Earlier runs: this step failed
+  once … WALK_NO_PROGRESS at level 4"), and Jev chose another step first.
 
 ## Limits
 
