@@ -310,6 +310,7 @@ struct FightTests {
 
     static func episode() {
         var e = Episode()
+        e.update(Obs(target: 0.3, combat: true))
         e.update(Obs(target: 0, combat: true))
         check(e.engaged && e.killed, "kill while the combat ring is still red counts")
         var mid = Episode()
@@ -318,9 +319,16 @@ struct FightTests {
         var full = Episode()
         full.update(Obs(target: 1.0, plate: Plate(x0: 1214, x1: 1346, top: 400, bottom: 413)))
         check(!full.engaged && !full.killed, "a full-health selected target is not yet engaged")
-        var after = Episode(engaged: true)
+        var after = Episode()
+        after.update(Obs(target: 0.4))
         after.update(Obs(target: 0))
         check(after.killed, "an engaged target that disappears is a kill even without the ring")
+        var jumped = Episode()
+        jumped.update(Obs(target: 0, combat: true))
+        jumped.update(Obs(target: 0, combat: true))
+        check(jumped.engaged && !jumped.killed && has(admissible(Obs(target: 0, combat: true), jumped), .selectTarget)
+              && !has(admissible(Obs(target: 0, combat: true), jumped), .lootCorpse),
+              "live run 66: attacked with nothing selected is no kill; SELECT_TARGET is offered, LOOT is not")
         var old = Episode(killed: true, oldCorpse: true)
         old.update(Obs(target: 0.6, combat: true))
         check(old.oldCorpse, "a corpse seen at the start stays the old one while the target lives")
@@ -329,6 +337,11 @@ struct FightTests {
         let points = corpseHoverPoints(Plate(x0: 1214, x1: 1346, top: 400, bottom: 413))
         check(points.count == 12 && points.allSatisfy { $0.y > 413 } && abs(points[0].x - 1280) < 1 && points[1].y == points[0].y && points[3].y > points[0].y,
               "live run 64: a corpse is sought below the last plate, middle column first, row by row downwards")
+        let sought = corpseSearchPoints(label: (x: 1280, bottom: 398, height: 41))
+        let around = corpseSearchPoints(label: nil)
+        check(sought.count == 21 && sought[0].x == 1280 && sought[0].y == 398 + 3 * 41 && around.count == 12
+              && around.allSatisfy { abs($0.x - 1280) >= 220 && (800...1000).contains($0.y) },
+              "live run 66: below a label that names the corpse first, then round the character, never its own middle")
         let names = ["al'aketh convert"]
         check(corpseTooltip(["Al'Aketh Convert", "Level 2", "Corpse"], names: names) && !corpseTooltip(["Al'Aketh Convert", "Level 2"], names: names)
               && !corpseTooltip(["Pesky Cirrusfly", "Level 1", "Corpse"], names: names),
