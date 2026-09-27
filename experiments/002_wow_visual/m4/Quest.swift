@@ -24,33 +24,38 @@ let equipSlots: Set<String> = ["Head", "Neck", "Shoulder", "Back", "Chest", "Shi
                                "Legs", "Feet", "Finger", "Trinket", "Main Hand", "One-Hand", "Two-Hand", "Off Hand",
                                "Held In Off-hand", "Ranged"]
 
-/// A reward's tooltip, read while the pointer rests on it. The game draws the equipped item beside it
-/// ("Equipped", then "If you replace this item, the following stat changes will occur: +2 Armor"),
-/// and the quest text shows through behind both: lines are kept by alignment, as in tooltipLines.
+/// A reward's tooltip, read while the pointer rests on it, or a bag item's (M4x). The game draws the equipped item beside it
+/// ("Equipped", then "If you replace this item, the following stat changes will occur: +2 Armor"), and whatever is behind
+/// shows through (the quest text; the backpack's title and search box, world text): lines are kept by alignment, as in
+/// tooltipLines, from the name down.
 func parseReward(_ lines: [TipLine]) -> Reward? {
     guard let foot = lines.first(where: { isTooltipFooter($0.text) }) else { return nil }
     // The equipped item's box starts at its "Equipped" label or its "If you replace" line; live on 24 Sept
-    // OCR missed the latter once, and the box's own lines were then read as the reward's.
+    // OCR missed the latter once, and the box's own lines were then read as the reward's. It sits right of a quest reward's
+    // box, and left of a bag item's by the screen's right edge (live, 27 Sept): only on the right does it bound the item's lines.
     let compare = lines.first { $0.text.hasPrefix("If you replace this item") }
     let equipped = lines.filter { $0.text == "Equipped" || $0.text.hasPrefix("If you replace this item") }.map(\.x).min()
+    let right = equipped.map { $0 > foot.x ? $0 - 12 : .infinity } ?? .infinity
+    // The name is tooltipName's (live, 27 Sept: the backpack's title stood 2 px above a belt's name, off its left edge).
+    guard let name = tooltipName(lines, foot: foot, slack: 8) else { return nil }
     let own = lines.filter {
-        $0.y < foot.y && $0.x < (equipped ?? .infinity) - 12 && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150)
-    }.sorted { ($0.y, $0.x) < ($1.y, $1.x) }
-    guard let name = own.first?.text else { return nil }
+        $0.y >= name.y - 4 && $0.y < foot.y && $0.x < right && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150)
+    }
     let slot = own.map(\.text).first { equipSlots.contains($0) }
     let sell = own.first { $0.text.hasPrefix("Sell Price") }.flatMap { Int($0.text.filter(\.isNumber)) } ?? 0
     let change: Double
     if let compare {
         change = lines.filter { abs($0.x - compare.x) <= 8 && $0.y > compare.y }.compactMap { line -> Double? in
-            guard let first = line.text.split(separator: " ").first, "+-".contains(first.prefix(1)) else { return nil }
-            return Double(first)
+            // "+5 Armor"; live on 27 Sept OCR read "-3 Armor" as "- 3 Armor"
+            guard let sign = line.text.first, "+-".contains(sign) else { return nil }
+            return Double(String(sign) + line.text.dropFirst().drop { $0 == " " }.prefix { $0.isNumber || $0 == "." })
         }.reduce(0, +)
     } else if equipped != nil {
         change = 0  // an equipped item, but its stat changes were not read: not an upgrade
     } else {
         change = own.lazy.compactMap { $0.text.hasSuffix(" Armor") ? Double($0.text.dropLast(6)) : nil }.first ?? 0
     }
-    return Reward(name: name, slot: slot, usable: !own.contains(where: \.red), change: change, sell: sell)
+    return Reward(name: name.text, slot: slot, usable: !own.contains(where: \.red), change: change, sell: sell)
 }
 
 /// The owner, 24 Sept: "choose if it benefit (eg armor better than now, take and equip). or take the
@@ -62,6 +67,19 @@ func chooseReward(_ rewards: [Reward]) -> (index: Int, equip: Bool)? {
         return (best, true)
     }
     return rewards.indices.max { rewards[$0].sell < rewards[$1].sell }.map { ($0, false) }
+}
+
+/// The bag items to put on (M4x, the owner, 27 Sept: "i don't see you equip?"; "we should always wear better gear first when
+/// non-battle"): the owner's reward rule (24 Sept) applied to what the bags hold. Each usable item with a slot whose game
+/// comparison is an upgrade (change > 0; an empty slot counts its armour) is worn; for two items of one slot, the larger
+/// change. In bag order.
+func equipChoices(_ items: [(name: String, reward: Reward)]) -> [String] {
+    var best: [String: (index: Int, change: Double)] = [:]
+    for (i, item) in items.enumerated() {
+        guard item.reward.usable, let slot = item.reward.slot, item.reward.change > 0 else { continue }
+        if best[slot].map({ item.reward.change > $0.change }) ?? true { best[slot] = (i, item.reward.change) }
+    }
+    return best.values.map(\.index).sorted().map { items[$0].name }
 }
 
 /// The yellow "?" (quest ready) and "!" (quest offered). Zoomed out an NPC's is small and dim: (185-224,
@@ -542,9 +560,12 @@ func missingFromLog(_ tooltips: [[String]], _ quests: [PlannedQuest]) -> [String
 /// are not letters, digits or "-" may come before "[" (text before it is an objective's, "to [4] Camp"),
 /// and the closing bracket may read as 1, l, I or | when a space follows: the character before the space
 /// closes the level. `prefixed`: the line started before the title column.
-func questTitle(_ text: String) -> (level: Int, title: String, prefixed: Bool)? {
-    guard let m = text.firstMatch(of: try! Regex(#"^([^\[\p{L}\d-]{0,5})\[(\d{1,2})(?:\]\s*|[1lI|]\s+)"#)),
-          let digits = m.output[2].substring, let level = Int(digits) else { return nil }
+func questTitle(_ text: String, bare: Bool = false) -> (level: Int, title: String, prefixed: Bool)? {
+    // "[4] Title". `bare`: also a level without its brackets before a capital, as OCR read a ready quest's title beside its "?"
+    // (live run 75, 27 Sept: "4 Return to Rorian", and the run stopped LOG_INCOMPLETE). An objective can read so too ("8
+    // Cirrusflies slain"): only readQuestLog asks for it, and takes it only when the log's own count then matches.
+    guard let m = text.firstMatch(of: try! Regex(#"^([^\[\p{L}\d-]{0,5})(?:\[(\d{1,2})(?:\]\s*|[1lI|]\s+)|(\d{1,2})\s+(?=\p{Lu}))"#)),
+          let digits = m.output[2].substring ?? (bare ? m.output[3].substring : nil), let level = Int(digits) else { return nil }
     let title = String(text[m.range.upperBound...])
     return title.isEmpty ? nil : (level, title, !(m.output[1].substring?.isEmpty ?? true))
 }
@@ -556,12 +577,21 @@ func questCount(_ lines: [String]) -> Int? {
     return Int(m.output.1)
 }
 
-func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
+/// The log's quests (M4d) against its own count ("Quests: 3/40"): a read short of it is read again with bare levels
+/// (questTitle), and that read stands only when it matches the count (review of #80). `bare`: whether it stood.
+func readQuestLog(_ lines: [TipLine], shown: Int?) -> (quests: [PlannedQuest], bare: Bool) {
+    let strict = parseQuestLog(lines)
+    guard let shown, shown > strict.count else { return (strict, false) }
+    let loose = parseQuestLog(lines, bare: true)
+    return loose.count == shown ? (loose, true) : (strict, false)
+}
+
+func parseQuestLog(_ lines: [TipLine], bare: Bool = false) -> [PlannedQuest] {
     var out: [PlannedQuest] = []
     var titleX = Double.infinity, column: Double? = nil  // the x of titles read without a prefix
     for line in lines.sorted(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
         let text = line.text.trimmingCharacters(in: .whitespaces)
-        if let (level, title, prefixed) = questTitle(text) {
+        if let (level, title, prefixed) = questTitle(text, bare: bare) {
             out.append(PlannedQuest(title: title, level: level, ready: false, objective: "", pin: nil))
             if !prefixed { column = line.x }
             titleX = prefixed ? column ?? line.x : line.x  // a prefix starts left of the column the objectives are measured from
@@ -657,6 +687,7 @@ struct QuestRead {
     var level: Int? = nil  // the character's, from its own unit tooltip (M4u)
     var trainedAt: Int? = nil  // the level at the last visit to the class trainer, from the character's memory (M4u)
     var bagsUsed: Int? = nil  // the bags' slots with an item, when read (M4u)
+    var gearSettled = true  // M4x: no upgrade may lie in the bags unworn, so junk may be sold
 }
 
 protocol QuestHost: AnyObject {
@@ -794,9 +825,22 @@ func questTracked(_ image: RGBA, x: Double, y: Double) -> Bool {
 func bagItemName(_ tooltip: [TipLine]) -> String? {
     // The tooltip's own lines start at its footer's left edge; world text or the backpack's title elsewhere in the box do not.
     guard let foot = tooltip.first(where: { isTooltipFooter($0.text) && $0.text.lowercased().hasSuffix("item") }),
-          let name = tooltip.filter({ abs($0.x - foot.x) <= 12 && $0.y < foot.y }).min(by: { $0.y < $1.y }),
+          let name = tooltipName(tooltip, foot: foot, slack: 12),
           name.text.filter(\.isLetter).count >= 3 else { return nil }
     return name.text
+}
+
+/// A tooltip's name: its top line on the footer's left edge, climbing from the footer while the lines stay close (a line
+/// every 15 px or so, the footer 34 below the last). World text on that edge above the tooltip is not its name (live run 76,
+/// 27 Sept: an NPC's "<Rangers of Thendal Grove>" over a cloak's tooltip was read as the cloak's name, and it stayed unworn).
+func tooltipName(_ lines: [TipLine], foot: TipLine, slack: Double) -> TipLine? {
+    var top: TipLine?, y = foot.y
+    for line in lines.filter({ abs($0.x - foot.x) <= slack && $0.y < foot.y }).sorted(by: { $0.y > $1.y }) {
+        guard y - line.y <= 45 else { break }
+        top = line
+        y = line.y
+    }
+    return top
 }
 
 /// The bag item a use-at quest asks for: its objective names it ("Examine the Humming Recall Crystal then speak with
@@ -1246,9 +1290,11 @@ enum TownLimits {
     static let trainRows = 6  // Train clicks in one visit, at most
 }
 
-/// The level in a unit tooltip ("Level 3 Skyborne Shaman", "Level 3"): the number after the first "Level".
+/// The character's level in its portrait's tooltip ("Level 3 Windshaper Skyborne (Player)"): the number after "Level" on a
+/// "(Player)" line. An NPC's tooltip still showing from before the pointer reached the portrait is not it (live run 78, 27 Sept:
+/// "Level 5" alone was read as a level-4 character's).
 func tooltipLevel(_ lines: [String]) -> Int? {
-    for line in lines {
+    for line in lines where line.lowercased().contains("player") {
         let words = line.split(separator: " ")
         if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
     }
@@ -1275,7 +1321,12 @@ func trainerOpen(_ lines: [TipLine], trainer: String) -> Bool {
 /// line only such a window has: the gossip's "Goodbye", a trainer row's "Rank" or "Requires", the merchant's "Buyback"
 /// tab or its "Page N of M" (live, 27 Sept). Esc is pressed only then: with nothing open it is the Game Menu.
 func npcWindowOpen(_ lines: [TipLine], name: String) -> Bool {
-    lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && lines.contains { l in
+    lines.contains { sameUnit($0.text, name) || likeName($0.text, name) } && npcWindowShown(lines)
+}
+
+/// Such a line, whoever's window it is (M4x: a right-click on a bag item with a merchant's window open sells the item).
+func npcWindowShown(_ lines: [TipLine]) -> Bool {
+    lines.contains { l in
         let k = nameKey(l.text)
         return k == nameKey("Goodbye") || k == nameKey("Buyback") || l.text.contains("(Rank") || l.text.lowercased().hasPrefix("requires")
             || (k.hasPrefix("page") && l.text.contains(" of "))
@@ -1312,7 +1363,9 @@ func townOffers(_ read: QuestRead, npcs: [TownNPC], failed: Set<String>) -> [(sk
     }
     // The bags are read only for a use-at quest; unread, they may be full of loot, so the vendor is offered and Jev weighs it
     // (review of #77: a count required before offering left SELL_JUNK unoffered on every run without a use-at quest).
-    if let v = near.first(where: { $0.role == "vendor" }), (read.bagsUsed ?? TownLimits.sellAt) >= TownLimits.sellAt {
+    // M4x: not while an upgrade may lie in the bags unworn, as Sell All Junk sells grey gear (second review of #80: a refused
+    // visit counted as the run's one, and the vendor was never offered again once the gear settled).
+    if read.gearSettled, let v = near.first(where: { $0.role == "vendor" }), (read.bagsUsed ?? TownLimits.sellAt) >= TownLimits.sellAt {
         out.append(("SELL_JUNK", .town(v), "Walk to \(v.name), a vendor in \(v.hub) (\(away(v)) units away), and sell every grey item "
             + "in the bags with one Sell All Junk Items (the game asks to confirm). "
             + (read.bagsUsed.map { "\($0) bag slots are in use" } ?? "The bags were not read this step")

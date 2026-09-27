@@ -1,6 +1,6 @@
 // M4c native shell for issue #5: `--turn-in --keys wqe --quest NAME`, run at the quest's NPC. Scripts
 // find the "?", right-click the NPC, read each reward's tooltip, apply the owner's reward rule, click the
-// reward and Complete Quest, then equip an upgrade with /equip. No Jev call: every step is a RULE.
+// reward and Complete Quest; an upgrade is then put on from the bags (wearUpgrades, M4x). No Jev call: every step is a RULE.
 // Layout measured on 24 Sept PNG captures at 2560x1320, zoomed fully out.
 import AppKit
 import Vision
@@ -14,14 +14,12 @@ enum QuestHUD {
     // lines at x 2278-2545, y 1150-1248).
     static let unitTip = unitTooltipBox
     static let tooltip = CGRect(x: 150, y: 100, width: 850, height: 560)  // a reward's tooltip and the equipped one
-    static let chatInput = CGRect(x: 30, y: 1160, width: 700, height: 44)  // "Say:" once Enter opens it
     static let world = (300, 100, 2100, 950)  // where quest marks are looked for
     static let rewardX = [130.0, 274.0], firstRow = 37.0, rowGap = 44.0  // reward names below "Choose your reward:"
     static let buttonCentre = 56.0  // "Complete Quest": from the text's left edge to the button's centre
     static let enter: UInt16 = 36
     static let escape: UInt16 = 53
     static let targetSelf: UInt16 = 122  // F1, the default Target Self (M4w: a heal goes to the selected unit)
-    static let characterPane: UInt16 = 8  // C
     static let bags: UInt16 = 11  // B, the backpack (the default binding; M4m)
     /// The character select screen's "Enter World" button (27 Sept), below the selected character's name, which is left out.
     static let enterWorld = CGRect(x: 1100, y: 1205, width: 360, height: 60)
@@ -29,18 +27,12 @@ enum QuestHUD {
     /// title's left top, 10 slots a row, 45 px apart each way. An item's tooltip is drawn just above its slot.
     static let bagTitle = CGRect(x: 1900, y: 900, width: 660, height: 260)
     static let bagSlot = (dx: -142.0, dy: 94.0, pitch: 45.0, columns: 10, count: 20)
-    static let bagTooltip = CGRect(x: 1200, y: 600, width: 1360, height: 580)
+    // Down to the action bar: the stat changes under a bottom row's equipped item stood at y 1181 (live, 27 Sept).
+    static let bagTooltip = CGRect(x: 1200, y: 600, width: 1360, height: 700)
     /// A quest's tracking checkbox in the Map & Quest Log's list: x 1082, 7 px below its title line's top (27 Sept: title tops
     /// 252, 296, 336, 422; boxes centred 261, 301, 342, 429).
     static let trackX = 1082.0, trackDy = 7.0
     static let questCount = CGRect(x: 990, y: 178, width: 135, height: 30)  // "Quests: 3/40" above the list (27 Sept)
-    /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
-    static let paneSlots: [String: (x: Double, y: Double)] = [
-        "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
-        "Tabard": (62, 536), "Wrist": (62, 584), "Hands": (404, 258), "Waist": (404, 304), "Legs": (404, 350), "Feet": (404, 398),
-        "Finger": (404, 444), "Trinket": (404, 536), "Main Hand": (166, 620), "One-Hand": (166, 620), "Two-Hand": (166, 620),
-        "Off Hand": (212, 620), "Held In Off-hand": (212, 620), "Ranged": (258, 620)]
-    static let paneTooltip = CGRect(x: 60, y: 200, width: 460, height: 460)
     static let mapKey: UInt16 = 37  // L, the Map & Quest Log
     static let mapTitle = CGRect(x: 450, y: 150, width: 300, height: 34)  // "Map & Quest Log" in its title bar (26 Sept)
     static let mapCursor = CGRect(x: 80, y: 688, width: 300, height: 24)  // "Cursor: 42.3, 22.9" at the map's bottom left
@@ -242,19 +234,22 @@ final class QuestRun {
 
     /// The backpack's items (M4m): each slot, placed from the title, is hovered and its tooltip read (bagItemName), in the
     /// order the bag fills, until two empty slots in a row. Live recon, 27 Sept: seven items from the first slot on.
+    /// A worn item's tooltip also gives its slot and the game's comparison with what is equipped (parseReward, M4x).
     // ponytail: every read hovers each filled slot (about 0.9 s a slot); keep the names between reads if runs grow.
-    func readBags(close: Bool = true) async -> [(name: String, at: (x: Double, y: Double))]? {
+    func readBags(close: Bool = true) async -> [(name: String, at: (x: Double, y: Double), reward: Reward?)]? {
         guard let bags = await openBags() else { return nil }
         let s = QuestHUD.bagSlot
-        var items: [(name: String, at: (x: Double, y: Double))] = [], empty = 0
+        var items: [(name: String, at: (x: Double, y: Double), reward: Reward?)] = [], empty = 0
         for slot in 0..<s.count where empty < 2 {
             let at = (x: bags.title.x + s.dx + s.pitch * Double(slot % s.columns), y: bags.title.y + s.dy + s.pitch * Double(slot / s.columns))
             hover(at.x, at.y)
             let moved = hostNow()
             await sleep(0.45)
-            let name = bagItemName(lines(QuestHUD.bagTooltip, await frame(after: moved + 0.3)))
-            body.emit("bag_slot", ["slot": slot, "at": [Int(at.x), Int(at.y)], "item": orNull(name)])
-            if let name { items.append((name, at)); empty = 0 } else { empty += 1 }
+            let tip = lines(QuestHUD.bagTooltip, await frame(after: moved + 0.3))
+            let name = bagItemName(tip), reward = parseReward(tip).flatMap { $0.slot == nil ? nil : $0 }
+            body.emit("bag_slot", ["slot": slot, "at": [Int(at.x), Int(at.y)], "item": orNull(name), "gear": orNull(reward?.slot),
+                                   "change": orNull(reward?.change), "usable": orNull(reward?.usable)])
+            if let name { items.append((name, at, reward)); empty = 0 } else { empty += 1 }
         }
         hover(1280, 60)
         if close && bags.opened { await tap(QuestHUD.bags) }
@@ -302,6 +297,44 @@ final class QuestRun {
         return opened ? "USED" : "ITEM_NO_EFFECT"
     }
 
+    /// Put on the bags' upgrades (M4x; the owner, 27 Sept: "you can right click on the inventory to quick equip/swap gears").
+    /// equipChoices picks them from readBags' tooltips; each is hovered again and right-clicked only while its tooltip still
+    /// names it (Click-to-Move, as useItem), and counts as worn when its slot then shows another item (the one it replaced)
+    /// or none. Never with an NPC's window open: a right-click there sells the item. The outcome, what was worn, and the
+    /// bags' names when nothing was (the caller need not read them again).
+    // ponytail: an item that binds when equipped asks first and stays unworn (its popup is left); answer it when one drops.
+    func wearUpgrades() async -> (outcome: String, worn: [String], items: [String]?) {
+        guard !npcWindowShown(lines(QuestHUD.dialog, await frame())) else { return ("NPC_WINDOW_OPEN", [], nil) }
+        guard let bags = await readBags(close: false) else { return ("BAGS_UNREAD", [], nil) }
+        func named(_ at: (x: Double, y: Double)) async -> String? {
+            hover(1280, 60)
+            await sleep(0.2)
+            hover(at.x, at.y)
+            let moved = hostNow()
+            await sleep(0.45)
+            return bagItemName(lines(QuestHUD.bagTooltip, await frame(after: moved + 0.3)))
+        }
+        var worn: [String] = []
+        let choices = equipChoices(bags.compactMap { b in b.reward.map { (b.name, $0) } })
+        for name in choices {
+            guard let item = bags.first(where: { $0.name == name }) else { continue }
+            let under = await named(item.at)
+            guard under.map({ sameTitle($0, name) }) == true, click(item.at.x, item.at.y, right: true) else {
+                body.emit("equip_item", ["item": name, "worn": false, "under_pointer": orNull(under)])
+                continue
+            }
+            await sleep(0.8)
+            let now = await named(item.at)
+            let on = now.map { !sameTitle($0, name) } ?? true
+            body.emit("equip_item", ["item": name, "slot": orNull(item.reward?.slot), "change": orNull(item.reward?.change),
+                                     "now_in_bag_slot": orNull(now), "worn": on])
+            if on { worn.append(name) }
+        }
+        hover(1280, 60)
+        if lines(QuestHUD.bagTitle, await frame()).contains(where: { nameKey($0.text).contains("backpack") }) { await tap(QuestHUD.bags) }
+        return (choices.isEmpty ? "NO_UPGRADE" : worn.count < choices.count ? "NOT_WORN" : "WORN", worn, worn.isEmpty ? bags.map(\.name) : nil)
+    }
+
 
     /// At the character select screen, enter the world with the character it has selected, the one last played, as the
     /// owner authorised (26 Sept: "open, close, reopen, login, enter character"). Live, 27 Sept: after 70 min idle the game
@@ -325,46 +358,6 @@ final class QuestRun {
         }
         body.emit("entered_world", ["failed": true])
         return false
-    }
-
-    /// As a human checks: open the character pane, rest the pointer on the slot, read its name, close it.
-    /// (/run print(...) raised the client's "Allow custom scripts?" prompt on 24 Sept: that is the
-    /// owner's security choice, so the engine uses no /run.)
-    func wearing(_ name: String, slot: String) async -> Bool? {
-        guard let point = QuestHUD.paneSlots[slot] else { return nil }
-        await tap(QuestHUD.characterPane)
-        await sleep(1.0)
-        hover(point.x, point.y)
-        await sleep(0.8)
-        let read = lines(QuestHUD.paneTooltip, await frame()).map(\.text)
-        await tap(QuestHUD.characterPane)
-        body.emit("pane_slot", ["slot": slot, "lines": Array(read.prefix(4))])
-        return read.contains { nameKey($0) == nameKey(name) }
-    }
-
-    /// A chat command: Enter, and only once the edit box shows, the text and Enter. Typed letters are
-    /// never sent without the box: outside it they are game keys.
-    func command(_ text: String) async -> Bool {
-        await tapEnter()
-        await sleep(0.5)
-        guard let shown = await frame(), upscaledText(shown, QuestHUD.chatInput).contains(where: { $0.hasPrefix("Say") }) else {
-            body.emit("chat_not_open", ["command": text])
-            return false
-        }
-        let source = CGEventSource(stateID: .privateState)
-        for unit in text.utf16 {
-            for down in [true, false] {
-                guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0x31, keyDown: down) else { continue }
-                var c = unit
-                event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c)
-                event.postToPid(body.session.app.processIdentifier)
-                await sleep(0.015)
-            }
-        }
-        await sleep(0.2)
-        await tapEnter()
-        body.emit("chat_command", ["command": text])
-        return true
     }
 
     func has(_ lines: [TipLine], _ text: String) -> TipLine? { lines.first { $0.text.contains(text) } }
@@ -461,15 +454,18 @@ final class QuestRun {
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             let listLines = lines(QuestHUD.questList, listed)
-            quests = parseQuestLog(listLines)
-            if let shown = questCount(lines(QuestHUD.questCount, listed).map(\.text)), shown != quests.count {
+            let shown = questCount(lines(QuestHUD.questCount, listed).map(\.text))
+            let log = readQuestLog(listLines, shown: shown)
+            quests = log.quests
+            if log.bare { body.emit("quest_titles_bare", ["read": quests.count]) }
+            if let shown, shown != quests.count {
                 body.emit("quest_count", ["shown": shown, "read": quests.count])
                 uiFault.append("the log read \(quests.count) of its \(shown) quests")  // LOG_INCOMPLETE: no plan on a partial log
             }
             // Every quest is tracked, as a player keeps them: the hunt reads its objectives from the tracker (live run 42).
             if let listed {
                 let pixels = rgba(listed)
-                for line in listLines where questTitle(line.text.trimmingCharacters(in: .whitespaces)) != nil {
+                for line in listLines where questTitle(line.text.trimmingCharacters(in: .whitespaces), bare: log.bare) != nil {
                     let box = (x: QuestHUD.trackX, y: line.y + QuestHUD.trackDy)
                     guard !questTracked(pixels, x: box.x, y: box.y) else { continue }
                     body.emit("track_quest", ["line": line.text, "at": [Int(box.x), Int(box.y)], "controller": "RULE"])
@@ -999,14 +995,10 @@ final class QuestRun {
             await sleep(0.8)
         }
         guard let equip else { return "COMPLETED" }
-
-        guard await command("/equip " + equip.name.replacingOccurrences(of: "\u{2019}", with: "'")) else { return "COMPLETED_EQUIP_NOT_TYPED" }
-        await sleep(1.0)
-        switch await wearing(equip.name, slot: equip.slot) {
-        case true?: return "COMPLETED_AND_EQUIPPED"
-        case false?: return "COMPLETED_EQUIP_UNCONFIRMED"
-        case nil: return "COMPLETED_EQUIP_SLOT_UNKNOWN"
-        }
+        // The upgrade is put on from the bags by the host's right-click RULE (M4x). It was typed as "/equip NAME" in chat;
+        // live run 77 read no "Say:" after Enter, and the chat box left open took the map's key and the walk's.
+        body.emit("reward_to_wear", ["item": equip.name, "slot": orNull(equip.slot)])
+        return "COMPLETED_TO_WEAR"
     }
 }
 
@@ -1034,6 +1026,8 @@ final class LiveQuestHost: QuestHost {
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
     private var fights = 0, walks = 0, hunts = 0
+    private var gearUnchecked = true  // M4x: the bags are looked over for upgrades at the start and after a fight, hunt or hand-in
+    private var upgradeInBags = false, unworn = 0  // M4x: a check left an upgrade unworn; how many checks did
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
     init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
          newHunter: @escaping (URL) -> LiveHuntHost, huntGraph: URL? = nil, tactics: FightTactics? = nil) {
@@ -1118,6 +1112,7 @@ final class LiveQuestHost: QuestHost {
         let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout),
                                     startHealth: inCombat ? 0 : FightLimits.startHealth, tactics: tactics)
         emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
+        gearUnchecked = true
         guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
         lock.withLock { fighting = nil }
         return result.outcome
@@ -1127,20 +1122,44 @@ final class LiveQuestHost: QuestHost {
         let (read, player, missing, givers) = await quester.readQuests(turnIfUnread: true)
         guard let player else { return nil }
         let quests = withEnders(read, enders)  // M4v: who takes each in; a quest with no map pin takes its ender's place
-        // The bags are read only when a use-at quest might name an item in them (M4m).
-        let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []
+        let checked = await wearUpgrades()
+        // The bags are read only when a use-at quest might name an item in them (M4m), and not again after M4x's read.
+        var items: [String] = []
+        if quests.contains(where: { questKind($0) == .useAt }) {
+            if let checked { items = checked } else { items = (await quester.readBags())?.map(\.name) ?? [] }
+        }
         if !items.isEmpty { emit("bags", ["items": items]) }
         // M4u: the level, for the trainer; the level last trained, from the character's memory (a lower level read is a new
         // character with the same name: the memory is forgotten); the bags' filled slots when they were read.
         let level = town.isEmpty ? nil : await quester.readLevel()
         if let level, let t = trainedAt, level < t { trainedAt = nil; try? FileManager.default.removeItem(at: QuestHUD.characterMemory) }
         return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys),
-                         level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count)
+                         level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count,
+                         gearSettled: !gearUnchecked && !upgradeInBags)
+    }
+
+    /// M4x, a RULE (the owner, 27 Sept: "we should always wear better gear first when non-battle"): out of combat, before the
+    /// next step, the bags' upgrades are put on; before a town stop too, so Sell All Junk never sells a grey upgrade. The
+    /// bags' names when they were read and nothing was worn.
+    private func wearUpgrades() async -> [String]? {
+        guard gearUnchecked, combatNow() == false, !ownerTookFocus() else { return nil }
+        let (outcome, worn, items) = await quester.wearUpgrades()
+        // An upgrade left in the bags (a tooltip or a click that failed, a bind prompt) is tried once more; until it is worn no
+        // junk is sold (visit).
+        upgradeInBags = outcome == "NOT_WORN"
+        if upgradeInBags { unworn += 1 }
+        gearUnchecked = outcome == "NPC_WINDOW_OPEN" || outcome == "BAGS_UNREAD" || (upgradeInBags && unworn < 2)
+        emit("equip", ["controller": "RULE", "rule": "the owner: always wear better gear first when non-battle", "outcome": outcome,
+                       "worn": worn])
+        return items
     }
 
     /// A town stop (M4u): walk to where the NPC is talked to, open its window by its name, then sell the junk or train.
     /// A trainer's window seen at a level is remembered (character.json, private): TRAIN is offered again only at a higher one.
     func visit(_ npc: TownNPC) async -> String {
+        // M4x: no junk is sold while an upgrade may lie in the bags unworn (review of #80: Sell All Junk sells grey gear). The
+        // read offers no vendor then (gearSettled); this holds should the gear change between the read and the visit.
+        if npc.role == "vendor" && (gearUnchecked || upgradeInBags) { return "GEAR_UNSETTLED" }
         if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
         guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
         guard hostNow() < runDeadline else { return "TOWN_TIME_LIMIT" }  // the window's work starts only inside the run
@@ -1291,6 +1310,7 @@ final class LiveQuestHost: QuestHost {
         if let pin = quest.pin { await quester.face(pin) }
         let outcome = await quester.turnIn(quest.title, ender: quest.ender, until: runDeadline)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
+        gearUnchecked = true  // a reward is in the bags (M4x)
         forgetLog(outcome)
         return outcome
     }
@@ -1346,6 +1366,7 @@ final class LiveQuestHost: QuestHost {
         let result = await runHunt(host: hunter, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: graph == nil ? 2 : 0),
                                    graph: graph, seconds: seconds)
         let outcome = huntOutcome(result.outcome, start: result.start, end: result.end)
+        gearUnchecked = true
         emit("hunt_end", ["hunt": hunts, "quest": quest.title, "code": result.outcome, "outcome": outcome,
                           "fights": result.fights.map(\.outcome), "decisions": result.decisions])
         guard !hunter.holding else { return "HUNT_KEYS_HELD" }
@@ -1550,7 +1571,12 @@ func questExecute(_ command: NavCommand) async throws -> Int32 {
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
     body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
-    let outcome = await (try QuestRun(body: body)).turnIn(quest)
+    let quester = try QuestRun(body: body)
+    let outcome = await quester.turnIn(quest)
+    if outcome == "COMPLETED_TO_WEAR" {  // M4x: the chosen upgrade from the bags, as the quest run's RULE puts it on
+        let (wear, worn, _) = await quester.wearUpgrades()
+        body.emit("equip", ["controller": "RULE", "outcome": wear, "worn": worn])
+    }
     forgetLog(outcome)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
