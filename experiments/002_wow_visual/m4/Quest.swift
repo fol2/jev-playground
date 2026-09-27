@@ -560,11 +560,12 @@ func missingFromLog(_ tooltips: [[String]], _ quests: [PlannedQuest]) -> [String
 /// are not letters, digits or "-" may come before "[" (text before it is an objective's, "to [4] Camp"),
 /// and the closing bracket may read as 1, l, I or | when a space follows: the character before the space
 /// closes the level. `prefixed`: the line started before the title column.
-func questTitle(_ text: String) -> (level: Int, title: String, prefixed: Bool)? {
-    // "[4] Title"; beside a ready quest's "?" OCR dropped both brackets (live run 75, 27 Sept: "4 Return to Rorian", and the
-    // run stopped LOG_INCOMPLETE): a bare level then needs a capital after it, which an objective's count ("0/15") never has.
+func questTitle(_ text: String, bare: Bool = false) -> (level: Int, title: String, prefixed: Bool)? {
+    // "[4] Title". `bare`: also a level without its brackets before a capital, as OCR read a ready quest's title beside its "?"
+    // (live run 75, 27 Sept: "4 Return to Rorian", and the run stopped LOG_INCOMPLETE). An objective can read so too ("8
+    // Cirrusflies slain"): only readQuestLog asks for it, and takes it only when the log's own count then matches.
     guard let m = text.firstMatch(of: try! Regex(#"^([^\[\p{L}\d-]{0,5})(?:\[(\d{1,2})(?:\]\s*|[1lI|]\s+)|(\d{1,2})\s+(?=\p{Lu}))"#)),
-          let digits = m.output[2].substring ?? m.output[3].substring, let level = Int(digits) else { return nil }
+          let digits = m.output[2].substring ?? (bare ? m.output[3].substring : nil), let level = Int(digits) else { return nil }
     let title = String(text[m.range.upperBound...])
     return title.isEmpty ? nil : (level, title, !(m.output[1].substring?.isEmpty ?? true))
 }
@@ -576,12 +577,21 @@ func questCount(_ lines: [String]) -> Int? {
     return Int(m.output.1)
 }
 
-func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
+/// The log's quests (M4d) against its own count ("Quests: 3/40"): a read short of it is read again with bare levels
+/// (questTitle), and that read stands only when it matches the count (review of #80). `bare`: whether it stood.
+func readQuestLog(_ lines: [TipLine], shown: Int?) -> (quests: [PlannedQuest], bare: Bool) {
+    let strict = parseQuestLog(lines)
+    guard let shown, shown > strict.count else { return (strict, false) }
+    let loose = parseQuestLog(lines, bare: true)
+    return loose.count == shown ? (loose, true) : (strict, false)
+}
+
+func parseQuestLog(_ lines: [TipLine], bare: Bool = false) -> [PlannedQuest] {
     var out: [PlannedQuest] = []
     var titleX = Double.infinity, column: Double? = nil  // the x of titles read without a prefix
     for line in lines.sorted(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
         let text = line.text.trimmingCharacters(in: .whitespaces)
-        if let (level, title, prefixed) = questTitle(text) {
+        if let (level, title, prefixed) = questTitle(text, bare: bare) {
             out.append(PlannedQuest(title: title, level: level, ready: false, objective: "", pin: nil))
             if !prefixed { column = line.x }
             titleX = prefixed ? column ?? line.x : line.x  // a prefix starts left of the column the objectives are measured from

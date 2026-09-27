@@ -332,7 +332,7 @@ final class QuestRun {
         }
         hover(1280, 60)
         if lines(QuestHUD.bagTitle, await frame()).contains(where: { nameKey($0.text).contains("backpack") }) { await tap(QuestHUD.bags) }
-        return (choices.isEmpty ? "NO_UPGRADE" : worn.isEmpty ? "NOT_WORN" : "WORN", worn, worn.isEmpty ? bags.map(\.name) : nil)
+        return (choices.isEmpty ? "NO_UPGRADE" : worn.count < choices.count ? "NOT_WORN" : "WORN", worn, worn.isEmpty ? bags.map(\.name) : nil)
     }
 
 
@@ -454,15 +454,18 @@ final class QuestRun {
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             let listLines = lines(QuestHUD.questList, listed)
-            quests = parseQuestLog(listLines)
-            if let shown = questCount(lines(QuestHUD.questCount, listed).map(\.text)), shown != quests.count {
+            let shown = questCount(lines(QuestHUD.questCount, listed).map(\.text))
+            let log = readQuestLog(listLines, shown: shown)
+            quests = log.quests
+            if log.bare { body.emit("quest_titles_bare", ["read": quests.count]) }
+            if let shown, shown != quests.count {
                 body.emit("quest_count", ["shown": shown, "read": quests.count])
                 uiFault.append("the log read \(quests.count) of its \(shown) quests")  // LOG_INCOMPLETE: no plan on a partial log
             }
             // Every quest is tracked, as a player keeps them: the hunt reads its objectives from the tracker (live run 42).
             if let listed {
                 let pixels = rgba(listed)
-                for line in listLines where questTitle(line.text.trimmingCharacters(in: .whitespaces)) != nil {
+                for line in listLines where questTitle(line.text.trimmingCharacters(in: .whitespaces), bare: log.bare) != nil {
                     let box = (x: QuestHUD.trackX, y: line.y + QuestHUD.trackDy)
                     guard !questTracked(pixels, x: box.x, y: box.y) else { continue }
                     body.emit("track_quest", ["line": line.text, "at": [Int(box.x), Int(box.y)], "controller": "RULE"])
@@ -1023,7 +1026,8 @@ final class LiveQuestHost: QuestHost {
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
     private var fights = 0, walks = 0, hunts = 0
-    private var gearUnchecked = true  // M4x: the bags are looked over for upgrades at the start and after a fight or hunt (loot)
+    private var gearUnchecked = true  // M4x: the bags are looked over for upgrades at the start and after a fight, hunt or hand-in
+    private var upgradeInBags = false, unworn = 0  // M4x: a check left an upgrade unworn; how many checks did
     let tactics: FightTactics?  // M3b's chains for a fight back; nil: the legacy flat policy
     init(quester: QuestRun, key: String, newWalker: @escaping (URL) -> LiveNavBody, newFighter: @escaping (URL, LiveKeys) -> LiveHost,
          newHunter: @escaping (URL) -> LiveHuntHost, huntGraph: URL? = nil, tactics: FightTactics? = nil) {
@@ -1139,7 +1143,11 @@ final class LiveQuestHost: QuestHost {
     private func wearUpgrades() async -> [String]? {
         guard gearUnchecked, combatNow() == false, !ownerTookFocus() else { return nil }
         let (outcome, worn, items) = await quester.wearUpgrades()
-        gearUnchecked = outcome == "NPC_WINDOW_OPEN" || outcome == "BAGS_UNREAD"
+        // An upgrade left in the bags (a tooltip or a click that failed, a bind prompt) is tried once more; until it is worn no
+        // junk is sold (visit).
+        upgradeInBags = outcome == "NOT_WORN"
+        if upgradeInBags { unworn += 1 }
+        gearUnchecked = outcome == "NPC_WINDOW_OPEN" || outcome == "BAGS_UNREAD" || (upgradeInBags && unworn < 2)
         emit("equip", ["controller": "RULE", "rule": "the owner: always wear better gear first when non-battle", "outcome": outcome,
                        "worn": worn])
         return items
@@ -1148,6 +1156,8 @@ final class LiveQuestHost: QuestHost {
     /// A town stop (M4u): walk to where the NPC is talked to, open its window by its name, then sell the junk or train.
     /// A trainer's window seen at a level is remembered (character.json, private): TRAIN is offered again only at a higher one.
     func visit(_ npc: TownNPC) async -> String {
+        // M4x: no junk is sold while an upgrade may lie in the bags unworn (review of #80: Sell All Junk sells grey gear).
+        if npc.role == "vendor" && (gearUnchecked || upgradeInBags) { return "GEAR_UNSETTLED" }
         if let stop = await walk(to: npc.point, label: npc.name, arrive: 0.3) { return stop }
         guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
         guard hostNow() < runDeadline else { return "TOWN_TIME_LIMIT" }  // the window's work starts only inside the run
@@ -1559,7 +1569,12 @@ func questExecute(_ command: NavCommand) async throws -> Int32 {
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
     body.emit("start", ["run_id": run.id, "mode": "turn-in", "quest": quest])
-    let outcome = await (try QuestRun(body: body)).turnIn(quest)
+    let quester = try QuestRun(body: body)
+    let outcome = await quester.turnIn(quest)
+    if outcome == "COMPLETED_TO_WEAR" {  // M4x: the chosen upgrade from the bags, as the quest run's RULE puts it on
+        let (wear, worn, _) = await quester.wearUpgrades()
+        body.emit("equip", ["controller": "RULE", "outcome": wear, "worn": worn])
+    }
     forgetLog(outcome)
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}

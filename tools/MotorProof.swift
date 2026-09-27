@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 233  // the current count: removing a check must lower this on purpose
-let minNavChecks = 440  // the current count: removing a check must lower this on purpose
+let minNavChecks = 441  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -346,6 +346,16 @@ func navTrap() throws {
     let bagsExecute = after("func bagsExecute", quest).components(separatedBy: "\n}\n")[0]  // M4m: B, hovers, B
     if !bagsExecute.contains("also: { body.releaseAll() }, holding: { body.holding }") || !bagsExecute.contains("defer { body.releaseAll() }") {
         throw GateError("bagsExecute does not trap signals and defer onto its body's keys")
+    }
+    // M4x (review of #80): no bag right-click with an NPC's window open (a merchant's sells the item), and no junk sold while an
+    // upgrade may lie in the bags unworn (Sell All Junk sells grey gear).
+    let wear = after("func wearUpgrades() async -> (outcome", quest)
+    guard let shut = wear.range(of: "guard !npcWindowShown(lines(QuestHUD.dialog, await frame())) else { return (\"NPC_WINDOW_OPEN\""),
+          let press = wear.range(of: "click(item.at.x, item.at.y, right: true)"), shut.upperBound < press.lowerBound else {
+        throw GateError("wearUpgrades may right-click a bag item before it rules out an NPC's window")
+    }
+    if !after("final class LiveQuestHost", quest).contains("if npc.role == \"vendor\" && (gearUnchecked || upgradeInBags) { return \"GEAR_UNSETTLED\" }") {
+        throw GateError("the quest host may sell junk while an upgrade is unworn")
     }
     let (fightCore, navCore, huntCore) = (try source(fightDir + "Fight.swift"), try source(navDir + "Nav.swift"), try source(navDir + "Hunt.swift"))
     if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")

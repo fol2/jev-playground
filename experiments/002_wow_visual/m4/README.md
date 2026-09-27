@@ -1227,8 +1227,13 @@ character's, and Sell All Junk had sold such grey gear before.
   `command` returned with the chat box still open, and the box took the map's key (`LOG_INCOMPLETE`) and the walk's
   (`WALK_NO_PROGRESS`). The hand-in returns `COMPLETED_TO_WEAR` and marks the gear unchecked, and the next log read's
   right-click RULE puts it on. `command`, `wearing` and the character pane's boxes are gone.
+- Review of #80: a check that leaves an upgrade unworn is tried once more, and until it is worn (or while the gear is
+  unchecked) a vendor stop returns `GEAR_UNSETTLED` before walking, so Sell All Junk never sells it; `--turn-in` puts its
+  reward on too. MotorProof holds both: the NPC-window guard before the right-click, and the vendor refusal.
 - Also here (live run 75): OCR dropped the brackets of a ready quest's title beside its "?" ("4 Return to Rorian"), the log read
-  2 of 3 quests and the run stopped `LOG_INCOMPLETE`. `questTitle` takes a bare level when a capital follows it.
+  2 of 3 quests and the run stopped `LOG_INCOMPLETE`. `readQuestLog` reads again with bare levels (a level before a capital)
+  only when a read falls short of the log's own count, and takes it only when it then matches (review of #80: an objective
+  such as "8 Cirrusflies Slain" reads that way too, and would overshoot).
 - Also here (live run 78): the portrait's level read "Level 5" alone for a level-4 character, an NPC's tooltip still showing;
   `tooltipLevel` takes the level only from the "(Player)" line.
 - Evidence: sim (`HuntTests`: the belt, shoes and bracers tooltips as Vision read them live; the cloak with an NPC's subtitle

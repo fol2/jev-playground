@@ -1150,12 +1150,19 @@ extension NavTests {
                             ("Sell Price: 2", 2090, 1061), ("Press F6 to submit an issue for this Item", 2090, 1093)])
         check(bagItemName(cloakTip) == "Ragged Cloak" && parseReward(cloakTip) == Reward(name: "Ragged Cloak", slot: "Back", usable: true, change: 3, sell: 2),
               "M4x live run 76: the name is the top of the tooltip's own lines, not world text on its edge above")
-        let rorian = parseQuestLog(tip([("Zephras Isle", 791, 225), ("[4] Harvesting Windstones", 809, 255), ("0/15 Windstone Cluster", 815, 271),
+        let rorianLines = tip([("Zephras Isle", 791, 225), ("[4] Harvesting Windstones", 809, 255), ("0/15 Windstone Cluster", 815, 271),
             ("4 Return to Rorian", 811, 297), ("Bring word of the Al' Aketh to", 821, 310), ("Rorian the Dayseeker in Thendal", 821, 323),
-            ("Grove.", 821, 339), ("[4] The Gift of Skysight", 809, 363), ("Use Skysight near the Elemental", 821, 379), ("Convergence", 820, 392)]))
-        check(rorian.map(\.title) == ["Harvesting Windstones", "Return to Rorian", "The Gift of Skysight"] && rorian[1].level == 4
-              && rorian[1].objective.hasPrefix("Bring word") && questTitle("0/15 Windstone Cluster") == nil && questTitle("15 windstones") == nil,
-              "live run 75: a ready quest's title with its brackets dropped by OCR (\"4 Return to Rorian\") is still a title")
+            ("Grove.", 821, 339), ("[4] The Gift of Skysight", 809, 363), ("Use Skysight near the Elemental", 821, 379), ("Convergence", 820, 392)])
+        let rorian = readQuestLog(rorianLines, shown: 3)
+        check(rorian.bare && rorian.quests.map(\.title) == ["Harvesting Windstones", "Return to Rorian", "The Gift of Skysight"]
+              && rorian.quests[1].level == 4 && rorian.quests[1].objective.hasPrefix("Bring word")
+              && readQuestLog(rorianLines, shown: nil).quests.count == 2 && !readQuestLog(rorianLines, shown: 2).bare,
+              "live run 75: a ready quest's title with its brackets dropped by OCR (\"4 Return to Rorian\") is read when the log's count asks")
+        // Review of #80: an objective reads as a bare level too; its extra title overshoots the count, so the strict read stands.
+        let slain = tip([("[3] The Cirrusfly Queen", 809, 255), ("8 Cirrusflies Slain", 815, 271), ("4 Return to Rorian", 811, 297)])
+        check(questTitle("8 Cirrusflies Slain") == nil && questTitle("0/15 Windstone Cluster", bare: true) == nil
+              && readQuestLog(slain, shown: 2).quests.map(\.title) == ["The Cirrusfly Queen"] && !readQuestLog(slain, shown: 2).bare,
+              "review of #80: a bare level is never a title unasked, nor one that overshoots the log's count")
         check(npcWindowShown(tip([("Uualia Suncrest", 216, 165), ("Buyback", 300, 560)])) && !npcWindowShown(beltTip),
               "M4x: a merchant's window, whoever's, holds the equip back (a right-click there sells)")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])
