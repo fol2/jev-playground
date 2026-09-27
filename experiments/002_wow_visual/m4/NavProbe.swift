@@ -75,8 +75,10 @@ func apiKey() throws -> String {
 let bumpsMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/bumps.json")
 
 func loadBumps() -> [(at: MapPoint, heading: Double, side: Double)] {
-    ((try? Data(contentsOf: bumpsMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
-        .compactMap { $0.count >= 3 ? (($0[0], $0[1]), $0[2], $0.count > 3 ? $0[3] : 0) : nil }
+    let rows = (try? Data(contentsOf: bumpsMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? []
+    var bumps: [(at: MapPoint, heading: Double, side: Double)] = []
+    for r in rows where r.count >= 3 { bumps.append(((r[0], r[1]), r[2], r.count > 3 ? r[3] : 0)) }
+    return bumps
 }
 
 func saveBumps(_ new: [(at: MapPoint, heading: Double, side: Double)]) {
