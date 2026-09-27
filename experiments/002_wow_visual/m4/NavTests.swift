@@ -83,8 +83,10 @@ struct NavTests {
               "a quest icon's highlight beside the arrow is not taken for its tip")
         check(arrowFacing(arrow(0, icon: (1, 2))).map { abs(angleError(0, $0)) <= 15 } ?? false,
               "an icon highlight touching the arrow does not move its axis")
-        // Live run 36: a quest area's blue band, 4 px wide, passing 2 px beyond the tip of an arrow at 131°.
+        // Live run 36: a quest area's blue band, 4 px wide, passing 2 px beyond the tip of an arrow at 131°. The live tail
+        // is ringed by the cone's silver outline ("SNNNNS" across it on the run's frames), drawn here round the dot.
         var band = arrow(131).pixels
+        for dy in -2...2 { for dx in -2...2 where max(abs(dx), abs(dy)) == 2 { set(&band, 2423 + dx, 197 + dy, 210, 210, 210) } }
         for y in NavHUD.arrowY0 - 2..<NavHUD.arrowY1 + 2 {
             for x in NavHUD.arrowX0 - 2..<NavHUD.arrowX1 + 2 where (2637...2640).contains(x + y) {
                 let i = (y * HUD.width + x) * 4

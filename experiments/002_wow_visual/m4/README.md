@@ -115,10 +115,17 @@ All boxes are capture pixels of the 2560×1320 window.
   - The rule now counts only silver connected to the navy dot. The facing is the ray from the
     dot along which that silver runs longest, which is the cone's axis. An icon adds a short
     blob, never an 8–10 px run.
-  - The tail is the largest compact navy part (within 7 × 7 px) beside silver. Live run 36 (27 Sept):
-    a quest area's blue band crossed the arrow's tip, its pixels beside the tip pulled the "dot"
-    there, and the facing read 258–344° for 131°; the walk turned on the spot until `NO_PROGRESS`.
-    On that run's frames the rule reads 113–124°, and a synthetic band is a check.
+  - Where the navy beside silver falls in several parts and two or more are dot-sized (within
+    7 × 7 px, 9 px at least), the tail is the part silver rings on most sides. Live run 36
+    (27 Sept): a quest area's blue band crossed the arrow's tip, its pixels beside the tip pulled
+    the "dot" there, the facing read 258–344° for 131°, and the walk turned on the spot until
+    `NO_PROGRESS`. Otherwise every part counts, as before: over water the dot joins the water's navy.
+    - On that run's frames the rule reads 113–124°. A synthetic band is a check.
+    - On the regression set, 107 of 2,453 facings moved. 64 moved 10° or less. Of the 25 that
+      moved more than 30°, the author checked 7 by the arrow's pixels (m2 turns, a water frame,
+      two walks), and in each the new reading lies along the cone and the old one did not.
+    - A first rule, the largest compact part of all the box's navy, moved 846 facings: over water it
+      picked a stray fleck, and it was not kept.
   - On eight lossless (PNG) captures turning in place beside three quest icons, it was within
     12° of the author's labels. Successive readings stepped 46–59° per 300 ms Q press.
   - Saved JPEGs do not replay the live frames faithfully. The same frame decoded two ways

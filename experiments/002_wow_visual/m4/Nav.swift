@@ -113,10 +113,11 @@ func arrowFacing(_ image: RGBA) -> Double? {
         }
         return false
     }
-    // The tail is a compact dot (4 x 4 px live) beside silver, the largest one within 7 x 7, of all the navy in the box: a
-    // quest area's blue band across the arrow's tip is one long part, and beside silver too (live run 36, 27 Sept: its
-    // pixels pulled the "dot" to the tip, the facing read 258-344° for 131°, and the walk turned on the spot until
-    // NO_PROGRESS). The lavender outline is long as well. No such dot reads nothing.
+    navy = navy.filter { nearSilver($0.0, $0.1) }  // the lavender quest-area outline is not beside silver
+    // Where that navy falls in several parts and two or more are dot-sized (within 7 x 7, 9 px at least), the tail is the
+    // one silver rings on most sides: a quest area's blue band beyond the tip is beside silver on one side (live run 36,
+    // 27 Sept: its pixels pulled the "dot" towards the tip, the facing read 258-344° for 131°, and the walk turned on the
+    // spot until NO_PROGRESS). Otherwise every part counts, as before: over water the dot joins the water's navy.
     var parts: [[(Int, Int)]] = [], left = navy
     while let seed = left.popLast() {
         var part = [seed], i = 0
@@ -129,8 +130,20 @@ func arrowFacing(_ image: RGBA) -> Double? {
         }
         parts.append(part)
     }
-    navy = parts.filter { p in p.map(\.0).max()! - p.map(\.0).min()! < 7 && p.map(\.1).max()! - p.map(\.1).min()! < 7 }
-        .map { $0.filter { nearSilver($0.0, $0.1) } }.max { $0.count < $1.count } ?? []
+    let dots = parts.filter { p in p.count >= 9 && p.map(\.0).max()! - p.map(\.0).min()! < 7 && p.map(\.1).max()! - p.map(\.1).min()! < 7 }
+    func ringed(_ p: [(Int, Int)]) -> Int {  // quadrants round the part's centre holding silver within 3 px of it
+        let cx = Double(p.map(\.0).reduce(0, +)) / Double(p.count), cy = Double(p.map(\.1).reduce(0, +)) / Double(p.count)
+        var sides = Set<Int>()
+        for (x, y) in p {
+            for dy in -3...3 {
+                for dx in -3...3 where silver.contains((y + dy) * w + x + dx) {
+                    sides.insert((Double(x + dx) >= cx ? 1 : 0) + (Double(y + dy) >= cy ? 2 : 0))
+                }
+            }
+        }
+        return sides.count
+    }
+    if parts.count > 1 && dots.count > 1 { navy = dots.max { (ringed($0), $0.count) < (ringed($1), $1.count) }! }
     guard navy.count >= 3 else { return nil }
     let nx = Double(navy.map(\.0).reduce(0, +)) / Double(navy.count)
     let ny = Double(navy.map(\.1).reduce(0, +)) / Double(navy.count)
