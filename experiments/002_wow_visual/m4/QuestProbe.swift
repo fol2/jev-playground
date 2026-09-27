@@ -49,7 +49,7 @@ enum QuestHUD {
 /// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too, in
 /// `--quests` and `--turn-in` alike.
 func forgetLog(_ outcome: String) {
-    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "USED" { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
+    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("USED") { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
 }
 
 final class QuestRun {
@@ -255,29 +255,48 @@ final class QuestRun {
             await close()
             return "ITEM_NOT_FOUND"
         }
+        // Click-to-Move is on: a right-click that misses the slot walks the character there. The slot is hovered again,
+        // and clicked only while its tooltip still names the item (review of #54).
+        hover(found.at.x, found.at.y)
+        let moved = hostNow()
+        await sleep(0.45)
+        guard let under = bagItemName(lines(QuestHUD.bagTooltip, await frame(after: moved + 0.3))), sameTitle(under, item) else {
+            await close()
+            return "ITEM_NOT_UNDER_POINTER"
+        }
         body.emit("use_item", ["item": found.name, "at": [Int(found.at.x), Int(found.at.y)], "controller": "RULE"])
-        guard click(found.at.x, found.at.y, right: true) else { return "CLICK_FAILED" }
+        guard click(found.at.x, found.at.y, right: true) else {
+            await close()
+            return "CLICK_FAILED"
+        }
         let used = hostNow()
         await sleep(1.2)
         let after = await frame(after: used + 1.0)
         if let after { write(after, to: body.directory.appendingPathComponent("use-\(clicks).png"), type: .png) }
         let panel = lines(QuestHUD.dialog, after)
         body.emit("item_panel", ["lines": panel.prefix(4).map(\.text)])
-        if panel.contains(where: { nameKey($0.text).contains(nameKey(item)) }) {
+        // The use counts only with its evidence, the panel it opened (review of #54: USED was returned whatever happened).
+        let opened = panel.contains(where: { nameKey($0.text).contains(nameKey(item)) })
+        if opened {
             await tap(QuestHUD.escape)
             await sleep(0.6)
         }
+        hover(1280, 60)
         await close()
-        return "USED"
+        return opened ? "USED" : "ITEM_NO_EFFECT"
     }
+
 
     /// At the character select screen, enter the world with the character it has selected, the one last played, as the
     /// owner authorised (26 Sept: "open, close, reopen, login, enter character"). Live, 27 Sept: after 70 min idle the game
     /// had logged out to that screen. Enter, then wait up to 90 s for the minimap's coordinates. The selected character's
     /// name is never read or logged. true: in the world (already, or now).
     func enterWorldIfAtSelect() async -> Bool {
-        guard let shown = await frame(),
-              lines(QuestHUD.enterWorld, shown).contains(where: { nameKey($0.text) == "enterworld" }) else { return true }
+        // Enter only where the world's minimap does not read and the button does: Enter in the world opens the chat, and W, Q
+        // and E would then type (review of #54). No frame is not known to be the world.
+        guard let shown = await frame() else { return false }
+        if readCoords(shown, tracked: false).at != nil { return true }
+        guard lines(QuestHUD.enterWorld, shown).contains(where: { nameKey($0.text) == "enterworld" }) else { return true }
         body.emit("character_select", ["action": "Enter World"])
         await tapEnter()
         let start = hostNow()
@@ -850,7 +869,9 @@ final class LiveQuestHost: QuestHost {
             emit("use_ability", ["ability": item, "key": Int(key), "controller": "RULE"])
             await quester.tap(key)
             await quester.sleep(2.5)  // its cast (0.5 s for Skysight) and the blessing that follows
-            outcome = "USED"
+            // No evidence here that it took (review of #54): not a use that makes the quest a hand-in. A quest it completes reads
+            // "Ready for turn-in" at the next log read, and is handed in as any other.
+            outcome = "USED_ABILITY"
         } else {
             outcome = await quester.useItem(item)
         }
@@ -992,7 +1013,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     entry.releaseAll()
     guard entered else {
         try? await stream.stopCapture()
-        throw ProbeError("the world did not load after Enter World")
+        throw ProbeError("not in the world: no fresh frame, or Enter World did not load it")
     }
     // A fight back presses the bar's keys, so they come from its tooltips, as a hunt's: the defaults were
     // the 23 Sept bar, where key 3 was the heal (Earth Shock by 24 Sept) and key 4 the buff (Healing Wave).
@@ -1075,7 +1096,7 @@ func bagsExecute() async throws -> Int32 {
     let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
     let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
     let quester = try QuestRun(body: body)
-    guard await quester.enterWorldIfAtSelect() else { throw ProbeError("the world did not load after Enter World") }
+    guard await quester.enterWorldIfAtSelect() else { throw ProbeError("not in the world: no fresh frame, or Enter World did not load it") }
     let items = await quester.readBags()
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}

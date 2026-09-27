@@ -220,8 +220,10 @@ struct NavTests {
         let plates35 = [PlateBar(hostile: false, x0: 1162, x1: 1352, y0: 547, y1: 563), PlateBar(hostile: false, x0: 516, x1: 709, y0: 609, y1: 625)]
         let plates24 = [PlateBar(hostile: false, x0: 958, x1: 1155, y0: 396, y1: 411)]
         check(dangerNames([body35], plates: plates35).isEmpty && dangerNames([nest], plates: plates24) == [nest]
+              && dangerNames([RedName(x0: 1300, x1: 1340, y0: 683, y1: 699)], plates: plates35).count == 1
+              && dangerNames([RedName(x0: 1420, x1: 1460, y0: 600, y1: 616)], plates: plates35).count == 1
               && dangerNames([body35], plates: [PlateBar(hostile: true, x0: 1162, x1: 1352, y0: 547, y1: 563)]) == [body35],
-              "a red name under a neutral plate is its creature's body; one level with it, or under a hostile plate, stays a danger")
+              "a red name just under a neutral plate is its creature's body; one level with it, 120 px under it, clear of its span, or under a hostile plate stays a danger")
         check(walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false) == .there
               && walkStart(at: (42.5, 23.1), to: (42.58, 23.55), road: false, arrive: RoadLimits.approachArrive) == .walk,
               "live run 19: 0.45 from Rorian's approach counts as there at a walk's 0.5, not at the approach's 0.15")

@@ -1099,6 +1099,12 @@ extension NavTests {
         check(user.handed == ["USE Humming Recall Crystal", "Embracing the Elements"] && usedRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
               "the quest graph offers USE_1 for the item a quest names; used once, it is not offered again, and its quest, which "
               + "then sends the player to someone, is offered as a hand-in (live run 42)")
+        // Review of #54: a use without its evidence (no panel) fails its step, and its quest is not taken for a hand-in.
+        let idle = FakeQuests([packed, packed])
+        idle.outcomes = ["USE Humming Recall Crystal": "ITEM_NO_EFFECT"]
+        let idleRun = await runQuests(host: idle, jev: CannedGraph(["DO:USE_1"]), graph: graph()!)
+        check(idle.handed == ["USE Humming Recall Crystal"] && idleRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "an item used with no effect seen fails its step; no hand-in is offered for its quest")
         var box = [UInt8](repeating: 30, count: 1200 * 500 * 4)
         for y in 255...265 { for x in 1078...1084 { let k = (y * 1200 + x) * 4; box[k] = 240; box[k + 1] = 200; box[k + 2] = 60 } }
         let list = RGBA(width: 1200, height: 500, pixels: box)

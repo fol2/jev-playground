@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 218  // the current count: removing a check must lower this on purpose
-let minNavChecks = 364  // the current count: removing a check must lower this on purpose
+let minNavChecks = 365  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 29  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -343,6 +343,10 @@ func navTrap() throws {
     if !zoomExecute.contains("also: { body.releaseAll() }, holding: { body.holding }") || !zoomExecute.contains("defer { body.releaseAll() }") {
         throw GateError("zoomExecute does not trap signals and defer onto its body's keys")
     }
+    let bagsExecute = after("func bagsExecute", quest).components(separatedBy: "\n}\n")[0]  // M4m: B, hovers, B
+    if !bagsExecute.contains("also: { body.releaseAll() }, holding: { body.holding }") || !bagsExecute.contains("defer { body.releaseAll() }") {
+        throw GateError("bagsExecute does not trap signals and defer onto its body's keys")
+    }
     let (fightCore, navCore, huntCore) = (try source(fightDir + "Fight.swift"), try source(navDir + "Nav.swift"), try source(navDir + "Hunt.swift"))
     if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")
         || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {
@@ -502,6 +506,7 @@ func motorProof(update: Bool) throws -> String {
                       ["--hunt-sim-jev", "x"], ["--hunt-dry-run", "--experience"],
                       ["--dry-run", "--experience", "/tmp/x"], ["--hunt", "--keys", "wqe", "--to", "47.1,21.8"],
                       ["--plan"], ["--quests", "--keys", "wqe"], ["--quests", "--graph", "g.json"],
+                      ["--bags"], ["--bags", "--keys", "arrows"], ["--bags", "--keys", "wqe", "extra"],
                       ["--quests", "--graph", "g.json", "--keys", "arrows"], ["--hunt-dry-run", "--fight-graph", "f.json"],
                       ["--quests", "--graph", "g.json", "--keys", "wqe", "--fight-graph"]])
     let navSummary = try dryRun([nav, "--dry-run"]).summary

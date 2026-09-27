@@ -834,7 +834,8 @@ func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String
 /// collect quests, in the owner's order. A hunt fights for every unfinished objective the tracker shows,
 /// so quests that share a place finish together. A quest whose area the map did not show is hunted from
 /// here, by the minimap's quest area. After a walk stopped for a red name ahead, RETREAT comes first (the
-/// owner: survive first). Use-at quests have no skill yet and are not offered. Only when none of these is left
+/// owner: survive first). A use-at quest is offered as a use when its objective names an item in the bags or an ability
+/// on the bar (M4m). Only when none of these is left
 /// (the owner: this zone first) are the quests beyond one walk offered, each by the route `roads` give from here.
 func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, roads: RoadGraph? = nil, used: Set<String> = [])
     -> [(skill: String, step: QuestStep, criterion: String)] {
@@ -988,9 +989,10 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             continue
         }
         if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("HUNTED") || outcome == "RETREATED" || outcome == "BY_ROAD" { continue }
-        if outcome == "USED" {  // used once: an item the log still names is not used again; its quest may be handed in now
+        if outcome == "USED" || outcome == "USED_ABILITY" {  // used once: what the log still names is not used again
             failed.insert(offer.step.key)
-            if case .use(let q, _) = offer.step { used.insert(q.title) }
+            // An item's use has its evidence (its panel), so its quest may be handed in now; an ability's has none (review of #54).
+            if outcome == "USED", case .use(let q, _) = offer.step { used.insert(q.title) }
             continue
         }
         if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
