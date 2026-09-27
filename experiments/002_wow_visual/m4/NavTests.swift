@@ -649,6 +649,11 @@ struct NavTests {
         check(combat == ("COMBAT", false) && low == ("LOW_HEALTH", false) && lowSafe == ("ARRIVED", false) && owner == ("OWNER_TOOK_FOCUS", false)
               && redAhead == ("DANGER_AHEAD", false) && pastIt == ("ARRIVED", false) && blank == ("HUD_UNREADABLE", false),
               "M4ac: combat, low health, the owner, a red name on the aim and an unread HUD stop the walk, keys released; the way to safety walks on at low health and past a red name")
+        let dark = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        dark.unreadable = true
+        let unread = await runSteer(body: dark, path: [], destination: d)
+        check(unread.outcome == "HUD_UNREADABLE" && dark.keys.codesPosted.filter { $0 == FightLimits.turnRight }.count == 1,
+              "M4ac: an unread HUD gets runNav's one unstick turn before the walk ends (third review of #86)")
         // A wall right ahead fills the view: W is let go and the walk turns in place, so it never runs into it.
         let close = SimNav(clock: FightClock(), x: 40, y: 27.95, facing: 0, boxes: wall)
         close.depthRange = 2.5

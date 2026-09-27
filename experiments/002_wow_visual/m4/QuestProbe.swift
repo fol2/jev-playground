@@ -1297,7 +1297,9 @@ final class LiveQuestHost: QuestHost {
                 let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
                 emit("steer_path", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length)])
             }
-            let length = zip([at ?? pin] + path + [pin], path + [pin]).map { distance($0, $1) }.reduce(0, +)
+            let stops: [MapPoint] = [at ?? pin] + path + [pin]  // step by step: the one-line form was too slow to type-check (CI)
+            var length = 0.0
+            for i in 1..<stops.count { length += distance(stops[i - 1], stops[i]) }
             let seconds = min(max(NavLimits.maxSeconds, 2 * length / NavLimits.runSpeed), max(0, runDeadline - hostNow()))
             walks += 1
             let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
