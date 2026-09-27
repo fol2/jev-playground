@@ -737,6 +737,20 @@ func stepKey(_ q: PlannedQuest) -> String {
     [.kill, .collect].contains(questKind(q)) ? QuestStep.hunt(q).key : QuestStep.handIn(q).key
 }
 
+/// Whether a quest in the Map & Quest Log's list is tracked: its checkbox, right of the title at `x`, holds the yellow tick.
+/// Live, 27 Sept: after a logout no quest was tracked, the objectives tracker was empty, and a hunt read no objective
+/// (HUD_UNREADABLE). On the saved logs a ticked box held 29-33 yellow pixels, an empty one none.
+func questTracked(_ image: RGBA, x: Double, y: Double) -> Bool {
+    var yellow = 0
+    for py in Int(y) - 13..<Int(y) + 13 where py >= 0 && py < image.height {
+        for px in Int(x) - 13..<Int(x) + 13 where px >= 0 && px < image.width {
+            let i = (py * image.width + px) * 4
+            if markYellow(Int(image.pixels[i]), Int(image.pixels[i + 1]), Int(image.pixels[i + 2])) { yellow += 1 }
+        }
+    }
+    return yellow >= 10
+}
+
 // MARK: - Quest items in the bags (M4m)
 
 /// A bag slot's item, read from its tooltip while the pointer rests on the slot. The tooltip is an item's only with the
@@ -756,6 +770,12 @@ func bagItemName(_ tooltip: [TipLine]) -> String? {
 func questItem(_ quest: PlannedQuest, items: [String]) -> String? {
     let objective = nameKey(quest.objective)
     return items.filter { nameKey($0).count >= 5 && objective.contains(nameKey($0)) }.max { nameKey($0).count < nameKey($1).count }
+}
+
+/// Whether a use-at quest sends the player to someone once its item is used: "... then speak with Windshaper Boro".
+func talksAfterUse(_ q: PlannedQuest) -> Bool {
+    let text = q.objective.lowercased()
+    return ["then speak with", "then talk to", "then talk with", "then return to", "then report to"].contains { text.contains($0) }
 }
 
 /// Whether a hunt starts where its walk stopped. A walk stops at a red name ahead, and near a kill quest's pin red names are
@@ -804,11 +824,14 @@ func huntOutcome(_ code: String, start: [Objective], end: [Objective]) -> String
 /// here, by the minimap's quest area. After a walk stopped for a red name ahead, RETREAT comes first (the
 /// owner: survive first). Use-at quests have no skill yet and are not offered. Only when none of these is left
 /// (the owner: this zone first) are the quests beyond one walk offered, each by the route `roads` give from here.
-func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, roads: RoadGraph? = nil)
+func questOffers(_ read: QuestRead, failed: Set<String>, danger: Bool = false, roads: RoadGraph? = nil, used: Set<String> = [])
     -> [(skill: String, step: QuestStep, criterion: String)] {
     func away(_ p: MapPoint) -> String { String(format: "%.1f", distance(read.player, p)) }
     let open = questPlan(read.quests, from: read.player).filter { q in
-        [.handIn, .travel].contains(questKind(q)) && !failed.contains(q.title)
+        // A use-at quest whose item was used this run, and which then sends the player to someone, is a hand-in now: its log
+        // line does not change (live run 42, 27 Sept: "Examine the Humming Recall Crystal then speak with Windshaper Boro").
+        ([.handIn, .travel].contains(questKind(q)) || (questKind(q) == .useAt && used.contains(q.title) && talksAfterUse(q)))
+            && !failed.contains(q.title)
             && q.pin.map { distance(read.player, $0) <= QuestLimits.maxLeg } != false  // no pin: its NPC may stand here
     }
     let handIns = open.prefix(QuestLimits.slots).enumerated().map { i, q in
@@ -902,7 +925,7 @@ struct QuestResult {
 /// `runSeconds`, and a hunt ends by then. There is no rules fallback when Jev fails.
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil) async -> QuestResult {
     var r = QuestResult()
-    var failed: Set<String> = []
+    var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
     var stuck = 0
     let deadline = host.now() + QuestLimits.runSeconds
     func finish(_ outcome: String) -> QuestResult {
@@ -915,7 +938,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads)
+        let offers = questOffers(read, failed: failed, danger: r.steps.last?.outcome == "WALK_DANGER_AHEAD", roads: roads, used: used)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -951,7 +974,11 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             continue
         }
         if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome.hasPrefix("HUNTED") || outcome == "RETREATED" || outcome == "BY_ROAD" { continue }
-        if outcome == "USED" { failed.insert(offer.step.key); continue }  // used once: an item the log still names is not used again
+        if outcome == "USED" {  // used once: an item the log still names is not used again; its quest may be handed in now
+            failed.insert(offer.step.key)
+            if case .use(let q, _) = offer.step { used.insert(q.title) }
+            continue
+        }
         if case .retreat = offer.step { return finish("RETREAT_" + outcome) }  // no way back from danger: the owner takes over
         failed.insert(offer.step.key)
         if outcome == "WALK_NO_PROGRESS" {

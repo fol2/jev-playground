@@ -1085,10 +1085,17 @@ extension NavTests {
         let crystal = PlannedQuest(title: "Embracing the Elements", level: 2, ready: false,
                                    objective: "Examine the Humming Recall Crystal then speak with Windshaper Boro in Thendal Grove.", pin: nil)
         let packed = QuestRead(quests: [crystal], player: thendal, missing: [], items: ["Tough Jerky", "Humming Recall Crystal"])
-        let user = FakeQuests([packed, packed])
-        let usedRun = await runQuests(host: user, jev: CannedGraph(["DO:USE_1"]), graph: graph()!)
-        check(user.handed == ["USE Humming Recall Crystal"] && usedRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
-              "the quest graph offers USE_1 for the item a quest names; used once, it is not offered again this run")
+        let user = FakeQuests([packed, packed, packed])
+        user.outcomes = ["Embracing the Elements": "DIALOGUE_NOT_OPEN"]
+        let usedRun = await runQuests(host: user, jev: CannedGraph(["DO:USE_1", "DO:HAND_IN_1"]), graph: graph()!)
+        check(user.handed == ["USE Humming Recall Crystal", "Embracing the Elements"] && usedRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "the quest graph offers USE_1 for the item a quest names; used once, it is not offered again, and its quest, which "
+              + "then sends the player to someone, is offered as a hand-in (live run 42)")
+        var box = [UInt8](repeating: 30, count: 1200 * 500 * 4)
+        for y in 255...265 { for x in 1078...1084 { let k = (y * 1200 + x) * 4; box[k] = 240; box[k + 1] = 200; box[k + 2] = 60 } }
+        let list = RGBA(width: 1200, height: 500, pixels: box)
+        check(questTracked(list, x: 1082, y: 259) && !questTracked(list, x: 1082, y: 303),
+              "a quest's checkbox holding the yellow tick is tracked; an empty one is not (live run 42: no quest tracked after a logout)")
         let killed = FakeQuests([QuestRead(quests: [winds], player: thendal, missing: []), QuestRead(quests: [winds], player: thendal, missing: [])])
         killed.outcomes = ["HUNT Agitators": "HUNT_DEAD"]
         let died = await runQuests(host: killed, jev: CannedGraph(["DO:HUNT_1", "DO:HUNT_1"]), graph: graph()!)

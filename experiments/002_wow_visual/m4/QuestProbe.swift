@@ -26,6 +26,9 @@ enum QuestHUD {
     static let bagTitle = CGRect(x: 1900, y: 900, width: 660, height: 260)
     static let bagSlot = (dx: -142.0, dy: 94.0, pitch: 45.0, columns: 10, count: 20)
     static let bagTooltip = CGRect(x: 1200, y: 600, width: 1360, height: 580)
+    /// A quest's tracking checkbox in the Map & Quest Log's list: x 1082, 7 px below its title line's top (27 Sept: title tops
+    /// 252, 296, 336, 422; boxes centred 261, 301, 342, 429).
+    static let trackX = 1082.0, trackDy = 7.0
     /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
     static let paneSlots: [String: (x: Double, y: Double)] = [
         "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
@@ -386,7 +389,19 @@ final class QuestRun {
             if !(await setMap(open: true)) { body.emit("map_toggle_failed", ["open": true]); uiFault.append("the Map & Quest Log did not open") }
             let listed = await frame()
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
-            quests = parseQuestLog(lines(QuestHUD.questList, listed))
+            let listLines = lines(QuestHUD.questList, listed)
+            quests = parseQuestLog(listLines)
+            // Every quest is tracked, as a player keeps them: the hunt reads its objectives from the tracker (live run 42).
+            if let listed {
+                let pixels = rgba(listed)
+                for line in listLines where questTitle(line.text.trimmingCharacters(in: .whitespaces)) != nil {
+                    let box = (x: QuestHUD.trackX, y: line.y + QuestHUD.trackDy)
+                    guard !questTracked(pixels, x: box.x, y: box.y) else { continue }
+                    body.emit("track_quest", ["line": line.text, "at": [Int(box.x), Int(box.y)], "controller": "RULE"])
+                    _ = click(box.x, box.y)
+                    await sleep(0.4)
+                }
+            }
             for i in quests.indices {
                 quests[i].pin = minimapNames.first { $0.names.contains(nameKey(quests[i].title)) }?.at
             }
