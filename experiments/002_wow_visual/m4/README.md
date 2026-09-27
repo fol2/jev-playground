@@ -142,6 +142,10 @@ All boxes are capture pixels of the 2560×1320 window.
     read 130 and the reader 250 on every frame (the arrow faced about 130), and the walk ended `HUD_UNREADABLE`.
     A hunt does the same before its last unread survey with nothing to offer: in live run 55 the walks got to the
     Windstones' area this way (seven turns), and the hunt there then ended `HUD_UNREADABLE` on an unread facing.
+  - The turn is also a turn test (`turnTest`). The reader whose bearing followed the turn (about 25° right, within 20°)
+    while the other's did not is trusted where the two disagree, until they agree again (`facing_trust` in the log).
+    In live run 58 (27 Sept), standing still, the rule read 222 and the reader 150 (0.93). The turn moved the rule to
+    254 and the reader to 118, so the rule was right, and the walk had no bearing to act on.
 - **Position: the coordinates text under the minimap** (x 2322, y 300, 200×34). It is OCR'd
   after a ×3 upscale and parsed as `44.8,28.1`, `44.8, 28.1` or `44.7.27.9`.
   - It was read on all 61 saved frames at this layout.

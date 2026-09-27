@@ -30,6 +30,7 @@ func pixelObs(_ pixels: RGBA) -> HuntObs {
 }
 
 final class LiveHuntHost: HuntHost {
+    var facingState: FacingState? { facingReader != nil ? liveFacing : nil }
     let session: Session
     let feed: FrameFeed
     let sink: PidKeySink

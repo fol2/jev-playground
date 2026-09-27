@@ -65,6 +65,7 @@ enum NavLimits {
     static let headingTolerance = 25.0
     static let unreadableLimit = 6
     static let unstickTurn = 0.15  // s of E: about 25 degrees (a 300 ms press stepped 46-59 degrees)
+    static let unstickDegrees = 25.0
     static let recentMoves = 6
     static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
@@ -83,24 +84,66 @@ func compass(dx: Double, dy: Double) -> Double {  // dy grows southwards, as on 
 /// Convergence: the rule read 350 and 316 where the arrow faced about 150, then nothing where it faced about 50; the reader
 /// read 152 and 159, then 30 (0.75). On the held-out runs the reader was more than 30 degrees wrong on 4 of 83 frames at
 /// 0.7 or more, so it does not overrule a reading of the rule.
-func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?) -> Double? {
+/// `trust`: the reader a turn test showed right (turnTest), which a disagreement then follows.
+func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?, trust: FacingSource? = nil) -> Double? {
     switch (rule, learned) {
-    case let (r?, l?): return abs(angleError(r, l.bearing)) <= 30 ? r : nil
+    case let (r?, l?):
+        if abs(angleError(r, l.bearing)) <= 30 { return r }
+        switch trust {
+        case .rule?: return r
+        case .learned?: return l.confidence >= 0.7 ? l.bearing : nil
+        case nil: return nil
+        }
     case let (nil, l?): return l.confidence >= 0.7 ? l.bearing : nil
     case let (r, nil): return r
     }
 }
 
+enum FacingSource: String { case rule, learned }
+
+/// The two facing readings of the last live frame, and the reader a turn test showed right until the two agree again.
+final class FacingState {
+    var rule: Double?, learned: Double?
+    var trust: FacingSource?
+}
+
+/// Which reader followed a turn of `turned` degrees clockwise (within 20 degrees) while the other did not; nil when both,
+/// neither, or a reading is missing. Live run 58 (27 Sept): standing still the rule read 222 and the learned reader 150
+/// (0.93); a turn right of about 25 degrees moved the rule to 254 and the reader to 118, so the rule was right.
+func turnTest(before: (rule: Double?, learned: Double?), after: (rule: Double?, learned: Double?), turned: Double) -> FacingSource? {
+    func followed(_ a: Double?, _ b: Double?) -> Bool? {
+        guard let a, let b else { return nil }
+        return abs(angleError(angleError(b, a), turned)) <= 20
+    }
+    switch (followed(before.rule, after.rule), followed(before.learned, after.learned)) {
+    case (true?, false?): return .rule
+    case (false?, true?): return .learned
+    default: return nil
+    }
+}
+
 /// One turn on the spot (NavLimits.unstickTurn of E, about 25 degrees), W lifted first, when the place cannot be read: a
 /// quest icon beside the minimap arrow stays where it is while the arrow turns off it (live run 54, 27 Sept: standing
-/// still, the rule read 130 and the learned reader 250 on every frame, and the walk ended HUD_UNREADABLE).
-func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, emit: (String, [String: Any]) -> Void) async {
+/// still, the rule read 130 and the learned reader 250 on every frame, and the walk ended HUD_UNREADABLE). With the
+/// live facing state and a fresh look after the turn, it is also a turn test (turnTest): the reader whose bearing
+/// followed the turn is trusted where the two disagree (live run 58).
+func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, emit: (String, [String: Any]) -> Void,
+                 facing: FacingState? = nil, reread: (() async -> Void)? = nil) async {
+    let before = facing.map { (rule: $0.rule, learned: $0.learned) }
     keys.lift(FightLimits.forward)
     emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
     keys.grant(FightLimits.turnRight, seconds: NavLimits.unstickTurn + NavLimits.forwardWatchdog)
     keys.press(FightLimits.turnRight)
     await sleep(NavLimits.unstickTurn)
     keys.lift(FightLimits.turnRight)
+    guard let facing, let before, let reread else { return }
+    await sleep(0.3)  // the turn's last frames settle
+    await reread()
+    let after = (rule: facing.rule, learned: facing.learned)
+    guard let source = turnTest(before: before, after: after, turned: NavLimits.unstickDegrees) else { return }
+    facing.trust = source
+    emit("facing_turn_test", ["trust": source.rawValue, "before": [orNull(before.rule), orNull(before.learned)],
+                              "after": [orNull(after.rule), orNull(after.learned)]])
 }
 
 /// Facing from the minimap arrow as a compass bearing (0 north, 90 east). The arrow is a silver cone
@@ -412,6 +455,11 @@ protocol NavBody: AnyObject {
     func look() -> NavObs?  // nil: coordinates or arrow unreadable
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
+    var facingState: FacingState? { get }  // the live facing's readings, for a turn test; nil in a simulation
+}
+
+extension NavBody {
+    var facingState: FacingState? { nil }
 }
 
 extension NavBody {
@@ -535,7 +583,8 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             if misses == NavLimits.unreadableLimit / 2 {
-                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit)
+                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit,
+                                  facing: body.facingState, reread: { _ = body.look() })
             }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
             continue
