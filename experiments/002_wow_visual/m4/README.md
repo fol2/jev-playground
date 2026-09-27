@@ -134,9 +134,13 @@ All boxes are capture pixels of the 2560×1320 window.
   - **Learned too (M5, 27 Sept).** Beside the Elemental Convergence (live run 52) the rule read 350 and 316 where the
     arrow faced about 150, then nothing. A walk or hunt now takes `fusedFacing` of the rule and the learned
     `FacingReader` (m5/README.md, "The facing"):
-    - the rule's bearing where they agree within 30°;
+    - the rule's bearing where it reads;
     - the reader's at 0.7 confidence or more where the rule has none;
-    - none where they disagree, unless a turn test (below) trusts one of them.
+    - the reader's over the rule only where a turn test (below) showed the rule wrong.
+    - Until the evening of 27 Sept a disagreement gave no bearing. Live runs 54 and 58-62 then showed the rule right
+      and the reader wrong at up to 1.00: in run 62 it read 320, 270 and 150 where the arrow faced 42 and 68, and the
+      walk ended `HUD_UNREADABLE` in 10 s. Until the reader is retrained on these runs' frames, it only fills the
+      rule's gaps.
   - A walk that cannot read its place for three looks turns right once on the spot (0.15 s of E, about 25°): an icon
     beside the arrow stays where it is while the arrow turns off it. In live run 54 (27 Sept), standing still, the rule
     read 130 and the reader 250 on every frame (the arrow faced about 130), and the walk ended `HUD_UNREADABLE`.
@@ -144,6 +148,7 @@ All boxes are capture pixels of the 2560×1320 window.
     Windstones' area this way (seven turns), and the hunt there then ended `HUD_UNREADABLE` on an unread facing.
   - The turn is also a turn test (`turnTest`). The reader whose bearing followed the turn (about 25° right, within 20°)
     while the other's did not is trusted where the two disagree, until they agree again (`facing_trust` in the log).
+    Since the rule leads, only a trust in the reader changes a bearing.
     In live run 58 (27 Sept), standing still, the rule read 222 and the reader 150 (0.93). The turn moved the rule to
     254 and the reader to 118, so the rule was right. Before this, the walk had no bearing to act on; with it, the walk
     takes the rule's. A trust lapses after 10 s, and a test with no verdict clears it (review of #67).
