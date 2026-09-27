@@ -869,7 +869,13 @@ final class LiveQuestHost: QuestHost {
     /// fights. Not the walk's: runNav's exit sweep has retired it, and no child can be taken from it (the
     /// 25 Sept review; M4i had not run live). The run's set only taps, and stays active until the run ends.
     /// A fight that ends with keys held stays tracked for the exit sweep, and its handoff fails the run.
-    func fightBack() async -> String {
+    func fightBack() async -> String { await fight(inCombat: true) }
+
+    /// FIGHT_AHEAD (M4p, Jev's choice after a red name stopped the walk): the same fight from out of combat, started only
+    /// at the fight's own start health; the fight's Jev selects the creature (Tab) and pulls it.
+    func fightAhead() async -> String { await fight(inCombat: false) }
+
+    private func fight(inCombat: Bool) async -> String {
         guard walker?.holding != true else { return "WALK_KEYS_HELD" }
         let parent = quester.body
         fights += 1
@@ -878,8 +884,9 @@ final class LiveQuestHost: QuestHost {
         guard let child = parent.keys.takeChild(releaseCodes: FightLimits.releaseCodes) else { return "INPUT_HANDOFF_FAILED" }
         let host = newFighter(folder, child)
         lock.withLock { fighting = host }
-        emit("fight_start", ["fight": fights, "in_combat": true, "controller": "SAFETY"])
-        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout), startHealth: 0, tactics: tactics)
+        emit("fight_start", ["fight": fights, "in_combat": inCombat, "controller": inCombat ? "SAFETY" : "JEV"])
+        let result = await runFight(host: host, jev: LiveJev(key: key, timeout: FightLimits.jevTimeout),
+                                    startHealth: inCombat ? 0 : FightLimits.startHealth, tactics: tactics)
         emit("fight_end", ["fight": fights, "outcome": result.outcome, "decisions": result.decisions])
         guard parent.keys.resume(after: child) else { return "INPUT_HANDOFF_FAILED" }
         lock.withLock { fighting = nil }

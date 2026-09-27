@@ -924,6 +924,7 @@ extension NavTests {
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
+        func fightAhead() async -> String { handed.append("FIGHT_AHEAD"); return outcomes["FIGHT_AHEAD"] ?? "KILLED_AND_LOOTED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
         var pins: [MapPoint?] = []  // each hunt's and use's pin; none: from here, no walk
@@ -1012,9 +1013,9 @@ extension NavTests {
         wary2.outcomes = ["ROAD The Adventurer": "WALK_DANGER_AHEAD", "RETREAT": "NO_WAY_BACK"]
         let fled = CannedGraph(["DO:ROAD_1", "DO:RETREAT"])
         let roadDanger = await runQuests(host: wary2, jev: fled, graph: graph()!, roads: southRoad)
-        check(fled.offered.count == 2 && fled.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:RETREAT"]
+        check(fled.offered.count == 2 && fled.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:FIGHT_AHEAD", "DO:RETREAT"]
               && wary2.handed == ["ROAD The Adventurer", "RETREAT"] && roadDanger.outcome == "RETREAT_NO_WAY_BACK",
-              "a red name ahead on a road stops it as on any walk: RETREAT alone is offered next (survive first), and the road is not")
+              "a red name ahead on a road stops it as on any walk: RETREAT and FIGHT_AHEAD alone are offered next, and the road is not")
 
         let longWay = FakeQuests([QuestRead(quests: south, player: thendal, missing: []), QuestRead(quests: south, player: (41.5, 28), missing: [])])
         longWay.outcomes = ["ROAD The Adventurer": "ROAD_TIME_LIMIT"]
@@ -1054,7 +1055,7 @@ extension NavTests {
         let wary = CannedGraph(["DO:HAND_IN_1", "DO:RETREAT", "DO:HAND_IN_1"])
         let survived = await runQuests(host: danger, jev: wary, graph: graph()!)
         check(danger.handed == ["The Gift of Skysight", "RETREAT", "Harvesting Windstones"] && survived.outcome == "NOTHING_TO_HAND_IN_OR_TAKE"
-              && !wary.offered[0].contains("DO:RETREAT") && wary.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:HAND_IN_1", "DO:RETREAT"]
+              && !wary.offered[0].contains("DO:RETREAT") && wary.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:FIGHT_AHEAD", "DO:HAND_IN_1", "DO:RETREAT"]
               && !wary.offered[2].contains("DO:RETREAT"),
               "a red name ahead fails only that step: RETREAT is offered next, the step is not offered again, and the run goes on")
         let cornered = FakeQuests([QuestRead(quests: hub, player: thendal, missing: []), QuestRead(quests: hub, player: thendal, missing: [])])
@@ -1138,8 +1139,8 @@ extension NavTests {
             questOffers(QuestRead(quests: [q], player: at, missing: [], abilities: ["Skysight"]), failed: [step.key], stopped: step)
         }
         let huntHere = stoppedAt((44.6, 26.5), .hunt(infest), infest)
-        check(huntHere.map(\.skill) == ["RETREAT", "FROM_HERE"] && huntHere[1].criterion.hasPrefix("Hunt for \"Infestation Investigation\" from here")
-              && { if case .hunt(let q) = huntHere[1].step { return q.pin == nil && q.title == infest.title }; return false }(),
+        check(huntHere.map(\.skill) == ["RETREAT", "FIGHT_AHEAD", "FROM_HERE"] && huntHere[2].criterion.hasPrefix("Hunt for \"Infestation Investigation\" from here")
+              && { if case .hunt(let q) = huntHere[2].step { return q.pin == nil && q.title == infest.title }; return false }(),
               "live run 35: a hunt's walk stopped 1.3 from its area offers the hunt from here, with no pin, beside RETREAT")
         func noHere(_ offers: [(skill: String, step: QuestStep, criterion: String)]) -> Bool { offers.first?.skill == "RETREAT" && !offers.contains { $0.skill == "FROM_HERE" } }
         check(noHere(stoppedAt((42, 24), .hunt(infest), infest)) && noHere(stoppedAt((44.6, 26.5), .handIn(infest), infest))
@@ -1153,13 +1154,34 @@ extension NavTests {
         check(herder.offered.count == 3 && herder.offered[1].contains("DO:FROM_HERE") && herder.offered[2].contains("DO:HUNT_1")
               && grove.pins.count == 3 && grove.pins[1] == nil && grove.pins[2] != nil,
               "review of #58: a hunt from here that took some of its kills is offered again, as HUNT with its walk")
+        // M4p: a red name that stops a walk may be fought (FIGHT_AHEAD, Jev's choice). A kill offers the stopped step again; a
+        // loss ends the run; a fight that did not start (health) ends nothing, and the stopped step stays failed.
+        check(!questOffers(QuestRead(quests: [infest], player: (44, 26), missing: []), failed: []).contains { $0.skill == "FIGHT_AHEAD" },
+              "no FIGHT_AHEAD without a walk a red name stopped")
+        func stoppedHunt(_ fight: String, _ script: [String]) async -> (FakeQuests, CannedGraph, QuestResult) {
+            let host = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: []),
+                                   QuestRead(quests: [infest], player: (43, 25), missing: [])])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "FIGHT_AHEAD": fight]
+            let jev = CannedGraph(script)
+            return (host, jev, await runQuests(host: host, jev: jev, graph: graph()!))
+        }
+        let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
+        check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
+              && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),
+              "a kill ahead offers the stopped hunt again, and no second fight ahead without a new stop")
+        let (_, _, lostRun) = await stoppedHunt("PLAYER_DEAD", ["DO:HUNT_1", "DO:FIGHT_AHEAD"])
+        check(lostRun.outcome == "FIGHT_PLAYER_DEAD", "a fight ahead that is not won ends the run")
+        let (held, heldJev, heldRun) = await stoppedHunt("HOLD_PLAYER_HEALTH", ["DO:HUNT_1", "DO:FIGHT_AHEAD"])
+        check(held.handed == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && heldJev.offered.count == 2
+              && heldRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "a fight ahead held for health ends nothing: the run goes on, and the stopped hunt stays failed")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])
         convergence.outcomes = ["USE Skysight": "WALK_DANGER_AHEAD", "USE Skysight HERE": "USED_ABILITY"]
         let chooser = CannedGraph(["DO:USE_1", "DO:FROM_HERE"])
         let usedHere = await runQuests(host: convergence, jev: chooser, graph: graph()!)
-        check(chooser.offered.count == 2 && chooser.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:FROM_HERE", "DO:RETREAT"]
+        check(chooser.offered.count == 2 && chooser.offered[1].filter { $0.hasPrefix("DO:") } == ["DO:FIGHT_AHEAD", "DO:FROM_HERE", "DO:RETREAT"]
               && convergence.handed == ["USE Skysight", "USE Skysight"] && convergence.pins.count == 2 && convergence.pins[1] == nil
               && usedHere.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
               "live run 48: Skysight's walk stopped 1.8 from the Convergence; Jev chose FROM_HERE and it was cast there, with no walk")
