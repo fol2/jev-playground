@@ -790,6 +790,9 @@ a Cirrusfly selected in front of the character. None landed a blow.
   objective. A fight back on a walk keeps the raw name.
 - After 24 walks, LOOK_AROUND left nothing admissible on a readable frame, and the empty request ended the hunt
   `HUD_UNREADABLE`. It now ends `MOVE_LIMIT` (or `NO_ADMISSIBLE_SKILL`), which fails the step, not the run.
+- A creature that counts for nothing kept the raw cue, and run 48 (27 Sept) rejected 6 of 12 hunt decisions
+  `target_cue_changed` while one Pesky Cirrusfly stayed selected ("Pesky Cirrusfly Л Л4О", "Pesky Cirrusfiy 4 84О").
+  Its cue is now its name's Latin words only.
 
 Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
 slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as

@@ -134,8 +134,14 @@ func confirmedObject(_ reads: [[String]], in objectives: [Objective]) -> Objecti
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
 /// OCR reads one Juvenile Vuldren three ways ("Juvenile Vuldren 30s40", "luvenile Vuldren ЛОРAУ"), and each change
 /// rejected the decision taken on it (live run 26, 26 Sept: target_cue_changed four times, no fight).
+/// A creature that counts for nothing is cued by its name's Latin words only: the OCR tail is digits and Cyrillic look-alikes
+/// that change every frame (live run 48, 27 Sept: "Pesky Cirrusfly Л Л4О", "Pesky Cirrusfiy 4 84О"; 6 of 12 decisions
+/// were rejected target_cue_changed while the same Cirrusfly stayed selected).
 func targetCue(_ name: String?, _ objectives: [Objective]) -> String? {
-    name.map { objective(for: $0, in: objectives)?.text ?? nameKey($0) }
+    name.map { name in
+        objective(for: name, in: objectives)?.text
+            ?? nameKey(name.split(separator: " ").filter { $0.allSatisfy { $0.isASCII && ($0.isLetter || $0 == "'") } }.joined(separator: " "))
+    }
 }
 
 /// Whether most of a target frame's name is in an objective: at least 60% of its four-letter runs. The frame's font
