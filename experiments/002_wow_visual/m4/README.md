@@ -1264,7 +1264,10 @@ the in-run `failed` set is forgotten when a run ends.
   memory is forgotten.
 - The owner's gear rule of 27 Sept joins `owner-rules.md`.
 - Evidence: sim (`HuntTests`: two failures counted, the takeover, the clock and nothing to sell leave them, a success forgets
-  them; a run's Jev reads the record in the hunt's criterion and the outcome is remembered). Live: the next runs.
+  them; a run's Jev reads the record in the hunt's criterion and the outcome is remembered). Live run 79: `step_memory` logged
+  "HUNT Foul Matriarch" failed once (`WALK_NO_PROGRESS`, the walk west stopped against a boulder at 40.7,22.9, as in run 78)
+  and "HUNT Harvesting Windstones" once (`HUNT_HUD_UNREADABLE`), and the character's memory held both; that Jev reads them
+  in the next run is still to be seen live.
 
 ## Limits
 
