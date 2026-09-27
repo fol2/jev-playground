@@ -18,6 +18,14 @@ enum QuestHUD {
     static let enter: UInt16 = 36
     static let escape: UInt16 = 53
     static let characterPane: UInt16 = 8  // C
+    static let bags: UInt16 = 11  // B, the backpack (the default binding; M4m)
+    /// The character select screen's "Enter World" button (27 Sept), below the selected character's name, which is left out.
+    static let enterWorld = CGRect(x: 1100, y: 1205, width: 360, height: 60)
+    /// The Combined Backpack (27 Sept): its title is read in this box; the first slot's centre lies (-142, +94) from the
+    /// title's left top, 10 slots a row, 45 px apart each way. An item's tooltip is drawn just above its slot.
+    static let bagTitle = CGRect(x: 1900, y: 900, width: 660, height: 260)
+    static let bagSlot = (dx: -142.0, dy: 94.0, pitch: 45.0, columns: 10, count: 20)
+    static let bagTooltip = CGRect(x: 1200, y: 600, width: 1360, height: 580)
     /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
     static let paneSlots: [String: (x: Double, y: Double)] = [
         "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
@@ -37,7 +45,7 @@ enum QuestHUD {
 /// A hand-in or a quest taken changes the log: its memory goes, though the tracker would show it too, in
 /// `--quests` and `--turn-in` alike.
 func forgetLog(_ outcome: String) {
-    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
+    if outcome.hasPrefix("COMPLETED") || outcome.hasPrefix("ACCEPTED") || outcome == "USED" { try? FileManager.default.removeItem(at: QuestHUD.logMemory) }
 }
 
 final class QuestRun {
@@ -189,12 +197,96 @@ final class QuestRun {
     func sleep(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
 
     func tap(_ code: UInt16) async {
+        body.keys.grant(code, seconds: 1.0)  // the watchdog lifts it if this task stalls (review of #53)
         body.keys.press(code)
         await sleep(0.06)
         body.keys.lift(code)
     }
 
     func tapEnter() async { await tap(QuestHUD.enter) }
+
+    /// The Combined Backpack's title, opening the backpack with B when it is not in view. `opened`: B was pressed here, so
+    /// closeBags presses it again.
+    func openBags() async -> (title: TipLine, opened: Bool)? {
+        func title(_ image: CGImage?) -> TipLine? { lines(QuestHUD.bagTitle, image).first { nameKey($0.text).contains("backpack") } }
+        if let shown = title(await frame()) { return (shown, false) }
+        let pressed = hostNow()
+        await tap(QuestHUD.bags)
+        await sleep(0.8)
+        guard let shown = title(await frame(after: pressed + 0.6)) else {
+            await tap(QuestHUD.bags)  // whatever B opened, it is closed again
+            return nil
+        }
+        return (shown, true)
+    }
+
+    /// The backpack's items (M4m): each slot, placed from the title, is hovered and its tooltip read (bagItemName), in the
+    /// order the bag fills, until two empty slots in a row. Live recon, 27 Sept: seven items from the first slot on.
+    // ponytail: every read hovers each filled slot (about 0.9 s a slot); keep the names between reads if runs grow.
+    func readBags(close: Bool = true) async -> [(name: String, at: (x: Double, y: Double))]? {
+        guard let bags = await openBags() else { return nil }
+        let s = QuestHUD.bagSlot
+        var items: [(name: String, at: (x: Double, y: Double))] = [], empty = 0
+        for slot in 0..<s.count where empty < 2 {
+            let at = (x: bags.title.x + s.dx + s.pitch * Double(slot % s.columns), y: bags.title.y + s.dy + s.pitch * Double(slot / s.columns))
+            hover(at.x, at.y)
+            let moved = hostNow()
+            await sleep(0.45)
+            let name = bagItemName(lines(QuestHUD.bagTooltip, await frame(after: moved + 0.3)))
+            body.emit("bag_slot", ["slot": slot, "at": [Int(at.x), Int(at.y)], "item": orNull(name)])
+            if let name { items.append((name, at)); empty = 0 } else { empty += 1 }
+        }
+        hover(1280, 60)
+        if close && bags.opened { await tap(QuestHUD.bags) }
+        return items
+    }
+
+    /// Use a bag item, as a human does: open the bags, right-click it, and close what it opened (M4m). An item "to read"
+    /// opens a text panel titled with its name at the left, which Esc closes; Esc is pressed only when that panel is read,
+    /// as Esc with nothing open is the Game Menu. The next log read shows what it did. USED, or why not.
+    func useItem(_ item: String) async -> String {
+        guard let items = await readBags(close: false) else { return "BAGS_UNREAD" }
+        func close() async { if lines(QuestHUD.bagTitle, await frame()).contains(where: { nameKey($0.text).contains("backpack") }) { await tap(QuestHUD.bags) } }
+        guard let found = items.first(where: { sameTitle($0.name, item) }) else {
+            await close()
+            return "ITEM_NOT_FOUND"
+        }
+        body.emit("use_item", ["item": found.name, "at": [Int(found.at.x), Int(found.at.y)], "controller": "RULE"])
+        guard click(found.at.x, found.at.y, right: true) else { return "CLICK_FAILED" }
+        let used = hostNow()
+        await sleep(1.2)
+        let after = await frame(after: used + 1.0)
+        if let after { write(after, to: body.directory.appendingPathComponent("use-\(clicks).png"), type: .png) }
+        let panel = lines(QuestHUD.dialog, after)
+        body.emit("item_panel", ["lines": panel.prefix(4).map(\.text)])
+        if panel.contains(where: { nameKey($0.text).contains(nameKey(item)) }) {
+            await tap(QuestHUD.escape)
+            await sleep(0.6)
+        }
+        await close()
+        return "USED"
+    }
+
+    /// At the character select screen, enter the world with the character it has selected, the one last played, as the
+    /// owner authorised (26 Sept: "open, close, reopen, login, enter character"). Live, 27 Sept: after 70 min idle the game
+    /// had logged out to that screen. Enter, then wait up to 90 s for the minimap's coordinates. The selected character's
+    /// name is never read or logged. true: in the world (already, or now).
+    func enterWorldIfAtSelect() async -> Bool {
+        guard let shown = await frame(),
+              lines(QuestHUD.enterWorld, shown).contains(where: { nameKey($0.text) == "enterworld" }) else { return true }
+        body.emit("character_select", ["action": "Enter World"])
+        await tapEnter()
+        let start = hostNow()
+        while hostNow() - start < 90 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if let seen = await frame(), readCoords(seen, tracked: false).at != nil {
+                body.emit("entered_world", ["seconds": Int(hostNow() - start)])
+                return true
+            }
+        }
+        body.emit("entered_world", ["failed": true])
+        return false
+    }
 
     /// As a human checks: open the character pane, rest the pointer on the slot, read its name, close it.
     /// (/run print(...) raised the client's "Allow custom scripts?" prompt on 24 Sept: that is the
@@ -721,7 +813,18 @@ final class LiveQuestHost: QuestHost {
 
     func readQuests() async -> QuestRead? {
         let (quests, player, missing, givers) = await quester.readQuests()
-        return player.map { QuestRead(quests: quests, player: $0, missing: missing, givers: givers) }
+        guard let player else { return nil }
+        // The bags are read only when a use-at quest might name an item in them (M4m).
+        let items = quests.contains { questKind($0) == .useAt } ? (await quester.readBags())?.map(\.name) ?? [] : []
+        if !items.isEmpty { emit("bags", ["items": items]) }
+        return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items)
+    }
+
+    func useItem(_ quest: PlannedQuest, item: String) async -> String {
+        let outcome = await quester.useItem(item)
+        emit("item_used", ["quest": quest.title, "item": item, "outcome": outcome])
+        forgetLog(outcome)
+        return outcome
     }
 
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
@@ -851,6 +954,14 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
         throw ProbeError("Jev did not answer a warm-up question within 30 s")
     }
     let sink = PidKeySink(pid: session.app.processIdentifier)
+    // An idle logout leaves the game at the character select screen: the world is entered before the bar is read.
+    let entry = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    let entered = await (try QuestRun(body: entry)).enterWorldIfAtSelect()
+    entry.releaseAll()
+    guard entered else {
+        try? await stream.stopCapture()
+        throw ProbeError("the world did not load after Enter World")
+    }
     // A fight back presses the bar's keys, so they come from its tooltips, as a hunt's: the defaults were
     // the 23 Sept bar, where key 3 was the heal (Earth Shock by 24 Sept) and key 4 the buff (Healing Wave).
     let bar = try await readSkillBar(session, feed, log, required: fightRoles)
@@ -910,6 +1021,31 @@ func zoomExecute(_ inSeconds: Double) async throws -> Int32 {
     guard let after else { throw ProbeError("no frame after the zoom") }
     write(after, to: run.url.appendingPathComponent("zoom.png"), type: .png)
     print("zoom: in \(inSeconds) s; \(run.url.appendingPathComponent("zoom.png").path)")
+    return body.holding ? 3 : 0
+}
+
+/// `--bags --keys wqe`: read the backpack's items (readBags: B, a hover on each filled slot, B) and print them (M4m).
+/// From the character select screen it enters the world first. Nothing is clicked.
+@MainActor
+func bagsExecute() async throws -> Int32 {
+    let session = try await wowSession(input: true, full: true)
+    let run = try runDirectory("m4_bags")
+    let log = try Log(file: run.url.appendingPathComponent("events.jsonl"))
+    let feed = FrameFeed()
+    let stream = try capture(session, into: feed)
+    try await stream.startCapture()
+    let sink = PidKeySink(pid: session.app.processIdentifier)
+    let body = LiveNavBody(session: session, feed: feed, sink: sink, directory: run.url, log: log)
+    defer { body.releaseAll() }
+    let dummy = InputLease(profile: .wqe, sink: sink, clock: hostNow, emit: { _, _ in })
+    let signals = trapSignals(dummy, log, also: { body.releaseAll() }, holding: { body.holding })
+    let quester = try QuestRun(body: body)
+    guard await quester.enterWorldIfAtSelect() else { throw ProbeError("the world did not load after Enter World") }
+    let items = await quester.readBags()
+    try? await stream.stopCapture()
+    withExtendedLifetime(signals) {}
+    guard let items else { throw ProbeError("the backpack did not open") }
+    for (i, item) in items.enumerated() { print("\(i + 1). \(item.name)") }
     return body.holding ? 3 : 0
 }
 
