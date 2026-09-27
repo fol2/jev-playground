@@ -224,6 +224,19 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
       melee falls (`corpseSearchPoints`). Every point is confirmed by the corpse's tooltip first. The label is never
       clicked blind: a living creature's plate of the same name reads as one. The search stops after 30 s.
   - Evidence: sim only (`FightTests`: 227 checks). Live: the next run.
+- **Fight back from behind, live run 68 (27 Sept).** The character died on the way to safety.
+  - Its fight back was attacked by Roiling Winds casting from behind. Tab finds only an enemy in front, and six
+    SELECT_TARGETs read "no target selected" while health fell from 69% to 53%.
+  - Jev then chose STOP. The fight ended `JEV_STOP`, the way to safety (M4r) gave up, and the character died where it
+    stood.
+  - SELECT_TARGET's check was also wrong. It read the plate reader, which read no plate in any quest fight that day,
+    and in run 67 it said "no target selected" once when Tab had in fact selected a Roiling Winds.
+  - Now:
+    - STOP is offered only out of combat.
+    - In combat, SELECT_TARGET tabs, then turns a quarter (E for 600 ms, at the walk's measured 150° a second) and tabs
+      again, a whole turn at most.
+    - The target frame is its evidence (`Episode.alive`), not a plate.
+  - Evidence: sim only (`FightTests`); live: the next run.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

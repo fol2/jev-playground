@@ -337,6 +337,9 @@ struct FightTests {
         let points = corpseHoverPoints(Plate(x0: 1214, x1: 1346, top: 400, bottom: 413))
         check(points.count == 12 && points.allSatisfy { $0.y > 413 } && abs(points[0].x - 1280) < 1 && points[1].y == points[0].y && points[3].y > points[0].y,
               "live run 64: a corpse is sought below the last plate, middle column first, row by row downwards")
+        check(!has(admissible(Obs(target: 0, combat: true), Episode()), .stop) && !has(admissible(Obs(target: 0.5, combat: true), Episode()), .stop)
+              && has(admissible(Obs(target: 0, combat: false), Episode()), .stop),
+              "live run 68: STOP only out of combat; in combat, standing still is dying")
         let sought = corpseSearchPoints(label: (x: 1280, bottom: 398, height: 41))
         let around = corpseSearchPoints(label: nil)
         check(sought.count == 21 && sought[0].x == 1280 && sought[0].y == 398 + 3 * 41 && around.count == 12

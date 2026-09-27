@@ -438,10 +438,22 @@ final class LiveHost: FightHost {
             await sleep(1.5)
             return look("buff", plates: false).buff ? "enchant active" : "enchant not seen"
         case .selectTarget:
-            await tap(FightLimits.tab)
-            await sleep(1.0)
+            // Tab finds only an enemy in front. In combat with none there, the attacker stands behind or aside (live run 68: six
+            // Tabs found nothing while Roiling Winds cast from behind), so the character turns a quarter and tabs again, a whole
+            // turn at most, as a human turns round. The target frame is the evidence, not a plate (none was read that day).
             episode.meleeOn = false
-            return look("tab", plates: true).plate != nil ? "a target is selected" : "no target selected"
+            for turn in 0..<4 {
+                if turn > 0 {
+                    guard observation.combat else { break }
+                    await hold(FightLimits.turnRight, FightLimits.searchTurnMs)
+                }
+                await tap(FightLimits.tab)
+                await sleep(1.0)
+                if Episode.alive(look("tab", plates: true)) {
+                    return turn == 0 ? "a target is selected" : "a target is selected after turning \(turn * 90)°"
+                }
+            }
+            return observation.combat ? "no target selected, even turning round" : "no target selected"
         case .faceTarget:
             return await face(&episode)
         case .approachToRange:

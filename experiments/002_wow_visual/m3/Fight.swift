@@ -59,6 +59,7 @@ enum FightLimits {
     static let freshWait = 2.0  // how long a fight waits for a fresh frame before NO_FRESH_FRAME
     static let walkBudgetMs = 3500
     static let turnBudgetMs = 2500
+    static let searchTurnMs = 600  // a quarter turn with E at 150° a second (NavLimits.turnRate): SELECT_TARGET turns so, up to a whole turn
     static let watchdogSeconds = 4.0
     static let jevTimeout = 4.0
     static let lootPolls = 6
@@ -237,7 +238,9 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
     if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
         return o.casting ? [.wait] : [.heal]
     }
-    var out: [FightAction] = [.wait, .stop]
+    // STOP only out of combat: in combat, standing still is dying (live run 68, 27 Sept: a fight back on the way to safety,
+    // attacked from behind, chose STOP at 53% health; the way to safety ended, and the character died where it stood).
+    var out: [FightAction] = o.combat ? [.wait] : [.wait, .stop]
     if !o.buff && kit?.has(.buff) != false { out.append(.buffWeapon) }  // the legacy policy: always, as before
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
