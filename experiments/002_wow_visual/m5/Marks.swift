@@ -309,7 +309,7 @@ enum ObjectTiles {
     /// A training tile holding `box` (x0, y0, x1, y1): the box at a place set by `seed` (a hash of its frame), not
     /// always the centre, inside the frame.
     static func around(_ box: [Int], seed: UInt64, width: Int, height: Int) -> (x: Int, y: Int) {
-        let slack = side - 2 * max(box[2] - box[0], box[3] - box[1]) - 32
+        let slack = side - 2 * max(box[2] - box[0] + 1, box[3] - box[1] + 1) - 32  // boxes are inclusive, as annotated
         let dx = slack > 0 ? Int(seed % UInt64(slack)) - slack / 2 : 0, dy = slack > 0 ? Int((seed / 7919) % UInt64(slack)) - slack / 2 : 0
         let cx = (box[0] + box[2]) / 2 + dx, cy = (box[1] + box[3]) / 2 + dy
         return (max(0, min(width - side, cx - side / 2)), max(0, min(height - side, cy - side / 2)))

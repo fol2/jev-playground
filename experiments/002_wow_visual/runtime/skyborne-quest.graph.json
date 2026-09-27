@@ -1,6 +1,6 @@
 {
   "id": "skyborne-quest-tools-v6",
-  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, quests from a \"!\" giver on the minimap, and bounded hunts for kill and collect quests, within one walk of the player; with nothing left there, a walk by the roads other players walked (learned from published videos) to a quest in another zone; a walk stops when a hostile creature's red name comes into view ahead; a use-at quest whose objective names an item in the bags or an ability on the bar is done by using it (at its place when it says near one), any other use-at quest and objects on the ground are NOT built here; a follow-up offered on completion is accepted by the hand-in (owner rule).",
+  "profile": "WoW Forever / Skyborne Shaman on Zephras Isle. Hand-ins, quests from a \"!\" giver on the minimap, and bounded hunts for kill and collect quests, within one walk of the player; with nothing left there, a walk by the roads other players walked (learned from published videos) to a quest in another zone; a walk stops when a hostile creature's red name comes into view ahead; a use-at quest whose objective names an item in the bags or an ability on the bar is done by using it (at its place when it says near one), any other use-at quest is NOT built here; a hunt picks up objects on the ground its learned detector sees; a follow-up offered on completion is accepted by the hand-in (owner rule).",
   "root": "quest",
   "nodes": {
     "quest": {

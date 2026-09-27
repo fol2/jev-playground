@@ -183,10 +183,11 @@ final class LiveHuntHost: HuntHost {
     }
 
     /// PICK_UP_OBJECT (M5): the object the detector sees nearest the character's feet is hovered, as a human rests the
-    /// pointer before clicking. Only a tooltip line that names an unfinished objective (objective(for:)) is right-clicked;
-    /// Click-to-Move walks there and picks it up. The pointer first waits off every unit until no tooltip is left from
-    /// before, so a fading one cannot confirm the wrong place. Its count rising within 8 s is the evidence; an attack ends
-    /// the wait.
+    /// pointer before clicking. Only a tooltip that names an unfinished collect objective, and is not a unit's, is
+    /// right-clicked (objectTipObjective); Click-to-Move walks there and picks it up. First the pointer waits off every unit
+    /// until two fresh frames show no tooltip (tooltipGone), so a fading one cannot confirm the wrong place. Combat is read
+    /// again before the click. Its count rising within 8 s is the evidence; an attack ends the wait and a tap of forward
+    /// stops the walk (review of #59).
     func pickUp(objectives: [Objective]) async -> String {
         guard let image = freshImage() else { return "no fresh frame" }
         let feetY = 800.0 * Double(image.height) / Double(HUD.height)
@@ -203,16 +204,24 @@ final class LiveHuntHost: HuntHost {
         func move(_ x: Double, _ y: Double) -> Bool {
             keys.withControl { Result { try NativeBackgroundClickTransport().move(target: routed, point: point(x, y)) } }.map { (try? $0.get()) != nil } ?? false
         }
-        func tip(after t: Double) async -> [String] { (await frame(after: t)).map { upscaledText($0, QuestHUD.unitTip) } ?? [] }
-        func names(_ lines: [String]) -> Objective? { lines.lazy.compactMap { objective(for: $0, in: objectives) }.first }
+        func tip(after t: Double) async -> [String]? { (await frame(after: t)).map { upscaledText($0, QuestHUD.unitTip) } }
         guard move(1280, 60) else { return "cancelled: input ownership revoked" }
-        for _ in 0..<10 where names(await tip(after: hostNow() + 0.2)) != nil {}  // a tooltip from before fades
+        var fades: [Bool?] = []  // true: a tooltip is still up; nil: no fresh frame
+        let parked = hostNow()
+        while !tooltipGone(fades) && hostNow() - parked < 4 {
+            fades.append((await tip(after: hostNow() + 0.2)).map { !$0.isEmpty })
+        }
+        guard tooltipGone(fades) else { return "a tooltip stayed up with the pointer off every unit; not hovered" }
         guard move(near.x, near.y) else { return "cancelled: input ownership revoked" }
-        let lines = await tip(after: hostNow() + 0.4)
+        let lines = await tip(after: hostNow() + 0.4) ?? []
         emit("pick_up_hover", ["at": [Int(near.x), Int(near.y)], "tooltip": Array(lines.prefix(3))])
-        guard let counted = names(lines) else {
+        guard let counted = objectTipObjective(lines, in: objectives) else {
             _ = move(1280, 60)
             return "the tooltip read \"\(lines.first ?? "nothing")\", which names no unfinished objective; not clicked"
+        }
+        guard vitals()?.combat == false else {
+            _ = move(1280, 60)
+            return "in combat, or unreadable, before the click; not clicked"
         }
         let request = NativeBackgroundClickDispatchRequest(target: routed, eventTapPointTopLeft: point(near.x, near.y),
                                                            appKitPoint: point(near.x, near.y), clickCount: 1, mouseButton: .right)
@@ -222,7 +231,11 @@ final class LiveHuntHost: HuntHost {
         let clicked = hostNow()
         while hostNow() - clicked < 8 {
             await sleep(0.5)
-            if vitals()?.combat == true { return "attacked while picking up \(counted.text)" }
+            if vitals()?.combat == true {
+                keys.grant(FightLimits.forward, seconds: HuntLimits.tap + NavLimits.forwardWatchdog)  // lifted if this stalls
+                await tap(self, FightLimits.forward)  // a movement key ends Click-to-Move
+                return "attacked while picking up \(counted.text); the walk there stopped"
+            }
             guard let seen = freshImage() else { continue }
             let tracker = parseTracker(upscaledText(seen, HuntHUD.tracker))
             if let now = tracker.first(where: { $0.quest == counted.quest && $0.text == counted.text }), now.done > counted.done {

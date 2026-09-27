@@ -107,6 +107,21 @@ func objective(for name: String?, in objectives: [Objective]) -> Objective? {
     return objectives.first { $0.unfinished && (nameKey($0.text).hasPrefix(nameKey(name)) || mostlyIn(name, $0.text)) }
 }
 
+/// Whether an objective is to collect things, not to defeat creatures: its text names no defeat ("Windstone Cluster", not
+/// "Roiling Winds destroyed"). Only these count for an object picked up (review of #59).
+func collects(_ o: Objective) -> Bool {
+    let t = o.text.lowercased()
+    return o.unfinished && !["slain", "destroyed", "killed", "defeated"].contains { t.hasSuffix($0) }
+}
+
+/// The collect objective an object's tooltip names. A unit's tooltip (a "Level" line) names none: the detector's box on a
+/// creature that counts must not be right-clicked, which would start a fight outside the fight's admissibility (review of #59).
+func objectTipObjective(_ lines: [String], in objectives: [Objective]) -> Objective? {
+    guard !lines.contains(where: { $0.lowercased().hasPrefix("level ") }) else { return nil }
+    let collect = objectives.filter(collects)
+    return lines.lazy.compactMap { objective(for: $0, in: collect) }.first
+}
+
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
 /// OCR reads one Juvenile Vuldren three ways ("Juvenile Vuldren 30s40", "luvenile Vuldren ЛОРAУ"), and each change
 /// rejected the decision taken on it (live run 26, 26 Sept: target_cue_changed four times, no fight).
@@ -503,10 +518,11 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
     }
     if !(last.map { $0.isWalk || $0 == .lookAround || $0 == .nextTarget } ?? false) { out.append(.nextTarget) }
     if last != .lookAround { out.append(.lookAround) }
-    // An object on the ground in view while an objective is open (M5): the pointer rests on it, and it is right-clicked only
-    // if its tooltip names that objective. Not after two in a row that picked nothing up.
-    let empty = steps.suffix(2).count == 2 && steps.suffix(2).allSatisfy { $0.action == .pickUp && !$0.result.hasPrefix("picked up") }
-    if !o.objects.isEmpty && o.objectives.contains(where: \.unfinished) && o.player >= HuntLimits.walkHealth && !empty {
+    // An object on the ground in view while a collect objective is open (M5): the pointer rests on it, and it is right-clicked
+    // only if its tooltip names that objective. Not after two that picked nothing up since the last walk: a Tab or a look
+    // around does not make a false object worth hovering again (review of #59).
+    let empty = steps.reversed().prefix { !$0.action.isWalk }.filter { $0.action == .pickUp && !$0.result.hasPrefix("picked up") }.count >= 2
+    if !o.objects.isEmpty && o.objectives.contains(where: collects) && o.player >= HuntLimits.walkHealth && !empty {
         out.append(.pickUp)
     }
     if o.here != nil && o.player >= HuntLimits.walkHealth && steps.filter({ $0.action.isWalk }).count < HuntLimits.maxMoves {
@@ -572,7 +588,7 @@ func huntExperienceFrame(_ o: HuntObs, blocked: [Double]) -> ExperienceFrame? {
                            stream: stamp.stream, geometry: stamp.geometry)
 }
 
-let huntInstructions = "Which action most safely advances the unfinished `objectives`, given `selected_quest_area`, `creatures_in_view`, `blocked_headings_near_here`, `character`, `target` and `recent_actions`?"
+let huntInstructions = "Which action most safely advances the unfinished `objectives`, given `selected_quest_area`, `creatures_in_view`, `objects_on_the_ground_in_view`, `blocked_headings_near_here`, `character`, `target` and `recent_actions`?"
 
 func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked: [Double]) -> [String: Any] {
     var target: [String: Any] = ["selected": o.target != nil]
@@ -593,7 +609,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
     if let facing = o.facing { character["facing_deg"] = Int(facing.rounded()) }
     if let here = o.here { character["position"] = ["x": here.x, "y": here.y] }
     return [
-        "goal": "Complete the unfinished quest objectives by defeating the creatures they name: quests are how this character levels up. Only a creature named in an unfinished objective counts. Such creatures are mostly inside the selected quest's area on the minimap, but one that counts may be fought wherever it is: a selected creature that counts and is in Lightning Bolt range can be fought from here (live run 28, 26 Sept: six such targets were walked past towards the area). Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
+        "goal": "Complete the unfinished quest objectives by defeating the creatures or picking up the objects they name: quests are how this character levels up. Only a creature or object named in an unfinished objective counts. Objects on the ground are seen by a learned detector that does not say what they are: PICK_UP_OBJECT rests the pointer on the one nearest the character's feet and right-clicks it only if its tooltip names an unfinished objective, then Click-to-Move walks there. Such creatures are mostly inside the selected quest's area on the minimap, but one that counts may be fought wherever it is: a selected creature that counts and is in Lightning Bolt range can be fought from here (live run 28, 26 Sept: six such targets were walked past towards the area). Choose where to go from what is known: whether the character is inside that area, which creatures are in view (a hostile creature attacks when approached, and several near each other are dangerous to fight at once), and which headings were blocked here. A fight starts only at 90% health or more, with no other hostile creature near; below 60% health the character rests or eats before walking on. Costs, as a skilled player knows them: a same-level fight takes about 10 s and 15-30% health; melee does most of the damage and costs no mana, so a fight can start on little mana; each Lightning Bolt costs about 15% mana; a melee creature runs as fast as the character, so walking away only gives it free hits; Skysight's Elemental Blessing, when active, adds 10% run speed, under 1 yard a second: about 7 s of hits to leave its reach and 30 s to open Lightning Bolt range; eating and drinking restore both to full in about 20 s, standing still takes minutes. The character must stay alive. The owner is supervising.",
         "objectives": o.objectives.filter(\.unfinished).map {
             ["quest": $0.quest, "objective": $0.text, "progress": "\($0.done)/\($0.need)"]
         },
@@ -605,10 +621,14 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
              "counts_for_objective": counts($0, o.objectives)?.text ?? "none"] as [String: Any]
         },
         "hostile_creatures_near": o.seen.filter { $0.hostile && $0.near }.count,
+        "objects_on_the_ground_in_view": o.objects.map {
+            ["screen_x_percent": Int($0.x * 100 / Double(HUD.width)), "screen_y_percent": Int($0.y * 100 / Double(HUD.height)),
+             "confidence": roundTo($0.confidence)] as [String: Any]
+        },
         "blocked_headings_near_here": blocked.map { Int($0.rounded()) },
         "recent_actions": recent.suffix(HuntLimits.recent).map(\.json),
         "fights_so_far": fights,
-        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks cover about 0.6 y units; headings are compass degrees, 0 north, 90 east",
+        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks cover about 0.6 y units; headings are compass degrees, 0 north, 90 east; an object's screen percent is 0 at the top left, and the character's feet are near x 50, y 60",
     ]
 }
 
@@ -1081,7 +1101,7 @@ final class SimHunt: HuntHost {
         let here: MapPoint = (world.x, world.y)
         guard let i = objects.indices.filter({ inView(objects[$0], within: 1.2) })
                 .min(by: { distance(here, objects[$0].point) < distance(here, objects[$1].point) }) else { return "no object in view" }
-        guard let counted = objective(for: objects[i].name, in: objectives), let k = self.objectives.firstIndex(of: counted) else {
+        guard let counted = objectTipObjective([objects[i].name], in: objectives), let k = self.objectives.firstIndex(of: counted) else {
             return "the tooltip read \"\(objects[i].name)\", which names no unfinished objective; not clicked"
         }
         (world.x, world.y) = (objects[i].x, objects[i].y)

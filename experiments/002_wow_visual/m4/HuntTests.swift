@@ -45,6 +45,16 @@ extension NavTests {
         check(skipped.steps.first?.action == .pickUp && skipped.steps.first!.result.contains("names no unfinished objective")
               && decoy.objects[0].alive && decoy.objectives[0].done == 0,
               "an object whose tooltip names no objective is not clicked, and the hunt goes on (\(skipped.outcome))")
+        check(skipped.steps.prefix { !$0.action.isWalk }.filter { $0.action == .pickUp }.count == 2,
+              "review of #59: two empty pick-ups and no more until a walk; a Tab or a look around does not offer it again")
+        let kill = [Objective(quest: "Infestation Investigation", done: 3, need: 8, text: "Pesky Cirrusfly slain")]
+        check(objectTipObjective(["Windstone Cluster"], in: windstones) != nil && objectTipObjective(["Windstone Cluster", "Level 3"], in: windstones) == nil
+              && objectTipObjective(["Pesky Cirrusfly"], in: kill) == nil && !huntAdmissible({ var k = seen; k.objectives = kill; return k }()).contains(.pickUp),
+              "review of #59: a unit's tooltip (a Level line) is never an object, and a kill objective is not picked up")
+        let packet = huntStatePacket(seen, recent: [], fights: [], blocked: [])
+        check((packet["objects_on_the_ground_in_view"] as? [[String: Any]])?.count == 2 && (packet["goal"] as? String)?.contains("PICK_UP_OBJECT") == true
+              && huntInstructions.contains("objects_on_the_ground_in_view"),
+              "review of #59: Jev's state names the objects in view, and its goal says what picking one up does")
     }
 
     static func tracker() {

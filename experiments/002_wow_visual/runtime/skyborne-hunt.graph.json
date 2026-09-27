@@ -11,7 +11,7 @@
         "EAT_DRINK"
       ],
       "branches": {
-        "search": "Find/select an objective creature or choose how to travel toward one.",
+        "search": "Find/select an objective creature, pick up an objective object in view, or choose how to travel toward either.",
         "improve": "Classify one retained matching episode for later offline investigation; this does not change current skills or policy."
       },
       "reads": [
