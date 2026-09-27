@@ -1158,8 +1158,8 @@ final class LiveQuestHost: QuestHost {
         if quests.contains(where: { questKind($0) == .useAt }) {
             if !stale.contains(.bags), let kept = lastItems {
                 items = kept
-            } else {
-                items = (await quester.readBags())?.map(\.name) ?? []
+            } else if let read = await quester.readBags() {  // a read that failed keeps them stale (second review of #84)
+                items = read.map(\.name)
                 lastItems = items
                 stale.remove(.bags)
             }

@@ -1299,7 +1299,8 @@ level reads, 9-20 s before each decision, though most steps (danger stops, retre
 memory (M4d) is keyed by the zone's name and the tracker's text, which change with the subzone and OCR, and held once.
 
 - `staleAfter` (pure): the reads a step's outcome makes stale. A hand-in: the log, the bags (its reward) and the level (its
-  experience); an accept or a use: the log and the bags; a fight, or a hunt that met creatures: all three; a sale: the bags;
+  experience); an accept or a use: the log and the bags; a fight, or a hunt that reached its area (one that fought may still end
+  NO_TARGET_FOUND: live run 39): all three; a sale: the bags;
   a walk that stopped, a retreat or a road: none.
 - `LiveQuestHost` keeps the last log (with the minimap's givers), the bags' names and the level, and reads each again only
   when stale; the log also after a walk of 3 units or more, as the givers change with the place. The place is read each step.
