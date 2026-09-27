@@ -167,6 +167,20 @@ struct NavTests {
         check(legs?.count == 3 && same(legs?[1], 40, 24.2) && same(legs?.last, 44, 24.2),
               "a route keeps the road's corner and ends at the goal: no straight line across the corner")
         check(route(l, from: (44, 24.2), to: (40, 19.5)) == nil, "a road walked one way only gives no route back: a drop may not climb back")
+        // Road gap (the owner, 27 Sept: obstacles and cliffs): a road down x = 40, west to x = 36, south, and back east;
+        // the straight line down x = 40 crosses ground no player walked.
+        let round: [MapPoint] = (0...4).map { (40, 20 + Double($0)) } + (1...4).map { (40 - Double($0), 24) }
+            + (1...12).map { (36, 24 + Double($0)) } + (1...4).map { (36 + Double($0), 36) }
+        let gap = buildRoads([("a", round)])
+        let roundLegs = route(gap, from: (40, 22), to: (40, 35.5))
+        check(straightLeavesRoads((40, 22), (40, 35.5), gap) && roundLegs?.contains { $0.x < 37 } == true && same(roundLegs?.last, 40, 35.5),
+              "a straight line that leaves the roads is walked by them: the route goes round by x = 36 to the goal")
+        let village = buildRoads([("a", (0...8).map { (42 + 0.25 * Double($0), 23) })])
+        check(!straightLeavesRoads((42, 23), (44, 23), village) && !straightLeavesRoads((40, 22), (40, 35.5), RoadGraph(sources: [], subzones: [], places: [], ways: [])),
+              "a walk inside a village's roads is one straight walk, and no roads never route")
+        let bow = buildRoads([("a", [(40, 20), (41, 20), (42, 20.2), (43, 20), (44, 20)])])
+        check(route(bow, from: (40, 20), to: (44, 20))?.contains { abs($0.y - 20.2) < 0.01 } == true,
+              "a route keeps a jog of 0.2 off its chord (lip 0.15): no leg cuts across what the players walked round")
         check(route(l, from: (30, 10), to: (44, 24.2)) == nil && route(l, from: (40, 19.5), to: (60, 60)) == nil,
               "no route when no place is within reach of the player or of the goal")
         check(simplified([(0, 0), (0, 1), (0, 2), (0, 3)]).count == 2 && simplified([(0, 0), (1, 0), (1, 3)]).count == 3,

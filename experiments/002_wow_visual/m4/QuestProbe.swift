@@ -956,6 +956,17 @@ final class LiveQuestHost: QuestHost {
         case .walk: break
         }
         if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
+        // A straight line that leaves the learned roads is walked by them, leg by leg (the owner, 27 Sept: obstacles and
+        // cliffs). A retreat goes straight back over the ground it crossed; a road's own leg is already on the road.
+        if !retreating, !road, let roads, let at, straightLeavesRoads(at, pin, roads), let legs = route(roads, from: at, to: pin) {
+            let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
+            emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length)])
+            let outcome = await walkLegs(legs, until: hostNow() + QuestLimits.roadGapSeconds, now: now) { i, leg in
+                await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true,
+                           arrive: i == legs.count - 1 ? arrive : 0.5)
+            }
+            return outcome == "BY_ROAD" ? nil : outcome
+        }
         walks += 1
         let folder = quester.body.directory.appendingPathComponent(String(format: "walk%d", walks))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
