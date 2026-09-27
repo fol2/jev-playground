@@ -127,8 +127,10 @@ final class GraphReplies: JevClient {
         do { _ = try await graph.next(state: state, skills: all, jev: fails, now: { 0 }, deadline: 10); check(false, "provider failure") }
         catch { check(graph.calls == 1 && graph.lastTrace[0]["error"] != nil, "failed attempts counted without a rules fallback") }
 
-        // Actual Hunt integration: a model-selected LOOK_AROUND is the existing compound skill (four turns + Tab).
+        // Actual Hunt integration: a model-selected LOOK_AROUND is the existing compound skill (four turns + Tab). It is offered
+        // in combat only (M4ad: no look round on the spot out of combat), so the field starts in combat.
         let world = SimHunt.field(clock: FightClock())
+        world.world.combat = true
         graph = try load()
         let steps = GraphReplies(["READ:recent", "ENTER:search", "DO:LOOK_AROUND"])
         let memory = try ExperienceStore(scope: graph.graph.id)
