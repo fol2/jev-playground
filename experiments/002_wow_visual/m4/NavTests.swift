@@ -599,7 +599,7 @@ struct NavTests {
                     let c = (fields["columns"] as? [Double]).map { $0.map { $0 >= 0.55 ? "#" : "." }.joined() } ?? ""
                     FileHandle.standardError.write("\(event) at \(fields["at"] ?? "") f \(fields["facing"] ?? "") want \(fields["want"] ?? "") aim \(fields["aim"] ?? "") \(fields["side"] ?? "") \(c)\n".data(using: .utf8)!)
                 }
-                if event == "steer_block" { blocks += 1 }
+                if event == "steer_block", fields["bumped"] as? Bool == true { blocks += 1 }  // run into, not seen
                 if event == "steer", let f = fields["facing"] as? Int {
                     if let last { turned += angleError(Double(f), last) }
                     last = Double(f)
@@ -617,7 +617,7 @@ struct NavTests {
         let seeing = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: wall)
         seeing.depthRange = 2.5
         let rounded = await walked(seeing)
-        check(rounded.result.outcome == "ARRIVED" && rounded.blocks == 0 && rounded.turned < 360,
+        check(rounded.result.outcome == "ARRIVED" && rounded.blocks == 0 && rounded.turned < 90,
               "M4ac: a wall seen in depth is walked round without running into it, and without a spin")
         let blind = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: wall)
         if ProcessInfo.processInfo.environment["STEER_TRACE"] != nil { SteerLimits.logEvery = 0 }
@@ -627,6 +627,34 @@ struct NavTests {
         let boxed = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: [SimNav.Box(x0: 39, y0: 26, x1: 41, y1: 28)])
         let followed = await walked(boxed, path: [(42, 29), (42, 25.5)])
         check(followed.result.outcome == "ARRIVED" && followed.blocks == 0, "M4ac: a path round a box (the roads' way) is walked in one go")
+        // Second review of #86: the walk's own stops, each with the keys released, as runNav's.
+        func stops(_ setup: (SimNav) -> Void, to goal: NavDestination = d) async -> (outcome: String, holding: Bool) {
+            let sim = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+            setup(sim)
+            let r = await runSteer(body: sim, path: [], destination: goal)
+            return (r.outcome, sim.keys.holding)
+        }
+        let safe = NavDestination(label: "safe", x: 40, y: 25, toSafety: true)
+        let combat = await stops { $0.combat = true }, low = await stops { $0.player = 0.2 }, lowSafe = await stops({ $0.player = 0.2 }, to: safe)
+        let owner = await stops { $0.ownerFront = true }, redAhead = await stops { $0.hostiles = [(40, 28)] }
+        let pastIt = await stops({ $0.hostiles = [(40, 28)] }, to: safe), blank = await stops { $0.unreadable = true }
+        check(combat == ("COMBAT", false) && low == ("LOW_HEALTH", false) && lowSafe == ("ARRIVED", false) && owner == ("OWNER_TOOK_FOCUS", false)
+              && redAhead == ("DANGER_AHEAD", false) && pastIt == ("ARRIVED", false) && blank == ("HUD_UNREADABLE", false),
+              "M4ac: combat, low health, the owner, a red name on the aim and an unread HUD stop the walk, keys released; the way to safety walks on at low health and past a red name")
+        // A wall right ahead fills the view: W is let go and the walk turns in place, so it never runs into it.
+        let close = SimNav(clock: FightClock(), x: 40, y: 27.95, facing: 0, boxes: wall)
+        close.depthRange = 2.5
+        if ProcessInfo.processInfo.environment["STEER_TRACE"] != nil { SteerLimits.logEvery = 0 }
+        let turnedAway = await walked(close)
+        check(turnedAway.result.outcome == "ARRIVED" && turnedAway.blocks == 0, "M4ac: a view near in every column is turned from in place, not run into")
+        // Shut in (blind): the walk ends NO_PROGRESS at its sixth block, not before and not after.
+        let pen = [SimNav.Box(x0: 39.5, y0: 29.4, x1: 40.5, y1: 29.6), SimNav.Box(x0: 39.5, y0: 30.4, x1: 40.5, y1: 30.6),
+                   SimNav.Box(x0: 39.5, y0: 29.4, x1: 39.6, y1: 30.6), SimNav.Box(x0: 40.4, y0: 29.4, x1: 40.5, y1: 30.6)]
+        let shut = await walked(SimNav(clock: FightClock(), x: 40, y: 30, facing: 0, boxes: pen))
+        check(shut.result.outcome == "NO_PROGRESS" && shut.blocks == SteerLimits.maxBlocks, "M4ac: shut in (blind), the walk ends at its sixth block")
+        check(pathStart([(40, 29), (40, 27), (40, 25)], from: (40, 27.5)) == 1 && pathStart([(40, 29), (40, 27), (40, 25)], from: (40, 26)) == 2
+              && pathStart([(40, 29), (40, 27)], from: (40, 30)) == 0,
+              "M4ac: a walk starting part-way along its path heads for the next waypoint, not one behind")
         print("steer sim: field \(crossed.result.decisions) ticks; wall seen \(rounded.result.decisions) ticks \(rounded.blocks) blocks \(Int(rounded.turned))°; blind \(felt.result.outcome) \(felt.blocks) blocks \(Int(felt.turned))°; path \(followed.result.decisions) ticks")
     }
 

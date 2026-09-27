@@ -583,16 +583,20 @@ func steerAim(want: Double, columns: [Double]?, blocked: [Double], side: Double?
     if let side, columns == nil, want * side < 0 || blocked.contains(where: { abs(angleError($0, want)) <= SteerLimits.blockCone }) {
         return along ?? SteerLimits.sideTurn * side  // blind, committed, and the wanted bearing is back into the block: along it
     }
+    if let side, abs(want) > NavLimits.stopToTurn { return along ?? SteerLimits.sideTurn * side }  // keeping along it: no turn back
     guard let columns, !columns.isEmpty, abs(want) <= NavLimits.stopToTurn else {
         return blocked.contains { abs(angleError($0, want)) <= SteerLimits.blockCone } ? want + SteerLimits.sideTurn * (want >= 0 ? -1 : 1) : want
     }
     let n = columns.count, toward = max(-SteerLimits.halfView, min(SteerLimits.halfView, want))
+    // Each column as near as its nearer neighbour (VFH+, Ulrich and Borenstein 1998: obstacles enlarged by the walker's size),
+    // so the aim keeps off an obstacle's edge rather than clip its corner (the sim's wall, walked round from right against it).
+    let near = (0..<n).map { i in columns[max(0, i - 1)...min(n - 1, i + 1)].max()! }
     func cost(_ i: Int) -> Double {
         let angle = columnBearing(i, of: n)
         if blocked.contains(where: { abs(angleError($0, angle)) <= SteerLimits.blockCone }) { return .infinity }
         if let side, angle * side < -5 { return .infinity }
-        return abs(angleError(angle, toward)) + max(0, columns[i] - SteerLimits.clearBelow) * SteerLimits.nearPenalty
-            + (columns[i] >= SteerLimits.impassable ? .infinity : 0)
+        return abs(angleError(angle, toward)) + max(0, near[i] - SteerLimits.clearBelow) * SteerLimits.nearPenalty
+            + (near[i] >= SteerLimits.impassable ? .infinity : 0)
     }
     if let best = (0..<n).min(by: { cost($0) < cost($1) }), cost(best).isFinite { return columnBearing(best, of: n) }
     if let side { return SteerLimits.sideTurn * side }
@@ -623,6 +627,22 @@ func pursuit(_ path: [MapPoint], from here: MapPoint, index: inout Int) -> MapPo
         i += 1
     }
     return point
+}
+
+/// The waypoint a walk starting at `here` heads for: the end of the path's leg nearest here (the first waypoint when nearest
+/// itself), so a waypoint already behind is not walked back to (second review of #86: the way to safety, walked again after a
+/// fight, aimed at its first waypoint, behind it, in the danger it had left).
+func pathStart(_ path: [MapPoint], from here: MapPoint) -> Int {
+    guard path.count > 1 else { return 0 }
+    func along(_ a: MapPoint, _ b: MapPoint) -> Double {
+        let dx = (b.x - a.x) * mapAspect, dy = b.y - a.y, span = dx * dx + dy * dy
+        let t = span == 0 ? 0 : max(0, min(1, ((here.x - a.x) * mapAspect * dx + (here.y - a.y) * dy) / span))
+        return distance(here, (a.x + t * (b.x - a.x), a.y + t * dy))
+    }
+    return (1..<path.count).reduce((index: 0, gap: distance(here, path[0]))) { best, i in
+        let gap = along(path[i - 1], path[i])
+        return gap < best.gap ? (i, gap) : best
+    }.index
 }
 
 /// The length still to walk: from here to the current waypoint, then waypoint to waypoint.
@@ -670,39 +690,54 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
         guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            if misses == NavLimits.unreadableLimit / 2 {  // as runNav: an icon over the arrow is turned off it (live run 54)
+                trail.removeAll()
+                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit,
+                                  facing: body.facingState, reread: { _ = body.look() }, now: body.now)
+            }
             await body.sleep(NavLimits.tick)
             continue
         }
         misses = 0
-        if result.start == nil { result.start = o }
+        if result.start == nil {
+            result.start = o
+            index = pathStart(path, from: o.point)
+        }
         result.end = o
         let now = body.now()
         if o.combat { return finish("COMBAT") }
         if !d.toSafety && o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
         if distance(o.point, d.point) < d.arrive { return finish("ARRIVED") }
         if now - began >= d.seconds { return finish("TIME_LIMIT") }
+        let view = body.viewColumns()  // the depth, once a tick (25 ms)
+        // A block: this facing is kept off near here, the walk keeps to one side along the obstacle (Bug2), the stall clock
+        // starts again, and too many end the walk. `bumped`: W ran into it; else the view read near across (walled).
+        func block(_ bumped: Bool) -> Bool {
+            if !bumped, blocks.contains(where: { distance($0.at, o.point) <= SteerLimits.blockNear && now - $0.t < 2 }) { return false }
+            blocks.append((o.point, o.facing, now))
+            // The side to keep: the one already kept, else the one the walk was going round on, else the view's more open half,
+            // else the one the path bends to.
+            let n = view?.count ?? 0
+            let open = view.map { c in c[(n / 2)...].reduce(0, +) - c[..<(n / 2)].reduce(0, +) } ?? 0  // positive: left nearer
+            let bend = angleError(bearing(from: o.point, to: pursuit(path, from: o.point, index: &index)), o.facing)
+            let sign: Double = side.map(\.sign) ?? (abs(going) > 10 ? (going > 0 ? 1 : -1)
+                : abs(open) > 0.5 ? (open > 0 ? -1 : 1) : (bend >= 0 ? 1 : -1))
+            side = (sign, now + SteerLimits.sideSeconds, (o.facing + sign * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
+            // A way round takes the walk off its path for a while: the stall clock starts again (Bug2 counts progress only
+            // once it leaves the obstacle).
+            bestAt = now
+            best = pathLeft(path, from: o.point, index: index)
+            result.episode.sinceBest += 1
+            blocksSeen += 1
+            body.emit("steer_block", ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "side": sign > 0 ? "right" : "left", "bumped": bumped])
+            trail.removeAll()
+            return blocksSeen >= SteerLimits.maxBlocks
+        }
         // The block watch: W down this long with this little movement ran into something on this facing.
         if body.keys.isDown(forward) { trail.append((now, o.point)) } else { trail.removeAll() }
         if let old = trail.last(where: { now - $0.t >= NavLimits.blockedWindow }) {
             if distance(old.point, o.point) < NavLimits.blockedMoved {
-                blocks.append((o.point, o.facing, now))
-                // The side to keep: the view's more open half, else the one the path bends to, else the one already kept.
-                let columns = body.viewColumns()
-                let n = columns?.count ?? 0
-                let open = columns.map { c in c[(n / 2)...].reduce(0, +) - c[..<(n / 2)].reduce(0, +) } ?? 0  // positive: left nearer
-                let bend = angleError(bearing(from: o.point, to: pursuit(path, from: o.point, index: &index)), o.facing)
-                let sign: Double = side.map(\.sign) ?? (abs(going) > 10 ? (going > 0 ? 1 : -1)
-                    : abs(open) > 0.5 ? (open > 0 ? -1 : 1) : (bend >= 0 ? 1 : -1))
-                side = (sign, now + SteerLimits.sideSeconds, (o.facing + sign * SteerLimits.alongHeading + 360).truncatingRemainder(dividingBy: 360), o.point)
-                // A way round takes the walk off its path for a while: the stall clock starts again (Bug2 counts progress only
-                // once it leaves the obstacle), and too many blocks end the walk.
-                bestAt = now
-                best = pathLeft(path, from: o.point, index: index)
-                result.episode.sinceBest += 1
-                if blocksSeen >= SteerLimits.maxBlocks { return finish("NO_PROGRESS") }
-                blocksSeen += 1
-                body.emit("steer_block", ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "side": sign > 0 ? "right" : "left"])
-                trail.removeAll()
+                if block(true) { return finish("NO_PROGRESS") }
             } else {
                 trail.removeAll { now - $0.t > NavLimits.blockedWindow + 1 }
             }
@@ -714,7 +749,10 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
         let want = angleError(bearing(from: o.point, to: point), o.facing)
         blocks.removeAll { now - $0.t > SteerLimits.blockMemory }
         let blocked = blocks.filter { distance($0.at, o.point) <= SteerLimits.blockNear }.map { angleError($0.heading, o.facing) }
-        let columns = body.viewColumns()
+        let columns = view
+        // A view near in every column is a slope or a wall across the way: a block seen, not run into (it turns in place below).
+        let walled = columns.map { !$0.isEmpty && $0.allSatisfy { $0 >= SteerLimits.impassable } } ?? false
+        if walled && block(false) { return finish("NO_PROGRESS") }
         if let kept = side, now > kept.until || distance(kept.from, o.point) >= SteerLimits.sideDistance { side = nil }
         let aim = steerAim(want: want, columns: columns, blocked: blocked, side: side?.sign, along: side.map { angleError($0.heading, o.facing) })
         if abs(aim - want) > 10 { going = aim - want }
@@ -728,9 +766,8 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination) as
             body.emit("steer", row)
             lastLog = now
         }
-        // A view near in every column is a slope or a wall across the way: W is let go and the walk turns in place, then looks
-        // again, rather than run on into it while turning (live, 27 Sept: it ran up a slope that read 0.81-0.93 across).
-        let walled = columns.map { !$0.isEmpty && $0.allSatisfy { $0 >= SteerLimits.impassable } } ?? false
+        // Walled: W is let go and the walk turns in place, then looks again, rather than run on into it while turning (live, 27
+        // Sept: it ran up a slope that read 0.81-0.93 across).
         if abs(aim) > NavLimits.stopToTurn || walled {
             body.keys.lift(forward)
             trail.removeAll()

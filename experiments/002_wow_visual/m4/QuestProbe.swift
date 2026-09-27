@@ -1351,8 +1351,7 @@ final class LiveQuestHost: QuestHost {
               let safe = safePlace(from: at) else { return }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
-        // M4ac: by the learned roads to the safe place, and steered (no model call either way).
-        let safePath = steering ? (roads.flatMap { route($0, from: at, to: safe, avoid: stuck) }.map { Array($0.dropLast()) } ?? []) : []
+
         // Its end leaves death recovery its time (M4s).
         let envelopeEnd = runDeadline - QuestLimits.runSeconds + QuestLimits.envelopeSeconds - QuestLimits.reviveSeconds
         let end = await leaveDangerRounds(QuestLimits.safeWalks, until: envelopeEnd, now: now,
@@ -1368,6 +1367,10 @@ final class LiveQuestHost: QuestHost {
             self.walker = legs
             let destination = NavDestination(label: "a safe place", x: safe.x, y: safe.y, arrive: QuestLimits.safeArrive,
                                              toSafety: true, seconds: seconds)
+            // M4ac: by the learned roads to the safe place, planned from where this round starts (a fight between rounds moves
+            // the character: second review of #86), and steered; no model call either way.
+            let from = self.steering ? await self.quester.position(turn: false) ?? at : at
+            let safePath = self.steering ? (self.roads.flatMap { route($0, from: from, to: safe, avoid: self.stuck) }.map { Array($0.dropLast()) } ?? []) : []
             let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination)
                                        : await runNav(body: legs, jev: ScriptedJev(preference: preference), destination: destination)
             return walked.outcome

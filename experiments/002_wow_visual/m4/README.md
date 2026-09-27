@@ -1330,7 +1330,11 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
   its nearness past 0.6 and none past 0.8 taken; W held and Q/E pulses. A block (W down 1.5 s, under 0.1 moved) keeps that
   heading off near there, and the walk keeps to the more open side, along the obstacle, until 0.8 from where it was blocked
   (Bug2); nothing open in view turns 60 degrees to a side, never round; a view near in every column (a slope or wall across)
-  lets W go and turns in place. It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
+  is a block seen: W is let go, the walk turns in place and keeps to a side as after a bump, and a wanted bearing behind is not
+  turned back to while it keeps to that side. Each column counts as near as its nearer neighbour (VFH+, Ulrich and Borenstein
+  1998), so the aim keeps off an obstacle's edge. A walk starts at its path's nearest leg, not a waypoint behind; the way to
+  safety plans each round from where it starts (a fight between rounds moves the character); an unread arrow gets runNav's
+  unstick turn (review of #86). It stops for combat, low health, the owner, a red name on the aim, the clock, 6 blocks, or 15 s
   without progress along the path since the last block (NO_PROGRESS, which M4z remembers).
 - Quest walks and the way to safety steer; `JEV_WALKER=jev` walks as before, for a side-by-side comparison. The nav tool's
   `--execute` steers too, round M4z's stops.
@@ -1338,7 +1342,9 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
 - Evidence. Offline, the heading's depth column predicted a block at AUC 0.67-0.69 over 350 live moves: a steering bias, the
   block watch its guard. Sim (`NavTests`, SimNav's keys and boxes, depth cast as rays): open ground straight; a wall seen in
   depth walked round with no block (net turn 20-24 degrees); blind, round it with 2 blocks and no spin (net 23 degrees); a road
-  path round a box in one go. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
+  path round a box in one go; a wall right ahead turned from in place with no bump; shut in, ended at the sixth bump; combat,
+  low health, the owner, a red name on the aim and an unread HUD each stop it with the keys released, the way to safety walking
+  on at low health and past a red name. Live walk 1 (27 Sept, nav tool, village to Foul Matriarch's pin 39.6, 23.9): it took the south
   road (41.6, 25.6; 41.0, 25.7; 40.3, 26.5) with no model call and no spin, bumped 3 times at the end, ran up the slope under
   the pin, and stopped for combat (a level-4 Scrawny Ursera). The slope read 0.81-0.93 across the view and the road 0.45-0.7,
   where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. That fix is not yet
