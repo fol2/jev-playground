@@ -497,6 +497,13 @@ extension NavTests {
             let result = await runHunt(host: world, jev: huntScripted(hunter))
             check(result.outcome == outcome && result.decisions == 0 && !result.holding, "\(outcome) stops before any decision")
         }
+        // Live run 55: every survey read, but not the place (the facing unread), and nothing could be offered.
+        let placeless = SimHunt.field(clock: FightClock())
+        placeless.positionBlind = true
+        let lost = await runHunt(host: placeless, jev: huntScripted([.lookAround, .nextTarget]))
+        check(lost.outcome == "HUD_UNREADABLE" && placeless.keys.codesPosted.split(separator: FightLimits.tab).last.map(Array.init) == [FightLimits.turnRight]
+              && !lost.holding,
+              "live run 55: a hunt that cannot read its place turns once on the spot before it gives up")
     }
 }
 

@@ -211,6 +211,11 @@ struct NavTests {
         check(walkStart(at: nil, to: (40, 20), road: true) == .refused("WALK_HUD_UNREADABLE") && walkStart(at: (40, 20.3), to: (40, 20), road: false) == .there
               && walkStart(at: (40, 20), to: (40, 35), road: false) == .refused("TOO_FAR_NEEDS_ROADS") && walkStart(at: (40, 20), to: (40, 35), road: true) == .walk,
               "a walk beyond one walk is refused unless it is a road's leg; no position is never there")
+        check(fusedFacing(rule: 150, learned: (160, 0.9)) == 150 && fusedFacing(rule: 350, learned: (151, 0.83)) == nil
+              && fusedFacing(rule: nil, learned: (30, 0.75)) == 30 && fusedFacing(rule: nil, learned: (329, 0.54)) == nil
+              && fusedFacing(rule: 20, learned: nil) == 20 && fusedFacing(rule: nil, learned: nil) == nil
+              && fusedFacing(rule: 355, learned: (10, 0.5)) == 355,
+              "live run 52: the rule's bearing where both agree, the reader's (0.7 or more) where the rule has none, none where they disagree")
         check(stepStartsNear("WALK_DANGER_AHEAD", at: (44.6, 26.5), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: (42, 24), pin: (45.8, 27.1))
               && !stepStartsNear("WALK_COMBAT", at: (45.7, 27.1), pin: (45.8, 27.1)) && !stepStartsNear("WALK_DANGER_AHEAD", at: nil, pin: (45.8, 27.1)),
               "live runs 35 and 48: a walk stopped by a red name near its pin may start its step from there; far away, unseen, or another stop may not")
@@ -525,6 +530,10 @@ struct NavTests {
             setup(world)
             let result = await runNav(body: world, jev: scripted(), destination: goal)
             check(result.outcome == outcome && result.jevCalls == 0 && !result.holding, "\(outcome) stops before any decision")
+            if outcome == "HUD_UNREADABLE" {
+                check(world.keys.codesPosted.filter { $0 == FightLimits.turnRight }.count == 1,
+                      "live run 54: an unreadable place turns once on the spot before the walk gives up")
+            }
         }
 
         // 25 Sept, live: arrival seen mid-move, then a quest giver's name covered the coordinates.

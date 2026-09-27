@@ -47,7 +47,7 @@ let motorPaths: Set<String> = Set(
        "skyborne-fight.graph.json", "README.md"].map { runtimeDir + $0 }
     + ["Nav.swift", "NavTests.swift", "NavProbe.swift", "Hunt.swift", "HuntTests.swift", "HuntProbe.swift", "Quest.swift",
        "QuestProbe.swift", "Roads.swift", "Tabletop.swift", "perception.jsonl", "README.md"].map { navDir + $0 }
-    + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "RedNames.swift", "Objects.swift", "Teacher.swift", "Train.swift", "README.md"]
+    + ["Marks.swift", "MarksTests.swift", "PerceiveTool.swift", "Reader.swift", "RedNames.swift", "Objects.swift", "Facing.swift", "Teacher.swift", "Train.swift", "README.md"]
         .map { perceiveDir + $0 }
     + [visualDir + "README.md", learnDir + "VideoJev.swift", learnDir + "knowledge/zephras-roads.json"])
 /// Replaced by Swift (25 Sept): deleting one runs the proof that replaced it; none may come back.

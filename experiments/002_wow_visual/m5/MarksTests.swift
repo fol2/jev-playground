@@ -2,6 +2,7 @@
 // run split and the score. SIMULATION ONLY: nothing here shows how well the teacher labels, or how a reader does
 // on real frames.
 import Foundation
+import CoreGraphics
 
 @main
 struct MarksTests {
@@ -20,7 +21,41 @@ struct MarksTests {
         audits()
         redNameLabels()
         objectTiles()
+        facingCrops()
         print("perception checks passed: \(checks)")
+    }
+
+    /// A bar north of the minimap's centre, in a synthetic frame: turned 90 degrees it lies east, turned 180 south.
+    static func facingCrops() {
+        let w = 2560, h = 1320, c = FacingCrop.centre
+        var p = [UInt8](repeating: 20, count: w * h * 4)
+        rect(&p, w, c.x - 2, c.y - 18, 5, 10, (255, 255, 255))
+        let frame = p.withUnsafeMutableBytes { raw in
+            CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!.makeImage()!
+        }
+        func brightest(_ image: CGImage?) -> (dx: Double, dy: Double)? {  // the bright pixels' mean offset from the crop's centre
+            guard let image else { return nil }
+            let s = image.width
+            var q = [UInt8](repeating: 0, count: s * s * 4)
+            q.withUnsafeMutableBytes { raw in
+                CGContext(data: raw.baseAddress, width: s, height: s, bitsPerComponent: 8, bytesPerRow: s * 4, space: CGColorSpaceCreateDeviceRGB(),
+                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!.draw(image, in: CGRect(x: 0, y: 0, width: s, height: s))
+            }
+            var sx = 0.0, sy = 0.0, n = 0.0
+            for y in 0..<s { for x in 0..<s where q[(y * s + x) * 4] > 128 { sx += Double(x); sy += Double(y); n += 1 } }
+            return n == 0 ? nil : (sx / n - Double(s) / 2, sy / n - Double(s) / 2)
+        }
+        let north = brightest(turnedCrop(frame, degrees: 0)), east = brightest(turnedCrop(frame, degrees: 90)),
+            south = brightest(turnedCrop(frame, degrees: 180))
+        let k = Double(FacingCrop.out) / Double(FacingCrop.side)  // the crop is scaled up
+        check(turnedCrop(frame, degrees: 0)?.width == FacingCrop.out && north.map { $0.dy < -8 * k && abs($0.dx) < 3 * k } == true
+              && east.map { $0.dx > 8 * k && abs($0.dy) < 3 * k } == true && south.map { $0.dy > 8 * k && abs($0.dx) < 3 * k } == true,
+              "a crop turned 90 degrees clockwise moves what lay north of the centre to the east, 180 to the south")
+        check(FacingCrop.label(0) == "000" && FacingCrop.label(94) == "090" && FacingCrop.label(356) == "000" && FacingCrop.label(345) == "350"
+              && FacingCrop.label(215 + 90) == "310", "a bearing's class is the nearest 10 degrees, and 360 is 000")
+        check(lookChains([0, 0, 1, 2, 1, 3, 0, 1, 7]) == [[1, 2, 3, 5], [6, 7]] && lookChains([0, 2, 3]).isEmpty && lookChains([]).isEmpty,
+              "a folder's looks are a chain from 0 up by one; a quest read's looks (a lone 0, a 1 out of turn) are passed over")
     }
 
     static func objectTiles() {

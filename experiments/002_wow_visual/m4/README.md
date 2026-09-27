@@ -131,6 +131,17 @@ All boxes are capture pixels of the 2560×1320 window.
   - Saved JPEGs do not replay the live frames faithfully. The same frame decoded two ways
     differed by up to 69 per channel inside the arrow box. Through the live decode path, one of
     16 labelled JPEG frames read 56° off. Calibrate on PNG captures.
+  - **Learned too (M5, 27 Sept).** Beside the Elemental Convergence (live run 52) the rule read 350 and 316 where the
+    arrow faced about 150, then nothing. A walk or hunt now takes `fusedFacing` of the rule and the learned
+    `FacingReader` (m5/README.md, "The facing"):
+    - the rule's bearing where they agree within 30°;
+    - the reader's at 0.7 confidence or more where the rule has none;
+    - none where they disagree.
+  - A walk that cannot read its place for three looks turns right once on the spot (0.15 s of E, about 25°): an icon
+    beside the arrow stays where it is while the arrow turns off it. In live run 54 (27 Sept), standing still, the rule
+    read 130 and the reader 250 on every frame (the arrow faced about 130), and the walk ended `HUD_UNREADABLE`.
+    A hunt does the same before its last unread survey with nothing to offer: in live run 55 the walks got to the
+    Windstones' area this way (seven turns), and the hunt there then ended `HUD_UNREADABLE` on an unread facing.
 - **Position: the coordinates text under the minimap** (x 2322, y 300, 200×34). It is OCR'd
   after a ×3 upscale and parsed as `44.8,28.1`, `44.8, 28.1` or `44.7.27.9`.
   - It was read on all 61 saved frames at this layout.

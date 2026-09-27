@@ -3,6 +3,7 @@
 // is Teacher.swift, the learned reader Reader.swift, the tool PerceiveTool.swift. The hand-tuned mark rules (m4/Quest.swift, questMarks) failed on each new
 // zoom, character and glyph shade (26 Sept); a detector trained on labelled frames replaces them.
 import Foundation
+import CoreGraphics
 
 enum MarkLabels {
     static let world = (300, 100, 2100, 950)  // where marks are looked for, as QuestHUD.world
@@ -354,4 +355,56 @@ struct ObjectScore: Equatable {
         }
         missed += open.count
     }
+}
+
+// MARK: - The facing (M5): the minimap arrow's bearing, learnt
+
+/// The arrow's crop and the classes of the facing reader (Facing.swift, FacingReader). The arrow turns about the minimap's
+/// centre, the middle of NavHUD's arrow box. A class is a bearing to the nearest `step` degrees: "000" is north, "090" east.
+enum FacingCrop {
+    static let centre = (x: (NavHUD.arrowX0 + NavHUD.arrowX1) / 2, y: (NavHUD.arrowY0 + NavHUD.arrowY1) / 2)
+    static let side = 32  // the frame's square the reader sees: the arrow, little of the map
+    static let pad = 48  // the square turned to make it, so its corners stay filled
+    static let out = 96  // the crop's size: Vision's feature print fails on a 32 px image ("Failed to create CVPixelBufferPool")
+    static let step = 10.0
+    static func label(_ bearing: Double) -> String {
+        String(format: "%03d", Int((bearing / step).rounded()) % Int(360 / step) * Int(step))
+    }
+}
+
+/// The arrow's crop, turned clockwise by `degrees` about the minimap's centre and scaled up to `out` px: an arrow facing f
+/// in the frame faces f + degrees in the crop. Nil off the frame. The training turns each labelled crop to other bearings; the reader
+/// reads the crop as it is (0).
+/// `dots`: yellow dots drawn over the crop (x, y in the frame's pixels from the minimap's centre, radius), as quest icons
+/// sit beside the arrow (live run 52, 27 Sept: one at the arrow's tail beside the Elemental Convergence, where the rule
+/// failed). The training draws some; the reader none.
+func turnedCrop(_ image: CGImage, degrees: Double, dots: [(x: Double, y: Double, r: Double)] = []) -> CGImage? {
+    let pad = FacingCrop.pad, side = FacingCrop.side
+    guard let square = image.cropping(to: CGRect(x: FacingCrop.centre.x - pad / 2, y: FacingCrop.centre.y - pad / 2, width: pad, height: pad)),
+          square.width == pad, square.height == pad,
+          let c = CGContext(data: nil, width: FacingCrop.out, height: FacingCrop.out, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+    c.interpolationQuality = .high
+    c.translateBy(x: Double(FacingCrop.out) / 2, y: Double(FacingCrop.out) / 2)
+    c.scaleBy(x: Double(FacingCrop.out) / Double(side), y: Double(FacingCrop.out) / Double(side))
+    c.rotate(by: -degrees * .pi / 180)  // the context's y axis points up: a negative angle turns clockwise as seen
+    c.draw(square, in: CGRect(x: -Double(pad) / 2, y: -Double(pad) / 2, width: Double(pad), height: Double(pad)))
+    c.rotate(by: degrees * .pi / 180)  // dots stay where the crop shows them: they are not the arrow's
+    c.setFillColor(CGColor(red: 0.95, green: 0.8, blue: 0.2, alpha: 1))
+    for d in dots { c.fillEllipse(in: CGRect(x: d.x - d.r, y: -d.y - d.r, width: 2 * d.r, height: 2 * d.r)) }  // y points up here
+    return c.makeImage()
+}
+
+/// The looks of one folder each: chains of indices into `frames` that start at a 0 followed by a 1 and go up by one. Any
+/// other frame (a quest read's position look) is passed over, even inside a chain.
+func lookChains(_ frames: [Int]) -> [[Int]] {
+    var chains: [[Int]] = []
+    for (i, f) in frames.enumerated() {
+        if f == 0, i + 1 < frames.count, frames[i + 1] == 1 {
+            chains.append([i])
+        } else if let last = chains.last?.last, f == frames[last] + 1 {
+            chains[chains.count - 1].append(i)
+        }
+    }
+    return chains
 }

@@ -105,12 +105,14 @@ final class LiveHuntHost: HuntHost {
         walkNo += 1
         let pixels = rgba(image)
         let (text, read) = readCoords(image)
-        guard let at = read, let facing = arrowFacing(pixels) else {
-            emit("unreadable", ["coords_text": text, "walk_frame": walkNo - 1])
+        let seen = seenFacing(image, pixels)
+        guard let at = read, let facing = seen.bearing else {
+            emit("unreadable", ["coords_text": text, "walk_frame": walkNo - 1].merging(seen.fields) { a, _ in a })
             return nil
         }
         let hud = observe(pixels, plates: false)
-        emit("walk_look", ["walk_frame": walkNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat])
+        emit("walk_look", ["walk_frame": walkNo - 1, "x": at.x, "y": at.y, "facing": Int(facing.rounded()), "combat": hud.combat]
+            .merging(seen.fields) { a, _ in a })
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: hud.player)
     }
 
@@ -131,10 +133,10 @@ final class LiveHuntHost: HuntHost {
         // them it was skipped as too old on every frame of live run 51 (27 Sept).
         var found: [SeenObject] = []
         let detect = Self.objectReader != nil && objectives.contains(where: collects)
-        var o = HuntObs()
+        var o = HuntObs(), facingFields: [String: Any] = [:]
         DispatchQueue.concurrentPerform(iterations: detect ? 2 : 1) { i in
             if i == 1 { found = objectsSeen(image, objectives: objectives); return }
-            o = surveyReads(frame, objectives: objectives)
+            (o, facingFields) = surveyReads(frame, objectives: objectives)
         }
         o.objects = found
         lastTarget = o.target
@@ -144,16 +146,19 @@ final class LiveHuntHost: HuntHost {
                       "health": Int(o.player * 100), "mana": Int(o.mana * 100), "combat": o.combat, "game_menu": o.gameMenu,
                       "facing": orNull(o.facing.map { Int($0.rounded()) }), "x": orNull(o.here?.x), "y": orNull(o.here?.y),
                       "area": orNull(o.area.map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
-                      "seen": o.seen.map { ["name": $0.name, "hostile": $0.hostile, "bearing": Int($0.bearing.rounded()), "near": $0.near] }])
+                      "seen": o.seen.map { ["name": $0.name, "hostile": $0.hostile, "bearing": Int($0.bearing.rounded()), "near": $0.near] }]
+                .merging(facingFields) { a, _ in a })
         return o
     }
 
-    /// A survey's reads of one frame but the tracker's and the objects'.
-    private func surveyReads(_ frame: (image: CGImage, stamp: ObservationStamp), objectives: [Objective]) -> HuntObs {
+    /// A survey's reads of one frame but the tracker's and the objects', with the facing's readings for the log.
+    private func surveyReads(_ frame: (image: CGImage, stamp: ObservationStamp), objectives: [Objective]) -> (HuntObs, [String: Any]) {
         let image = frame.image
         let pixels = rgba(image)
         let name = upscaledText(image, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces)
         var o = pixelObs(pixels)
+        let seen = seenFacing(image, pixels)
+        o.facing = seen.bearing
         o.objectives = objectives
         o.target = name.isEmpty ? nil : name
         o.stamp = frame.stamp
@@ -171,7 +176,7 @@ final class LiveHuntHost: HuntHost {
                 return label.filter(\.isLetter).count >= 4 ? sighting(bar, name: label, facing: facing, width: image.width, height: image.height) : nil
             }
         }
-        return o
+        return (o, seen.fields)
     }
 
     /// The object detector (M5, ObjectReader), loaded once, before any hunt moves; nil without its private model.

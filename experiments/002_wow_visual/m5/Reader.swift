@@ -105,3 +105,29 @@ struct ObjectReader {
         return mergeDetections(found)
     }
 }
+
+/// The facing classifier (m5-perceive --facing-train, Facing.swift): the minimap arrow's bearing from its crop (turnedCrop,
+/// unturned), in classes every 10 degrees. The bearing is the probability-weighted mean of the classes within 20 degrees
+/// of the top one, finer than its 10; the confidence is the top class's.
+struct FacingReader {
+    let model: VNCoreMLModel
+
+    init(models dir: URL = MarkReader.models) throws {
+        model = try VNCoreMLModel(for: MLModel(contentsOf: MLModel.compileModel(at: dir.appendingPathComponent("facing.mlmodel"))))
+    }
+
+    func facing(_ image: CGImage) throws -> (bearing: Double, confidence: Double)? {
+        guard let crop = turnedCrop(image, degrees: 0) else { return nil }
+        let request = VNCoreMLRequest(model: model)
+        request.imageCropAndScaleOption = .scaleFill
+        try VNImageRequestHandler(cgImage: crop).perform([request])
+        guard let seen = request.results as? [VNClassificationObservation], let top = seen.first, let peak = Double(top.identifier) else { return nil }
+        var x = 0.0, y = 0.0
+        for o in seen {
+            guard let b = Double(o.identifier), abs(angleError(b, peak)) <= 20 else { continue }
+            x += Double(o.confidence) * sin(b * .pi / 180)
+            y += Double(o.confidence) * cos(b * .pi / 180)
+        }
+        return ((atan2(x, y) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360), Double(top.confidence))
+    }
+}

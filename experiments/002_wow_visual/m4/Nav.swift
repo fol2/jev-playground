@@ -64,6 +64,7 @@ enum NavLimits {
     static let nearRadius = 0.5
     static let headingTolerance = 25.0
     static let unreadableLimit = 6
+    static let unstickTurn = 0.15  // s of E: about 25 degrees (a 300 ms press stepped 46-59 degrees)
     static let recentMoves = 6
     static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
@@ -74,6 +75,32 @@ typealias MapPoint = (x: Double, y: Double)
 
 func compass(dx: Double, dy: Double) -> Double {  // dy grows southwards, as on screen and on the map
     (atan2(dx, -dy) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+}
+
+/// The facing a walk or a hunt acts on, from the rule (arrowFacing) and the learned reader (M5, FacingReader): the rule's
+/// where the two agree within 30 degrees (it is finer), the learned one at 0.7 or more where the rule has none, and none
+/// where they disagree, since a wrong bearing turns the character the wrong way. Live run 52 (27 Sept), beside the Elemental
+/// Convergence: the rule read 350 and 316 where the arrow faced about 150, then nothing where it faced about 50; the reader
+/// read 152 and 159, then 30 (0.75). On the held-out runs the reader was more than 30 degrees wrong on 4 of 83 frames at
+/// 0.7 or more, so it does not overrule a reading of the rule.
+func fusedFacing(rule: Double?, learned: (bearing: Double, confidence: Double)?) -> Double? {
+    switch (rule, learned) {
+    case let (r?, l?): return abs(angleError(r, l.bearing)) <= 30 ? r : nil
+    case let (nil, l?): return l.confidence >= 0.7 ? l.bearing : nil
+    case let (r, nil): return r
+    }
+}
+
+/// One turn on the spot (NavLimits.unstickTurn of E, about 25 degrees), W lifted first, when the place cannot be read: a
+/// quest icon beside the minimap arrow stays where it is while the arrow turns off it (live run 54, 27 Sept: standing
+/// still, the rule read 130 and the learned reader 250 on every frame, and the walk ended HUD_UNREADABLE).
+func unstickTurn(_ keys: LiveKeys, misses: Int, sleep: (Double) async -> Void, emit: (String, [String: Any]) -> Void) async {
+    keys.lift(FightLimits.forward)
+    emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
+    keys.grant(FightLimits.turnRight, seconds: NavLimits.unstickTurn + NavLimits.forwardWatchdog)
+    keys.press(FightLimits.turnRight)
+    await sleep(NavLimits.unstickTurn)
+    keys.lift(FightLimits.turnRight)
 }
 
 /// Facing from the minimap arrow as a compass bearing (0 north, 90 east). The arrow is a silver cone
@@ -507,6 +534,9 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            if misses == NavLimits.unreadableLimit / 2 {
+                await unstickTurn(body.keys, misses: misses, sleep: { await body.sleep($0) }, emit: body.emit)
+            }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
             continue
         }

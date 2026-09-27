@@ -842,6 +842,8 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         if o.here == nil && huntAdmissible(o, steps: r.steps).isEmpty {
             misses += 1
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            // live run 55 (27 Sept): the facing unread on every survey at the Windstones' area ended the hunt so
+            if misses == HuntLimits.unreadableLimit - 1 { await unstickTurn(host.keys, misses: misses, sleep: { await host.sleep($0) }, emit: host.emit) }
             await host.sleep(HuntLimits.settle)
             continue
         }
@@ -1025,6 +1027,7 @@ final class SimHunt: HuntHost {
     var fightsRun = 0
     var foughtInCombat: [Bool] = []  // each fight's inCombat, as the hunt passed it
     var surveyBlind = false
+    var positionBlind = false  // surveys read, but not the place (the arrow unread)
     var frozen = false  // the capture has stalled: no fresh frame for vitals or a survey
     var readLines: ([String]) -> [String] = { $0 }  // what the tracker's OCR keeps of its lines
     var objects: [Mob] = []  // objects on the ground; one picked up is no longer alive
@@ -1105,6 +1108,7 @@ final class SimHunt: HuntHost {
     func survey() -> HuntObs? {
         guard !world.unreadable, !surveyBlind, !frozen else { return nil }
         var o = reading()
+        if positionBlind { o.here = nil }
         o.objectives = parseTracker(readLines(trackerLines))
         o.target = selected.map { mobs[$0].name }
         o.targetAlive = selected.map { mobs[$0].alive } ?? false
