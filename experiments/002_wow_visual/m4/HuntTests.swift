@@ -1175,6 +1175,13 @@ extension NavTests {
         check(held.handed == ["HUNT Infestation Investigation", "FIGHT_AHEAD", "RETREAT"] && heldJev.offered.count == 3
               && heldJev.offered[2].contains("DO:RETREAT") && !heldJev.offered[2].contains("DO:FIGHT_AHEAD") && !heldJev.offered[2].contains("DO:HUNT_1"),
               "review of #66: a fight ahead held for health leaves the stop standing: RETREAT is offered again, the fight and the hunt not")
+        let (_, stopJev, _) = await stoppedHunt("JEV_STOP", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:RETREAT"])
+        check(stopJev.offered.count == 3 && stopJev.offered[2].contains("DO:RETREAT") && !stopJev.offered[2].contains("DO:FIGHT_AHEAD"),
+              "review of #66: a fight ahead Jev stopped out of combat leaves the stop standing, as one held for health")
+        let (_, _, backStop) = await stoppedHunt("BACK_JEV_STOP", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:RETREAT"])
+        let (backWin, backWinJev, _) = await stoppedHunt("BACK_KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
+        check(backStop.outcome == "FIGHT_JEV_STOP" && backWin.handed.count == 3 && backWinJev.offered[2].contains("DO:HUNT_1"),
+              "review of #66: a fight in combat (attacked since the stop, or after a JEV_STOP) ends the run unless it kills, as a fight back does")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])

@@ -979,6 +979,7 @@ the way, for its experience too.
     `RETREAT` is offered again, and this fight and the stopped step are not (review of #66).
   - A creature that has come to the character since the stop makes it a fight back (start health 0). One that Jev
     left fighting the character after a `JEV_STOP` is fought back at once, as SAFETY's, not handed to a quest decision.
+    A fight in combat then follows M4i: only a kill goes on, and any other outcome ends the run.
   - Any other outcome ends the run, as a lost fight back does.
 - **Bounds.** It is offered only straight after a stop, so a kill does not offer another fight. Each walk that stops
   again offers it again, within the run's 12 steps and 25 minutes.

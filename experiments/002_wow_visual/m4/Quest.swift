@@ -666,7 +666,7 @@ protocol QuestHost: AnyObject {
     func handIn(_ quest: PlannedQuest) async -> String  // walk to its pin, then M4c's hand-in; the outcome
     func accept(_ giver: Giver) async -> String  // walk to its "!", open its offer and press Accept
     func retreat() async -> String  // walk back to where the last walk began; RETREATED, NO_WAY_BACK or a WALK_ outcome
-    func fightAhead() async -> String  // one M3 fight from out of combat, at its start health: runFight's outcome (M4p)
+    func fightAhead() async -> String  // one M3 fight at its start health: runFight's outcome; "BACK_" + it when fought in combat (M4p)
     func fightBack() async -> String  // attacked on a walk: one M3 fight; its outcome (M4i)
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
     func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
@@ -707,8 +707,9 @@ enum QuestLimits {
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
-    // A fight ahead that did not start (health under the fight's start) or that Jev stopped before it came to blows ends
-    // nothing: the run goes on, and combat, if any, is met by the next walk's fight back (M4p).
+    // A fight ahead out of combat that did not start (health under the fight's start) or that Jev stopped ends nothing: the
+    // stop stands (M4p). A fight in combat ("BACK_" outcomes: attacked since the stop, or after a JEV_STOP) follows M4i: only
+    // a kill goes on (review of #66).
     static let fightAheadHeld: Set<String> = ["HOLD_PLAYER_HEALTH", "JEV_STOP"]
 }
 
@@ -1031,12 +1032,13 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
         if offer.skill == "FROM_HERE" && outcome.hasPrefix("HUNTED") { failed.remove(offer.step.key) }
         if case .fightAhead = offer.step {  // M4p: a kill clears the way for the stopped step; a loss ends the run
-            if QuestLimits.fightWon.contains(outcome) {
+            let back = outcome.hasPrefix("BACK_"), fought = back ? String(outcome.dropFirst(5)) : outcome
+            if QuestLimits.fightWon.contains(fought) {
                 if let stoppedKey { failed.remove(stoppedKey) }
                 continue
             }
-            if QuestLimits.fightAheadHeld.contains(outcome) { continue }
-            return finish("FIGHT_" + outcome)
+            if !back && QuestLimits.fightAheadHeld.contains(fought) { continue }
+            return finish("FIGHT_" + fought)
         }
         if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
             host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])

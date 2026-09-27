@@ -875,12 +875,13 @@ final class LiveQuestHost: QuestHost {
     /// at the fight's own start health; the fight's Jev selects the creature (Tab) and pulls it.
     /// A creature that has come to the character since the stop makes it a fight back (start health 0); one that Jev left
     /// fighting it after a JEV_STOP is fought back at once, as SAFETY's, not handed to a quest decision (review of #66).
+    /// A fight in combat returns "BACK_" + its outcome, so the run treats it as M4i treats a fight back: only a kill goes on.
     func fightAhead() async -> String {
-        let attacked = quester.body.look()?.combat == true
-        let outcome = await fight(inCombat: attacked)
+        if quester.body.look()?.combat == true { return "BACK_" + (await fight(inCombat: true)) }
+        let outcome = await fight(inCombat: false)
         guard outcome == "JEV_STOP", quester.body.look()?.combat == true else { return outcome }
         emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back after a fight ahead Jev stopped"])
-        return await fight(inCombat: true)
+        return "BACK_" + (await fight(inCombat: true))
     }
 
     private func fight(inCombat: Bool) async -> String {
