@@ -24,9 +24,11 @@ struct MarksTests {
 
     static func redNameLabels() {
         let crop = redCrop([1128, 631, 1152, 639], width: 2560, height: 1320)
-        check(crop.w == 43 && crop.h == 43 && crop.x == 1119 && crop.y == 614 && redCrop([0, 0, 80, 10], width: 2560, height: 1320).w == 103
-              && redCrop([2550, 1310, 2559, 1319], width: 2560, height: 1320).x == 2528,
+        let corner = redCrop([0, 0, 80, 10], width: 2560, height: 1320), far = redCrop([2550, 1310, 2559, 1319], width: 2560, height: 1320)
+        check(crop.w == 43 && crop.h == 43 && crop.x == 1119 && crop.y == 614 && corner == (0, 0, 103, 103) && far == (2528, 1288, 32, 32),
               "a red name's crop is a square its width plus two heights (32 at least), centred, inside the frame")
+        check(!redDrops(nil) && !redDrops(("none", 0.79)) && redDrops(("none", 0.8)) && !redDrops(("name", 0.99)) && !redDrops(("text", 0.99)),
+              "the walk drops a candidate only when it is read as none at 0.8 or more; unread, a name or red text stays a danger")
         check(redAuditLabels("name 3 7\ntext 4\nnone *", count: 10).map { $0[3] == "name" && $0[7] == "name" && $0[4] == "text" && $0[0] == "none" && $0.count == 10 } == true
               && redAuditLabels("name 3 7", count: 10) == nil && redAuditLabels("name 12\nnone *", count: 10) == nil
               && redAuditLabels("maybe 1\nnone *", count: 10) == nil,

@@ -62,9 +62,8 @@ struct MarkReader {
 
 /// The red-name classifier (m5-perceive --red-train, RedNames.swift): what a red-name candidate of the walk's rule
 /// (redNames) is, from its crop (redCrop): "name" (a hostile creature's), "text" (other red text, such as the UI's
-/// error line) or "none" (a body, a ring, terrain). The walk drops only what it reads as "none", at `drop` or more.
+/// error line) or "none" (a body, a ring, terrain). The walk drops only what redDrops allows.
 struct RedNameReader {
-    static let drop = 0.8
     let model: VNCoreMLModel
 
     init(models dir: URL = MarkReader.models) throws {
@@ -77,7 +76,4 @@ struct RedNameReader {
         guard let crop = image.cropping(to: CGRect(x: r.x, y: r.y, width: r.w, height: r.h)) else { return nil }
         return try MarkReader.classify(model, crop)
     }
-
-    /// Whether the walk may drop the candidate: read as "none" with `drop` confidence or more.
-    static func drops(_ read: (label: String, confidence: Double)?) -> Bool { read.map { $0.label == "none" && $0.confidence >= drop } ?? false }
 }

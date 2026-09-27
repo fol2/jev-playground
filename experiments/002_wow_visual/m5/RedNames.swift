@@ -132,7 +132,7 @@ func redTrain(final: Bool = false) throws -> Int32 {
 }
 
 /// `--red-baseline`: on the labelled candidates, split by run, the rule alone (every candidate a danger) against the
-/// classifier (a candidate it reads as "none" at RedNameReader.drop or more is dropped, as the walk does). A real name
+/// classifier (a candidate it reads as "none" at redDropConfidence or more is dropped, as the walk does). A real name
 /// dropped is the cost that matters: the owner, survive first.
 func redBaseline() throws -> Int32 {
     let reader = try RedNameReader()
@@ -141,7 +141,7 @@ func redBaseline() throws -> Int32 {
         guard let label = l.label else { continue }
         if frames[l.frame] == nil { frames[l.frame] = loadImage(runsRoot.appendingPathComponent(l.frame)) }
         guard let image = frames[l.frame] else { continue }
-        let top = try reader.read(image, box: l.box), dropped = RedNameReader.drops(top)
+        let top = try reader.read(image, box: l.box), dropped = redDrops(top)
         scores[runSplit(run(of: l.frame)), default: RedScore()].add(label: label, kept: !dropped)
         decided[runSplit(run(of: l.frame)), default: []].append((l.frame, label, !dropped))
         if label == "name" && dropped { print("name dropped: \(l.frame) \(l.box) none \(String(format: "%.2f", top?.confidence ?? 0))") }

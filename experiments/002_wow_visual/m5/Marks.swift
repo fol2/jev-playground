@@ -278,3 +278,10 @@ struct RedFrames: Equatable {
         }
     }
 }
+
+/// The walk drops a red-name candidate only when the learned reader reads it as "none" (a body, a ring, terrain) with
+/// this confidence or more. A name, other red text, a lower confidence or no reading at all keeps it a danger.
+let redDropConfidence = 0.8
+func redDrops(_ read: (label: String, confidence: Double)?) -> Bool {
+    read.map { $0.label == "none" && $0.confidence >= redDropConfidence } ?? false
+}

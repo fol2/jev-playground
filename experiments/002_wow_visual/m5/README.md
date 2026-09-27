@@ -322,10 +322,10 @@ walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNa
 
 | File | Role | Proof |
 |---|---|---|
-| `Marks.swift` | `RedRow`, the crop (`redCrop`), the audit grammar (`redAuditLabels`), the scores (`RedScore`, `RedFrames`) | `MarksTests.swift` |
+| `Marks.swift` | `RedRow`, the crop (`redCrop`), the drop rule (`redDrops`), the audit grammar (`redAuditLabels`), the scores (`RedScore`, `RedFrames`) | `MarksTests.swift` |
 | `RedNames.swift` | `m5-perceive --red-*`: candidates, contact sheets, audit, Create ML training, the per-split score | argument refusal in `tools/MotorProof.swift` |
-| `Reader.swift` | `RedNameReader`: one candidate read through Core ML and Vision, and the drop rule | built into `m4-nav`; scored by `--red-baseline` |
-| `../m4/NavProbe.swift` | `redDanger`: the walk's danger decision, shared by the live look and `--replay`; `red_read` and `red_filter` in each look's log | built; replayed on saved walk frames |
+| `Reader.swift` | `RedNameReader`: one candidate read through Core ML and Vision | built into `m4-nav`; scored by `--red-baseline` |
+| `../m4/NavProbe.swift` | `redDanger`: the walk's danger decision, shared by the live look and `--replay`; `red_read`, `red_dropped`, `red_ms` and `red_filter` in each look's log | built; replayed on saved walk frames |
 
 - **Labels by eye, three kinds.** 953 candidates from 6,350 saved frames, all seen by the author on contact sheets:
   - `name` (191): a hostile creature's red name, near or far (Al'Aketh Convert, Cirrusfly Soldier and Queen, Roiling
@@ -360,6 +360,9 @@ walk: frame -> redNames -> RedNameReader: drop "none" at 0.8 or more -> dangerNa
   - Validation runs: 0 of 25.
   - Training runs: 10 of 131, at 7 names and 3 lines of red text.
 - **Not bit-stable.** Scene-print revision 2 with logistic regression; a new SDK may shift the numbers.
+- **Fast enough to read in the move's loop.** A read takes about 6 ms a candidate on the Mac (64 ms the first, on
+  replay), and no saved frame of the 6,350 had more than 5 candidates: at most about 60 ms against the forward key's
+  1.5 s grant. The model loads once, with the first walk body, before any key goes down.
 - **Without the model the rule alone decides**, as before (`red_filter: rule` in the log). The model is private.
 
 ## Next

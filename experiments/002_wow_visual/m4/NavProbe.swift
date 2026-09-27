@@ -228,11 +228,14 @@ func navDryRun() async throws -> Int32 {
 /// red text stays a danger. Without the reader's model the rule alone decides, as before M5; `fields` logs which.
 func redDanger(_ image: CGImage, _ pixels: RGBA, names: [RedName], reader: RedNameReader?) -> (danger: [RedName], fields: [String: Any]) {
     guard !names.isEmpty else { return ([], [:]) }
+    let began = hostNow()
     let reads = names.map { n in reader.flatMap { try? $0.read(image, box: [n.x0, n.y0, n.x1, n.y1]) } }
-    let kept = zip(names, reads).filter { !RedNameReader.drops($0.1) }.map(\.0)
+    let dropped = reads.indices.filter { redDrops(reads[$0]) }
+    let kept = names.indices.filter { !dropped.contains($0) }.map { names[$0] }
     let danger = kept.isEmpty ? [] : dangerNames(kept, plates: nameplates(pixels))
     return (danger, ["red_names": names.map { [$0.x0, $0.y0, $0.x1, $0.y1] },
-                     "red_read": reads.map { r in r.map { [$0.label, ($0.confidence * 100).rounded() / 100] as [Any] } ?? [] },
+                     "red_read": reads.map { r in r.map { [$0.label, ($0.confidence * 1000).rounded() / 1000] as [Any] } ?? [] },
+                     "red_dropped": dropped, "red_ms": Int((hostNow() - began) * 1000),
                      "red_filter": reader == nil ? "rule" : "learned", "danger": danger.count])
 }
 
@@ -262,7 +265,7 @@ func navReplay(_ directory: String) throws -> Int32 {
                            "target_plate": orNull(hud.plate.map { [$0.x0, $0.x1, $0.top, $0.bottom] }),
                            "plates": nameplates(rgba(image)).map { ["hostile": $0.hostile, "x": Int($0.centre), "y": $0.y0, "name": plateName(image, $0)] },
                            "area": orNull(questArea(rgba(image)).map { ["bearing": Int($0.bearing.rounded()), "distance": roundTo($0.distance), "inside": $0.inside] }),
-                           "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")]) { a, _ in a })
+                           "game_menu": upscaledText(image, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu")]) { _, replay in replay })
     }
     log.emit("summary", ["frames": names.count, "effects": "none: saved frames only"])
     return 0
