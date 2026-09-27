@@ -321,6 +321,14 @@ struct FightTests {
         var after = Episode(engaged: true)
         after.update(Obs(target: 0))
         check(after.killed, "an engaged target that disappears is a kill even without the ring")
+        var old = Episode(killed: true, oldCorpse: true)
+        old.update(Obs(target: 0.6, combat: true))
+        check(old.oldCorpse, "a corpse seen at the start stays the old one while the target lives")
+        old.update(Obs(target: 0, combat: true))
+        check(old.killed && !old.oldCorpse, "live run 59: our own kill after it is ours to loot, not the old corpse")
+        var attacked = Episode(killed: true, oldCorpse: true)
+        attacked.update(Obs(target: 0, combat: true))
+        check(attacked.oldCorpse, "in combat with no target ever seen alive, the corpse at the start stays the old one")
     }
 
     static func body(model: String = FightLimits.model, choice: String = "WAIT",

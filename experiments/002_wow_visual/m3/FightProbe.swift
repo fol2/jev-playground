@@ -36,6 +36,9 @@ func chatLines(_ image: CGImage) -> [String] {
     return ocr(crop).map(\.0)
 }
 
+/// The target frame's name, read by OCR (M4b's hunt reads it the same way).
+let targetNameBox = CGRect(x: 1590, y: 950, width: 330, height: 50)
+
 func corpseLabel(_ image: CGImage, _ names: [String]) -> CGRect? {
     let view = CGRect(x: 0.2 * Double(HUD.width), y: 0.2 * Double(HUD.height),
                       width: 0.6 * Double(HUD.width), height: 0.45 * Double(HUD.height))
@@ -310,9 +313,30 @@ final class LiveHost: FightHost {
     }
 
     private func loot(_ episode: inout Episode) async -> String {
-        guard let image = latestImage(), let label = corpseLabel(image, corpseNames) else {
-            return "no corpse label visible"
+        guard let image = latestImage() else { return "no corpse label visible" }
+        // A dead target still selected: Interact With Target walks to its corpse and loots it, however far or small its label
+        // (live run 59, 27 Sept: two of three kills at bolt range read "no corpse label visible", and nothing was looted).
+        let named = ocr(image.cropping(to: targetNameBox) ?? image).contains { $0.0.filter(\.isLetter).count >= 4 }
+        if named && !Episode.alive(look("loot", plates: false)) {
+            let before = chatLines(image)
+            await tap(FightLimits.interact)
+            var fresh: [String] = []
+            for _ in 0..<FightLimits.lootWalkPolls where fresh.isEmpty {
+                await sleep(FightLimits.lootPollSeconds)
+                guard let after = latestImage() else { continue }
+                write(after, to: directory.appendingPathComponent("loot-after.jpg"), type: .jpeg)
+                fresh = chatLines(after).filter { ($0.contains("receive loot") || $0.contains("You loot")) && !before.contains($0) }
+            }
+            if !fresh.isEmpty {
+                episode.looted = true
+                return "looted by Interact With Target: \(fresh.joined(separator: "; "))"
+            }
+            await tap(FightLimits.forward)  // a walk to the corpse that came to nothing stops here
+            // No label click after it: the frame's labels were read before the walk, and the point may now be a living
+            // creature (review of #68).
+            return "no corpse label visible, and Interact With Target found no loot"
         }
+        guard let label = corpseLabel(image, corpseNames) else { return "no corpse label visible" }
         let fx = label.midX / Double(HUD.width), fy = (label.maxY + 200) / Double(HUD.height)
         guard (0.2...0.8).contains(fx), (0.35...0.8).contains(fy) else { return "corpse point outside the view" }
         let before = chatLines(image)
