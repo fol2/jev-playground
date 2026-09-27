@@ -139,6 +139,7 @@ final class GraphReplies: JevClient {
         check(memory.cases.count == 1 && memory.cases[0].action == "LOOK_AROUND", "actual Hunt records an executed episode")
         check(result.experienceRecords.count == 1, "recorded experience is exposed in run evidence")
         let repeatWorld = SimHunt.field(clock: FightClock())
+        repeatWorld.world.combat = true  // comparable: in combat as the first
         graph = try load()
         let repeatProvider = GraphReplies(["READ:experience", "ENTER:search", "DO:LOOK_AROUND"])
         _ = await runHunt(host: repeatWorld, jev: repeatProvider, graph: graph,
