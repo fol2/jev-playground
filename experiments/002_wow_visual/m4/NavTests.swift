@@ -103,6 +103,8 @@ struct NavTests {
         check(parseCoords("144.8,28.1") == nil && parseCoords("44.8,28.15") == nil, "a digit on either side rejects the match")
         check(parseCoords("44.9,23") == nil && parseCoords("4.9, 23") == nil && parseCoords("44, 23.5") == nil && parseCoords("44.9.2314") == nil,
               "live runs 28-29: a reading that lost a decimal is no position (\"4.9, 23\" for 44.9, 23.4 put the player 40 units off)")
+        check(same(parseCoords("42,2,23.7"), 42.2, 23.7) && same(parseCoords("42,2, 23,7"), 42.2, 23.7) && parseCoords("42,23.7") == nil,
+              "live run 31: a decimal point read as a comma keeps its glyph and is a position")
         // 25 Sept, live: a quest giver's orange name across the box. Raw first; masks only when they agree.
         check(same(agreedCoords(raw: "42.5, 23.7", masked: ["12.5, 23.7", "12.5, 23.7"]), 42.5, 23.7), "a raw reading that parses is kept")
         check(same(agreedCoords(raw: "43.0.23к7 Eнн", masked: ["43.0,23.7", "43.0, 23.7"]), 43.0, 23.7), "masks that agree read through a name")

@@ -740,6 +740,14 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             await host.sleep(HuntLimits.settle)
             continue
         }
+        // Nothing to offer without a position after LOOK_AROUND (no walk, no second look): read again, as a survey that did
+        // not read (live run 31, 27 Sept: the empty request ended the hunt as HUD_UNREADABLE on one unread position).
+        if o.here == nil && huntAdmissible(o, steps: r.steps).isEmpty {
+            misses += 1
+            if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            await host.sleep(HuntLimits.settle)
+            continue
+        }
         misses = 0
         lastStamp = o.stamp
         r.end = o.objectives

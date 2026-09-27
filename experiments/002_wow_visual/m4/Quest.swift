@@ -204,6 +204,13 @@ func learnedMark(_ box: [Int]) -> QuestMark {
     return (x, y, h, y + 4 * h, x, y + 0.9 * h)
 }
 
+/// A rule mark's glyph as a box (x, y, width, height) for the learned reader's shape crop: square, its height each way,
+/// since that crop's side follows the longer of the two, and a mark is never wider than tall.
+func glyphBox(_ m: QuestMark) -> [Int] {
+    let h = Int(m.h.rounded())
+    return [Int((m.x - m.h / 2).rounded()), Int((m.y - m.h / 2).rounded()), h, h]
+}
+
 /// The learned marks the rules did not find: none within a mark's height of a rule mark.
 func extraMarks(_ learned: [QuestMark], beside rules: [QuestMark]) -> [QuestMark] {
     learned.filter { l in !rules.contains { hypot($0.x - l.x, $0.y - l.y) <= max(12, max($0.h, l.h)) } }
@@ -346,9 +353,15 @@ func acceptButton(_ dialog: [TipLine]) -> TipLine? {
 }
 
 /// The quest an NPC's greeting offers to take: the first entry after its yellow "!" icon, which OCR reads as a leading
-/// "!" (live run 14, 26 Sept: Ailee Farheart's "Hello, shaman." above "! Coming of Age"). A "?" entry is one to hand in.
-func offeredEntry(_ dialog: [TipLine]) -> TipLine? {
-    dialog.first { $0.text.hasPrefix("!") && $0.text.dropFirst().filter(\.isLetter).count >= 3 }
+/// "!" (live run 14, 26 Sept: Ailee Farheart's "Hello, shaman." above "! Coming of Age"). OCR reads that "!" as "?" too
+/// (live run 31, 27 Sept: "? The Gift of Skysight"). A "?" entry hands in a quest of the log (`ours`), so one that is not
+/// in it is offered; its page must still show Accept.
+func offeredEntry(_ dialog: [TipLine], ours: [String]) -> TipLine? {
+    dialog.first { l in
+        let title = String(l.text.dropFirst())
+        guard title.filter(\.isLetter).count >= 3 else { return false }
+        return l.text.hasPrefix("!") || (l.text.hasPrefix("?") && !ours.contains { sameTitle(title, $0) })
+    }
 }
 
 /// A panel is open when the box holds one of a panel's own buttons, a whole line. The world shows through
@@ -617,6 +630,9 @@ enum QuestLimits {
     // One hover sweep over an NPC's points (QuestRun.onUnit) stops starting points after 12 s: a read takes
     // 0.7 s, or up to 2.9 s when a background move stalls the capture.
     static let hoverSeconds = 12.0
+    /// The learned reader names a mark's kind reliably from this height (px) up: 20 of 20 on saved frames, 27 Sept. Below
+    /// it, far marks of 3-5 px, it named a "!" as "?" at confidence 1.00, so a small mark keeps its place whatever it reads.
+    static let kindMinHeight = 6.0
     // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
     // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]

@@ -47,8 +47,15 @@ struct MarkReader {
         let c = glyphCrops(box, width: image.width, height: image.height)
         guard let context = image.cropping(to: CGRect(x: c.context.x, y: c.context.y, width: c.context.w, height: c.context.h)),
               let seen = try classify(detect, context), seen.label == "mark",
-              let shape = image.cropping(to: CGRect(x: c.shape.x, y: c.shape.y, width: c.shape.w, height: c.shape.h)),
-              let which = try classify(kind, shape) else { return nil }
+              let which = try glyphKind(image, box: box) else { return nil }
         return LearnedMark(box: box, kind: which.label, confidence: seen.confidence)
+    }
+
+    /// Which mark a glyph box is, from its shape crop: "exclamation" or "question". It names the kind of the rule reader's
+    /// marks too, which have none (live run 31, 27 Sept: a hand-in clicked a giver's "!" beside it).
+    func glyphKind(_ image: CGImage, box: [Int]) throws -> (label: String, confidence: Double)? {
+        let c = glyphCrops(box, width: image.width, height: image.height).shape
+        guard let shape = image.cropping(to: CGRect(x: c.x, y: c.y, width: c.w, height: c.h)) else { return nil }
+        return try classify(kind, shape)
     }
 }

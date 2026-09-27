@@ -55,11 +55,23 @@ final class QuestRun {
     /// miss are clicked only once a hover confirms an NPC under them (live run 21: a near "?" the rules missed).
     private lazy var clickReader: MarkReader? = try? MarkReader()
     private var learnedOnly: [(x: Double, y: Double)] = []  // the click targets only the learned reader found
+    private var logTitles: [String] = []  // the last log read's quests: a greeting's "?" entry for one of them is a hand-in
 
     /// The rules' marks, then the learned reader's that the rules did not find, as click targets.
-    func clickMarks(_ image: CGImage, _ pixels: RGBA) -> [QuestMark] {
-        let rules = questMarks(pixels, box: QuestHUD.world)
-        let extra = extraMarks(((try? clickReader?.marks(image, pixels)) ?? []).map { learnedMark($0.box) }, beside: rules)
+    /// `want`: only marks of that kind ("question" to hand in, "exclamation" to take), as the learned reader names them;
+    /// a mark it cannot name, or too small to name (kindMinHeight), stays. Live run 31, 27 Sept: a hand-in clicked a giver's "!".
+    func clickMarks(_ image: CGImage, _ pixels: RGBA, want: String? = nil) -> [QuestMark] {
+        var rules = questMarks(pixels, box: QuestHUD.world)
+        var learned = (try? clickReader?.marks(image, pixels)) ?? []
+        if let want, let reader = clickReader {
+            let before = rules.count
+            rules = rules.filter { m in
+                m.h < QuestLimits.kindMinHeight || ((try? reader.glyphKind(image, box: glyphBox(m))) ?? nil).map { $0.label == want } ?? true
+            }
+            learned = learned.filter { Double($0.box[3]) < QuestLimits.kindMinHeight || $0.kind == want }
+            if rules.count < before { body.emit("other_kind", ["want": want, "dropped": before - rules.count]) }
+        }
+        let extra = extraMarks(learned.map { learnedMark($0.box) }, beside: rules)
         learnedOnly = extra.map { ($0.x, $0.y) }
         if !extra.isEmpty { body.emit("learned_targets", ["count": extra.count, "marks": extra.prefix(3).map { [Int($0.x), Int($0.y), Int($0.h)] }]) }
         return rules + extra
@@ -318,6 +330,7 @@ final class QuestRun {
                                 "givers": givers.map { ["tooltip": $0.names, "at": [$0.pin.x, $0.pin.y]] }, "quests": quests.map {
             ["title": $0.title, "level": $0.level, "objective": $0.objective, "kind": questKind($0).rawValue,
              "pin": orNull($0.pin.map { [($0.x * 10).rounded() / 10, ($0.y * 10).rounded() / 10] })] }])
+        logTitles = quests.map(\.title)
         return (quests, player, missing, givers)
     }
 
@@ -410,10 +423,24 @@ final class QuestRun {
         return nil
     }
 
+    /// Turn to face `pin`, as a human turns to the NPC on arriving: a walk ends facing the way it went (live run 31, 27 Sept:
+    /// at the ramp's foot the hand-in's "?" was 90° left, out of view, and a giver's "!" ahead was clicked). A pulse turns at
+    /// most 105°, so up to three, each on a fresh reading.
+    func face(_ pin: MapPoint) async {
+        for _ in 0..<3 {
+            guard let o = body.look(), let pulse = turnPulse(angleError(bearing(from: o.point, to: pin), o.facing)) else { return }
+            body.emit("face", ["pin": [pin.x, pin.y], "at": [o.x, o.y], "facing": Int(o.facing.rounded())])
+            body.keys.press(pulse.code)
+            await sleep(Double(pulse.ms) / 1000)
+            body.keys.lift(pulse.code)
+            await sleep(0.4)
+        }
+    }
+
     /// Turn in place in 45° steps, one turn at most, until a quest mark is in view, as a human looks round: after a
     /// click-walk the camera can sit against a wall with the NPC beside or behind (live run 18, 26 Sept: Rorian's
     /// tent, the camera behind the character's head, Rorian targeted and out of sight). nil: no mark in a whole turn.
-    func lookAround() async -> (CGImage, [QuestMark])? {
+    func lookAround(want: String? = nil) async -> (CGImage, [QuestMark])? {
         guard let pulse = turnPulse(45) else { return nil }
         for _ in 0..<8 {
             body.keys.press(pulse.code)
@@ -421,7 +448,7 @@ final class QuestRun {
             body.keys.lift(pulse.code)
             let turned = hostNow()
             guard let seen = await frame(after: turned + 0.3) else { continue }
-            let pixels = rgba(seen), marks = clickMarks(seen, pixels)
+            let pixels = rgba(seen), marks = clickMarks(seen, pixels, want: want)
             shadowMarks(seen, pixels, at: "around")
             body.emit("look_around", ["marks": marks.count])
             if !marks.isEmpty { return (seen, marks) }
@@ -433,13 +460,13 @@ final class QuestRun {
     /// `page` takes the dialogue that opens (it may click on through an NPC's quest list). A hub's NPCs stand
     /// close together (24 Sept: three "?" in Thendal Village). Someone else's dialogue is closed with Esc,
     /// only when a panel is open: Esc with nothing open is the Game Menu.
-    func openAtMark(_ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
+    func openAtMark(want: String? = nil, _ page: ([TipLine]) async -> Page) async -> (dialog: [TipLine]?, failure: String?) {
         guard var image = await frame() else { return (nil, "NO_FRESH_FRAME") }
         let pixels = rgba(image)
-        var marks = clickMarks(image, pixels)
+        var marks = clickMarks(image, pixels, want: want)
         shadowMarks(image, pixels, at: "open")
         body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
-        if marks.isEmpty, let around = await lookAround() { (image, marks) = around }
+        if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
         guard !marks.isEmpty else {
             write(image, to: body.directory.appendingPathComponent("no-marks.png"), type: .png)  // for calibration
             return (nil, "NO_QUEST_MARK_IN_VIEW")
@@ -477,13 +504,13 @@ final class QuestRun {
                     guard let again = await frame(after: looked + 0.3) else { continue }
                     image = again
                     let againPixels = rgba(again)
-                    marks = clickMarks(again, againPixels)
+                    marks = clickMarks(again, againPixels, want: want)
                     shadowMarks(again, againPixels, at: "again")
                     body.emit("marks", ["count": marks.count, "marks": marks.prefix(3).map { [Int($0.x), Int($0.y), Int($0.body)] }])
                     if !marks.isEmpty { break }
                     await sleep(0.4)
                 }
-                if marks.isEmpty, let around = await lookAround() { (image, marks) = around }
+                if marks.isEmpty, let around = await lookAround(want: want) { (image, marks) = around }
                 if marks.isEmpty { write(image, to: body.directory.appendingPathComponent("no-marks-after.png"), type: .png) }
             }
         }
@@ -503,9 +530,9 @@ final class QuestRun {
             dialog = []
         }
         if acceptButton(dialog) == nil {
-            let opened = await openAtMark { page in
+            let opened = await openAtMark(want: "exclamation") { page in
                 var page = page
-                if acceptButton(page) == nil, let entry = listed(page) ?? offeredEntry(page) {
+                if acceptButton(page) == nil, let entry = listed(page) ?? offeredEntry(page, ours: self.logTitles) {
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
                     await self.sleep(1.5)
                     page = self.lines(QuestHUD.dialog, await self.frame())
@@ -538,7 +565,7 @@ final class QuestRun {
         }
         var dialog = await pastContinue(lines(QuestHUD.dialog, await frame()))
         if has(dialog, "Complete Quest") == nil || ours(dialog) == nil {
-            let opened = await openAtMark { page in
+            let opened = await openAtMark(want: "question") { page in
                 var page = page
                 if self.has(page, "Complete Quest") == nil, let entry = ours(page) {  // an NPC with several quests lists them
                     guard self.click(entry.x + 40, entry.y + 7) else { return .failed("CLICK_FAILED") }
@@ -695,6 +722,7 @@ final class LiveQuestHost: QuestHost {
         // No pin: the map hid it under the player's arrow, so its NPC may stand here, perhaps above or below.
         let pin = quest.pin ?? quester.body.look().map { (x: $0.x, y: $0.y) }
         if let pin, let stop = await walkBeside(pin, label: quest.title) { return stop }
+        if let pin = quest.pin { await quester.face(pin) }
         let outcome = await quester.turnIn(quest.title)
         emit("quest_done", ["quest": quest.title, "outcome": outcome])
         forgetLog(outcome)
@@ -726,6 +754,7 @@ final class LiveQuestHost: QuestHost {
 
     func accept(_ giver: Giver) async -> String {
         if let stop = await (giver.inView ? walk(to: giver.pin, label: "quest giver") : walkBeside(giver.pin, label: "quest giver")) { return stop }
+        if !giver.inView { await quester.face(giver.pin) }
         let outcome = await quester.accept(giver)
         emit("quest_taken", ["tooltip": giver.names, "outcome": outcome])
         forgetLog(outcome)

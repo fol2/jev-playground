@@ -13,6 +13,7 @@
 //   m5-perceive --trails        frame paths on stdin; the zone coordinates under the minimap read from each, resumable
 //   m5-perceive --roads         the roads of every source's trails to learning/knowledge/zephras-roads.json, and each
 //                               source held out against the roads of the others
+//   m5-perceive --kinds FRAME...  each rule mark of the frames with the kind the learned reader names (live run 31)
 import Foundation
 import ImageIO
 import CoreGraphics
@@ -329,6 +330,22 @@ func roads() throws -> Int32 {
     return 0
 }
 
+/// `--kinds FRAME...`: each rule mark of a saved frame with the kind the learned reader names for it, as a hand-in ("question")
+/// or a quest taken ("exclamation") filters its click targets (live run 31). One line a mark: frame, x, y, height, kind.
+func kinds(_ paths: [String]) throws -> Int32 {
+    let reader = try MarkReader()
+    for path in paths {
+        guard let image = loadImage(URL(fileURLWithPath: path)) else { print(path, "unreadable"); continue }
+        let marks = questMarks(pixels(image), box: MarkLabels.world(height: image.height))
+        if marks.isEmpty { print(path, "no rule mark") }
+        for m in marks {
+            let k = try reader.glyphKind(image, box: glyphBox(m))
+            print(path, Int(m.x), Int(m.y), Int(m.h), k?.label ?? "none", k.map { String(format: "%.2f", $0.confidence) } ?? "-")
+        }
+    }
+    return 0
+}
+
 @main
 struct PerceiveTool {
     static func main() {
@@ -345,6 +362,7 @@ struct PerceiveTool {
             case ("--trails", 1): exit(try trails())
             case ("--roads", 1): exit(try roads())
             case ("--audit", 2): exit(try audit(args[1]))
+            case ("--kinds", let n) where n >= 2: exit(try kinds(Array(args.dropFirst())))
             case ("--sheet-frames", 2):
                 guard let n = Int(args[1]), (1...600).contains(n) else { break }
                 exit(try sheet(limit: n, wholeFrames: true))
@@ -357,7 +375,7 @@ struct PerceiveTool {
             fputs("HOLD: \(error)\n", stderr)
             exit(2)
         }
-        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads\n", stderr)
+        fputs("HOLD: usage: m5-perceive --propose | --prelabel | --sheet N | --sheet-held N | --sheet-frames N (1-600) | --audit FILE | --train | --baseline | --trails | --roads | --kinds FRAME...\n", stderr)
         exit(64)
     }
 }

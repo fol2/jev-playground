@@ -342,6 +342,13 @@ extension NavTests {
         let chased = await runHunt(host: flicker, jev: huntScripted([.toCreature, .lookAround]))
         check(chased.steps.first?.action == .toCreature && chased.steps.first?.result.hasPrefix("not done") == false,
               "a creature seen at the decision and missed by the next frame's plates is still walked to")
+        // Live run 31: after LOOK_AROUND a survey read no coordinates, so nothing was admissible (no walk without a position,
+        // no second look) and the empty request ended the hunt as HUD_UNREADABLE. Such a survey is read again.
+        let patchy = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 27)])
+        patchy.world.missEvery = 2
+        let searched = await runHunt(host: patchy, jev: huntScripted([.fight, .toCreature, .lookAround] + HuntAction.compass))
+        check(searched.outcome != "HUD_UNREADABLE" && searched.steps.contains { $0.action.isWalk },
+              "a survey without a position after LOOK_AROUND is read again, and the hunt walks on (\(searched.outcome))")
     }
 
     static func huntScripted(_ preference: [HuntAction]) -> ScriptedJev<HuntAction> {
@@ -622,9 +629,15 @@ extension NavTests {
               "the follow-up's Accept is its button, never quest text starting with \"Accept\"")
         // Live run 14, 26 Sept: Ailee Farheart greets before her quest, which is listed after a yellow "!".
         let greeting = tip([("Ailee Farheart", 30, 200), ("Hello, shaman.", 30, 260), ("! Coming of Age", 30, 400), ("Goodbye", 40, 690)])
-        check(offeredEntry(greeting)?.y == 400 && offeredEntry(tip([("Hello, shaman.", 30, 260), ("! ", 30, 400)])) == nil
-              && offeredEntry(tip([("? Harvesting Windstones", 30, 400)])) == nil && offeredEntry(offered) == nil,
+        let ours = ["Harvesting Windstones", "Harmony in Balance"]
+        check(offeredEntry(greeting, ours: ours)?.y == 400 && offeredEntry(tip([("Hello, shaman.", 30, 260), ("! ", 30, 400)]), ours: ours) == nil
+              && offeredEntry(tip([("? Harvesting Windstones", 30, 400)]), ours: ours) == nil && offeredEntry(offered, ours: ours) == nil,
               "a greeting's quest to take is the entry after its \"!\"; a bare icon, a \"?\" to hand in, or an open offer is none")
+        // Live run 31, 27 Sept: Ventaari Brightwish's "! The Gift of Skysight" read as "? ...", and the offer was left.
+        let skysight = tip([("Ventaari Brightwish", 30, 200), ("What may I do for you, fellow", 30, 260), ("? Harmony in Balance", 30, 330),
+                            ("? The Gift of Skysight", 30, 400), ("Goodbye", 40, 690)])
+        check(offeredEntry(skysight, ours: ours)?.y == 400,
+              "a \"?\" entry whose quest is not in the log is one to take (OCR read its \"!\" as \"?\"); the log's own is not")
         // Live, 25 Sept: with nothing open, a vendor's name in the world beside the box was read as her dialogue.
         check(!panelOpen(tip([("Jolee Brightmeadows", 12, 402), ("«Cloth & Leather Armor>", 20, 420)])) && panelOpen(offered)
               && panelOpen(tip([("The Gift of Skysight", 30, 200), ("Complete Quest", 40, 690)])) && !panelOpen([]),
