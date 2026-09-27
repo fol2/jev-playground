@@ -1097,6 +1097,29 @@ death is still reported.
     opened it; Return; Accept; resurrected with no penalty.
   - Engine live: not yet run.
 
+## M4t — a hostile plate stops the walk too (27 Sept)
+
+The owner, 27 Sept, after live run 67: "you straight go into danger zone. you obviously can see red names (even red
+namepages that means very close) you should be awared that and take caution, means the normal pathfinding should stop,
+goes to danger zone pathfinding / hunting". The owner had said so on 24 Sept too ("danger not only red plates but also red
+names … the time you see plate means they are already in your danger zone"), but M4h stopped only for red names.
+
+- **The miss.** In run 67 the walk to use Skysight met a Roiling Winds in combat. `nameplates`, replayed on that walk's
+  frames, read its hostile plate nearly straight ahead from `walk2/f122` on: ten frames, about 5 s, before combat.
+  A plate's name is white, so `redNames` read nothing, and the walk went on.
+- **Now** (`walkWarnings`): every hostile (red) plate in view warns the walk as a red name does. One within 30° of the
+  heading ends the walk `DANGER_AHEAD`, and the quest loop's danger choices follow (M4h, M4o, M4p): Jev picks `RETREAT`,
+  `FIGHT_AHEAD` (pull that one creature, only at 90% health or more), or `FROM_HERE`. Neutral (yellow) and friendly plates
+  do not warn. The way to safety (M4r) still walks on through danger. Every frame with a hostile plate is kept, and the
+  look logs `hostile_plates`; `--replay` prints them.
+- **Replay** (offline, `nameplates` on today's saved quest-walk frames, runs 58-67):
+  - no hostile plate on any walk inside Thendal Village (for example run 67's walks 1 and 4, and a 104-frame walk of
+    run 58);
+  - plates on the walks near the Elemental Convergence and the Al'Aketh camp;
+  - six of the flagged frames, cropped and checked by eye, were all Roiling Winds plates (level 2-3, one casting).
+- **Not yet:** a detour round a plate, and the hunt's own walks (their quest creatures carry plates too).
+- **Evidence.** Sim: `NavTests` (a hostile plate from run 67 warns; a neutral one does not). Live: the next run.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

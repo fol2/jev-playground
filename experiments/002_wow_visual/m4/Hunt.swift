@@ -381,6 +381,14 @@ func viewBearing(_ x: Double, facing: Double, width: Int) -> Double {
     (facing + (x / Double(width) - 0.5) * HuntLimits.viewDegrees + 360).truncatingRemainder(dividingBy: 360)
 }
 
+/// The walk's warnings (M4h): the compass bearings of the red names left as danger and of every hostile (red) plate in
+/// view. The owner, 24 Sept: "the time you see plate means they are already in your danger zone". Live run 67 (27 Sept)
+/// walked five seconds towards a Roiling Winds whose hostile plate stood nearly straight ahead, read no red name (a plate's
+/// name is white), and met it in combat; the owner: red names and plates in view should stop the normal walk.
+func walkWarnings(danger: [RedName], plates: [PlateBar], facing: Double, width: Int) -> [Double] {
+    (danger.map(\.centre) + plates.filter(\.hostile).map(\.centre)).map { viewBearing($0, facing: facing, width: width) }
+}
+
 /// A creature whose nameplate was in view: its name, colour, compass bearing (facing plus the plate's
 /// angle off the view's centre) and whether it stood low in view, which means near.
 struct Seen: Equatable {
