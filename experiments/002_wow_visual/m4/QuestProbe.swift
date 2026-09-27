@@ -29,6 +29,7 @@ enum QuestHUD {
     /// A quest's tracking checkbox in the Map & Quest Log's list: x 1082, 7 px below its title line's top (27 Sept: title tops
     /// 252, 296, 336, 422; boxes centred 261, 301, 342, 429).
     static let trackX = 1082.0, trackDy = 7.0
+    static let questCount = CGRect(x: 990, y: 178, width: 135, height: 30)  // "Quests: 3/40" above the list (27 Sept)
     /// Character pane slots (C). Chest was read live on 24 Sept; the others follow the standard layout.
     static let paneSlots: [String: (x: Double, y: Double)] = [
         "Head": (62, 258), "Neck": (62, 304), "Shoulder": (62, 350), "Back": (62, 398), "Chest": (62, 444), "Shirt": (62, 490),
@@ -391,6 +392,10 @@ final class QuestRun {
             if let listed { write(listed, to: body.directory.appendingPathComponent("quest-log.png"), type: .png) }  // what the plan rests on
             let listLines = lines(QuestHUD.questList, listed)
             quests = parseQuestLog(listLines)
+            if let shown = questCount(lines(QuestHUD.questCount, listed).map(\.text)), shown != quests.count {
+                body.emit("quest_count", ["shown": shown, "read": quests.count])
+                uiFault.append("the log read \(quests.count) of its \(shown) quests")  // LOG_INCOMPLETE: no plan on a partial log
+            }
             // Every quest is tracked, as a player keeps them: the hunt reads its objectives from the tracker (live run 42).
             if let listed {
                 let pixels = rgba(listed)

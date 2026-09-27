@@ -767,6 +767,8 @@ extension NavTests {
               "a level's bracket misread as 1, and an icon read before it, still start a quest")
         check(questTitle("[12] Rise of the Grove")!.level == 12 && questTitle("[11] Eleven")!.title == "Eleven"
               && questTitle("[151 Fifteen")!.level == 15 && questTitle("[5]The Next Step")!.title == "The Next Step"
+              && questTitle("..• [3] The Cirrusfly Queen")?.title == "The Cirrusfly Queen" && questTitle(".•) [4] The Gift of Skysight")?.level == 4
+              && questCount(["Quests: 3/40"]) == 3 && questCount(["Quests: 12 / 40"]) == 12 && questCount(["Search Quest Log"]) == nil
               && questTitle("Report to [Boros]") == nil && questTitle("Camping") == nil,
               "two-digit levels read whole; a true bracket needs no space after it; a bracket inside an objective does not start a quest")
         check(questTitle("to [4] Camp") == nil && questTitle("- [5] Phantom") == nil && questTitle(") [6] The Adventurer")!.prefixed

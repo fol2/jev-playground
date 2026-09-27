@@ -542,15 +542,23 @@ func missingFromLog(_ tooltips: [[String]], _ quests: [PlannedQuest]) -> [String
 /// The Map & Quest Log's list, as OCR lines: "[4] Call of Earth" titles, objectives indented under
 /// them, zone headers ("Camping") to their left. Pins are added from the map afterwards.
 /// OCR misreads the level's frame (live run 7, 26 Sept): "]" as "1" ("[51 The Next Step"), and the "?"
-/// icon before it as ")" (") [6] The Adventurer"); the log then read empty. So up to three characters that
+/// icon before it as ")" (") [6] The Adventurer"); the log then read empty. The "..." icon of a quest in progress reads as
+/// "..• " or ".•) " (live run 43, 27 Sept: two of three quests dropped from the log). So up to five characters that
 /// are not letters, digits or "-" may come before "[" (text before it is an objective's, "to [4] Camp"),
 /// and the closing bracket may read as 1, l, I or | when a space follows: the character before the space
 /// closes the level. `prefixed`: the line started before the title column.
 func questTitle(_ text: String) -> (level: Int, title: String, prefixed: Bool)? {
-    guard let m = text.firstMatch(of: try! Regex(#"^([^\[\p{L}\d-]{0,3})\[(\d{1,2})(?:\]\s*|[1lI|]\s+)"#)),
+    guard let m = text.firstMatch(of: try! Regex(#"^([^\[\p{L}\d-]{0,5})\[(\d{1,2})(?:\]\s*|[1lI|]\s+)"#)),
           let digits = m.output[2].substring, let level = Int(digits) else { return nil }
     let title = String(text[m.range.upperBound...])
     return title.isEmpty ? nil : (level, title, !(m.output[1].substring?.isEmpty ?? true))
+}
+
+/// The log's own count, "Quests: 3/40" above its list. A read that parses fewer quests than this missed some (live run 43,
+/// 27 Sept: two of three titles led by "..• " went unread, and the run ended with nothing left to do). nil: not read.
+func questCount(_ lines: [String]) -> Int? {
+    guard let m = lines.joined(separator: " ").firstMatch(of: #/Quests:?\s*(\d{1,2})\s*\/\s*\d{2}/#) else { return nil }
+    return Int(m.output.1)
 }
 
 func parseQuestLog(_ lines: [TipLine]) -> [PlannedQuest] {
