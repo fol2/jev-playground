@@ -12,6 +12,10 @@ enum RoadLimits {
     static let maxStep = 2.0
     static let cell = 1.0  // one place: a square y unit of ground; players on one road share its places
     static let reach = 3.0  // a route starts and ends at places within this of the player and of the goal
+    // M4z: a straight walk passing this near a place where an earlier walk stopped (NO_PROGRESS) goes by road instead; about
+    // two strides of the walker's, the width of the boulder that stopped runs 78 and 79 (40.4-40.7, 22.9-23.8).
+    static let stuckNear = 1.0
+    static let stuckKept = 64  // the stops remembered, the latest kept
     static let bend = 0.3  // a waypoint is kept where the road leaves the straight line by more than this
     // A route keeps a jog of its trail wider than this (about 0.75 s of running), so a leg does not cut across a lip the
     // players walked round (the owner, 27 Sept: bad at cliffs; review note on legs simplified at `bend`).
@@ -125,7 +129,9 @@ func pruned(_ g: RoadGraph, minPlaces: Int = RoadLimits.minPart) -> RoadGraph {
 /// and off at a place within `reach` of `to`. The places on the way, simplified to where the road bends, then the
 /// goal. nil when no place is within reach of either end or no way joins them.
 // ponytail: Dijkstra by linear scan, O(places²); a heap if a graph grows past some thousands of places.
-func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLimits.reach) -> [MapPoint]? {
+/// `nearest` (M4z): end at the reachable place nearest the goal, so the walk off the road is the shortest there is; the
+/// cheapest end may lie across what stopped a walk before (live runs 78-79: the village's places east of the boulder).
+func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLimits.reach, nearest: Bool = false) -> [MapPoint]? {
     let n = g.places.count
     var cost = (0..<n).map { distance(from, g.point($0)) <= reach ? distance(from, g.point($0)) : Double.infinity }
     var previous = [Int?](repeating: nil, count: n), done = [Bool](repeating: false, count: n)
@@ -138,11 +144,24 @@ func route(_ g: RoadGraph, from: MapPoint, to: MapPoint, reach: Double = RoadLim
             previous[v] = u
         }
     }
-    guard let end = (0..<n).filter({ cost[$0] < .infinity && distance(g.point($0), to) <= reach })
-        .min(by: { cost[$0] + distance(g.point($0), to) < cost[$1] + distance(g.point($1), to) }) else { return nil }
+    guard let end = (0..<n).filter({ cost[$0] < .infinity && distance(g.point($0), to) <= reach }).min(by: {
+        nearest ? (distance(g.point($0), to), cost[$0]) < (distance(g.point($1), to), cost[$1])
+                : cost[$0] + distance(g.point($0), to) < cost[$1] + distance(g.point($1), to)
+    }) else { return nil }
     var path = [end]
     while let p = previous[path[0]] { path.insert(p, at: 0) }
     return simplified(path.map(g.point) + [to], tolerance: RoadLimits.lip)
+}
+
+/// M4z (the owner, 27 Sept: "can the engine self-improve? Eg path finding"): whether the straight line from `from` to `to`
+/// passes within `near` of a place where an earlier walk stopped (NO_PROGRESS). Live runs 78 and 79 each walked west from
+/// Thendal Village into the same boulder; the roads players walked go south round it.
+func passesStuck(_ from: MapPoint, _ to: MapPoint, _ stuck: [MapPoint], near: Double = RoadLimits.stuckNear) -> Bool {
+    let dx = to.x - from.x, dy = to.y - from.y, span = dx * dx + dy * dy
+    return stuck.contains { p in
+        let t = span == 0 ? 0 : max(0, min(1, ((p.x - from.x) * dx + (p.y - from.y) * dy) / span))
+        return distance(p, (from.x + t * dx, from.y + t * dy)) <= near
+    }
 }
 
 /// Whether the straight line from `from` to `to` leaves the learned roads, and they give a way round: some point on it,
