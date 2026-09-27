@@ -197,6 +197,13 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
     the label click follows as before.
   - Our own kill after a corpse seen at the start clears that old corpse (`Episode.update`), so its loot ends the
     fight `KILLED_AND_LOOTED`.
+- **Loot, live run 64 (27 Sept).** The owner again saw no loot. After each kill the game cleared the target and no
+  label stood over the corpse, so the fight read "no corpse label visible" six times. Interact With Target had nothing
+  selected.
+  - The fight keeps the plate of the creature it fights while it lives. With no target after the kill, the pointer
+    rests on up to 12 points below that plate (`corpseHoverPoints`).
+  - Only a tooltip that says "Corpse" and names the fought creature (`corpseTooltip`) is right-clicked, never a
+    living one. Chat is then polled for the loot line, as before.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

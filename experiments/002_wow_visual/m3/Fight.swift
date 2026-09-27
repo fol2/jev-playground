@@ -1117,6 +1117,20 @@ func isTooltipFooter(_ text: String) -> Bool { text.contains("submit an issue") 
 /// OCR boxes (text, left x, top y, in pixels) to tooltip lines, top to bottom: only lines aligned with
 /// the "Press F6" footer's left edge or in the right-hand column, so world text above the tooltip (a
 /// nameplate read as slot 8's name, 24 Sept) is dropped.
+/// Where to rest the pointer for the corpse of a creature whose plate was last seen at `p`: the plate floats over the
+/// head, so the body lies below it, farther for a nearer (wider) plate. Four rows, the middle column first. Live run 64
+/// (27 Sept): after each kill the game cleared the target, no label stood over the corpse, and six loots read "no corpse
+/// label visible".
+func corpseHoverPoints(_ p: Plate) -> [(x: Double, y: Double)] {
+    let w = Double(p.x1 - p.x0 + 1)
+    return [0.45, 0.85, 1.25, 1.7].flatMap { row in [0.0, -0.3, 0.3].map { col in (p.centre + col * w, Double(p.bottom) + row * w) } }
+}
+
+/// Whether a unit tooltip is a corpse of one of `names`: a "Corpse" line, and a line the fight's names match.
+func corpseTooltip(_ lines: [String], names: [String]) -> Bool {
+    lines.contains { $0.lowercased().filter(\.isLetter) == "corpse" } && lines.contains { fuzzyNameMatch($0, names) }
+}
+
 func tooltipLines(_ boxes: [(text: String, x: Double, y: Double)]) -> [String] {
     guard let foot = boxes.first(where: { isTooltipFooter($0.text) }) else { return [] }
     return boxes.filter { $0.y <= foot.y && (abs($0.x - foot.x) <= 8 || $0.x >= foot.x + 150) }
