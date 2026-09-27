@@ -354,8 +354,16 @@ func navTrap() throws {
     let (beforeQueue, inQueue) = (shadowCall.components(separatedBy: "shadowQueue.async")[0], shadowCall.components(separatedBy: "shadowQueue.async").dropFirst().joined())
     if !beforeQueue.contains("if busy {") || beforeQueue.contains("MarkReader") || beforeQueue.contains(".marks(")
         || !inQueue.contains("try MarkReader()") || !inQueue.contains("try shadow.marks(image, pixels)")
-        || quest.components(separatedBy: "MarkReader").count != 3 {
+        || quest.components(separatedBy: "MarkReader").count != 5 {
         throw GateError("the learned reader's shadow can hold the quest run: its load or read is not on its own queue")
+    }
+    // The learned reader also acts, through a click reader of its own (live runs 21 and 31: targets the rules miss, each
+    // hover-confirmed, and each rule mark's kind). It is declared once, lazily, and read only where click targets are
+    // chosen, never per frame; the two uses of MarkReader beyond the shadow's are its declaration.
+    let clickTargets = after("func clickMarks", quest).components(separatedBy: "\n    }\n")[0]
+    if !quest.contains("private lazy var clickReader: MarkReader? = try? MarkReader()")
+        || quest.components(separatedBy: "clickReader").count - 1 != 1 + clickTargets.components(separatedBy: "clickReader").count - 1 {
+        throw GateError("the learned click reader is read outside clickMarks, or declared other than once and lazily")
     }
     if !quest.contains("if walker?.holding == true { return \"WALK_KEYS_HELD\" }")
         || !quest.contains("guard !legs.holding else { return \"WALK_KEYS_HELD\" }") {
