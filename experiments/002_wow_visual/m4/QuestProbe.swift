@@ -44,6 +44,8 @@ enum QuestHUD {
     // line's left-top as OCR reads it (the merchant's and the trainer's windows open at the left, where the quest dialogue does).
     // Private: the level last trained (M4u) and the steps' records across runs (M4y).
     static let characterMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/character.json")
+    // Private: where quest walks stopped against the ground (M4z), the world's and not a character's: a new character keeps it.
+    static let stuckMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/stuck.json")
     // Where an NPC's name is sought, read at twice its size: the view but the tracker at the right (live run 73: Windshaper
     // Boro's name stood at x 2130-2270, outside the first box, 512-2048, and the visit ended NPC_NOT_OPENED).
     static let townView = CGRect(x: 100, y: 200, width: 2160, height: 640)
@@ -1029,6 +1031,9 @@ final class LiveQuestHost: QuestHost {
     var trainedAt: Int? = characterMemory()["trained_at_level"] as? Int
     var history: [String: StepMemory] = stepHistory(characterMemory())
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
+    /// M4z: where quest walks stopped (NO_PROGRESS), from the memory; a straight walk passing one goes by road.
+    var stuck: [MapPoint] = ((try? Data(contentsOf: QuestHUD.stuckMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[Double]] } ?? [])
+        .compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
     private var hunting: LiveHuntHost?  // the same
@@ -1247,10 +1252,14 @@ final class LiveQuestHost: QuestHost {
         }
         if !retreating, let at { walkedFrom = at }  // the way back from danger: this walk came through it
         // A straight line that leaves the learned roads is walked by them, leg by leg (the owner, 27 Sept: obstacles and
-        // cliffs). A retreat goes straight back over the ground it crossed; a road's own leg is already on the road.
-        if !retreating, !road, let roads, let at, straightLeavesRoads(at, pin, roads), let legs = route(roads, from: at, to: pin) {
+        // cliffs), and so is one that passes where a walk stopped before (M4z), to the road's place nearest the pin. A retreat
+        // goes straight back over the ground it crossed; a road's own leg is already on the road.
+        let stuckAhead = !retreating && !road && at.map { passesStuck($0, pin, stuck) } == true
+        if !retreating, !road, let roads, let at, stuckAhead || straightLeavesRoads(at, pin, roads),
+           let legs = route(roads, from: at, to: pin, avoid: stuckAhead ? stuck : []) {
             let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
-            emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length)])
+            emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length),
+                              "stuck_ahead": stuckAhead])
             return await roadGapWalk(legs, arrive: arrive, until: min(runDeadline, hostNow() + QuestLimits.roadGapSeconds), now: now) { i, leg, reach in
                 await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true, arrive: reach)
             }
@@ -1263,7 +1272,16 @@ final class LiveQuestHost: QuestHost {
         let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
                                   destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive))
         guard !legs.holding else { return "WALK_KEYS_HELD" }
+        if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
+    }
+
+    /// M4z: a place where a quest walk stopped, kept for the walks after (the latest `stuckKept`), and written.
+    private func rememberStuck(_ at: MapPoint) {
+        stuck = Array((stuck + [at]).suffix(RoadLimits.stuckKept))
+        emit("stuck_point", ["at": [at.x, at.y], "kept": stuck.count])
+        try? FileManager.default.createDirectory(at: QuestHUD.stuckMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: stuck.map { [$0.x, $0.y] }).write(to: QuestHUD.stuckMemory)
     }
 
     /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks' moves are a

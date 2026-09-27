@@ -1272,6 +1272,26 @@ the in-run `failed` set is forgotten when a run ends.
   memory held them. Live run 80: the Foul Matriarch hunt's criterion read run 79's record ("Earlier runs: this step failed
   once … WALK_NO_PROGRESS at level 4"), and Jev chose another step first.
 
+## M4z — where walks stopped, remembered (27 Sept)
+
+The owner, 27 Sept: "can the engine self-improve? Eg path finding". Live runs 78 and 79 each walked west from Thendal
+Village towards Foul Matriarch's pin (39.6, 23.9) and each stopped `NO_PROGRESS` against the same boulder on a steep slope
+(40.4-40.7, 22.9-23.8). The straight line stays within 3 units of the learned roads there, so `straightLeavesRoads` never
+sent it by road; the roads players walked go south round the ridge (42.5, 24.3; 41.6, 25.6; 41.0, 25.7; then north).
+
+- A quest walk (not a retreat) that ends `NO_PROGRESS` keeps where it stopped (`stuck_point`) in the private
+  `runs/…/memory/stuck.json`: the world's, not a character's, the latest 64.
+- `passesStuck` (pure): a straight walk passing within `stuckNear` (1 unit) of a remembered stop goes by the learned roads
+  instead, and its `route` (`avoid`) ends at the reachable place nearest the pin whose own place, and whose walk off the road
+  to the pin (all but its last unit), lie clear of every stop, within 4.5 units: the cheapest end lay across the boulder.
+  Review of #83: the committed place nearest the log's pin (39.6, 23.9) is the boulder itself (40.7, 23.8), and the nearest
+  clear of it (41.72, 23.43) walks back across it; the route now ends at 40.6, 25.9, south of it, by the south road.
+- Evidence: sim (`NavTests`: the committed roads route Thendal Village to the pin round the south once the two stops are
+  remembered; a walk elsewhere does not pass them). Live run 80, with the two stops of runs 78 and 79 in the memory (put
+  there from those runs' own `NO_PROGRESS` places): the walk to Foul Matriarch (pin 36.2, 24.1) logged `road_gap` with
+  `stuck_ahead` (13 legs, 18.4 units by road against 10.8 straight) and set off south; its first leg stopped at 41.9, 25.4 for
+  a hostile ahead (`WALK_DANGER_AHEAD`), so the far side is still to be reached live.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
