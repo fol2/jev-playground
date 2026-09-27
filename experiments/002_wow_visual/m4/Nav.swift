@@ -64,6 +64,7 @@ enum NavLimits {
     static let nearRadius = 0.5
     static let headingTolerance = 25.0
     static let unreadableLimit = 6
+    static let unstickTurn = 0.15  // s of E: about 25 degrees (a 300 ms press stepped 46-59 degrees)
     static let recentMoves = 6
     static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
@@ -521,6 +522,16 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
+            if misses == NavLimits.unreadableLimit / 2 {
+                // One turn on the spot: a quest icon beside the arrow stays where it is while the arrow turns off it (live run
+                // 54, 27 Sept: standing still, the rule read 130 and the learned reader 250 on every frame, and the walk ended).
+                body.keys.lift(FightLimits.forward)
+                body.emit("unreadable_turn", ["misses": misses, "ms": Int(NavLimits.unstickTurn * 1000)])
+                body.keys.grant(FightLimits.turnRight, seconds: NavLimits.unstickTurn + NavLimits.forwardWatchdog)
+                body.keys.press(FightLimits.turnRight)
+                await body.sleep(NavLimits.unstickTurn)
+                body.keys.lift(FightLimits.turnRight)
+            }
             await body.sleep(NavLimits.tick)  // a W left held lapses under its watchdog meanwhile
             continue
         }

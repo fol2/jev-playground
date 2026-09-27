@@ -530,6 +530,10 @@ struct NavTests {
             setup(world)
             let result = await runNav(body: world, jev: scripted(), destination: goal)
             check(result.outcome == outcome && result.jevCalls == 0 && !result.holding, "\(outcome) stops before any decision")
+            if outcome == "HUD_UNREADABLE" {
+                check(world.keys.codesPosted.filter { $0 == FightLimits.turnRight }.count == 1,
+                      "live run 54: an unreadable place turns once on the spot before the walk gives up")
+            }
         }
 
         // 25 Sept, live: arrival seen mid-move, then a quest giver's name covered the coordinates.
