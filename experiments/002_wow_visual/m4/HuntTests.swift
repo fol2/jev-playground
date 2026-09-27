@@ -1032,9 +1032,10 @@ extension NavTests {
         let book = (try? TownNPC.load()) ?? []
         check(book.map(\.name).sorted() == ["Uualia Suncrest", "Windshaper Boro"] && book.contains(boro),
               "M4u: the town book loads the village's vendor and trainer")
-        check(tooltipLevel(["Someone", "Level 3 Skyborne Shaman"]) == 3 && tooltipLevel(["Level 12"]) == 12 && tooltipLevel(["Someone"]) == nil
+        check(tooltipLevel(["Someone", "Level 3 Windshaper Skyborne (Player)"]) == 3 && tooltipLevel(["Aetheen of the Gales", "Level 5"]) == nil
+              && tooltipLevel(["Someone"]) == nil
               && copper("63") == 63 && copper("1 • 25 •") == 125 && copper("2 5 7") == 20507 && copper("") == nil && copper("1 150") == nil,
-              "M4u: the level from a unit tooltip; money from a window's line, read from the right")
+              "M4u: the level from the character's own tooltip, not an NPC's left showing (live run 78); money from a window's line, read from the right")
         let rows: [TipLine] = [TipLine(text: "Kockbiter Weapon fRank 1)", x: 74, y: 234), TipLine(text: "10", x: 310, y: 230),
                                TipLine(text: "Earth Shock (Rank 1)", x: 78, y: 283), TipLine(text: "Requires: Level 4", x: 78, y: 300),
                                TipLine(text: "Parthbind l otem", x: 78, y: 335), TipLine(text: "Requires: Level 6", x: 78, y: 350),

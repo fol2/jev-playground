@@ -1279,9 +1279,11 @@ enum TownLimits {
     static let trainRows = 6  // Train clicks in one visit, at most
 }
 
-/// The level in a unit tooltip ("Level 3 Skyborne Shaman", "Level 3"): the number after the first "Level".
+/// The character's level in its portrait's tooltip ("Level 3 Windshaper Skyborne (Player)"): the number after "Level" on a
+/// "(Player)" line. An NPC's tooltip still showing from before the pointer reached the portrait is not it (live run 78, 27 Sept:
+/// "Level 5" alone was read as a level-4 character's).
 func tooltipLevel(_ lines: [String]) -> Int? {
-    for line in lines {
+    for line in lines where line.lowercased().contains("player") {
         let words = line.split(separator: " ")
         if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
     }

@@ -1229,10 +1229,14 @@ character's, and Sell All Junk had sold such grey gear before.
   right-click RULE puts it on. `command`, `wearing` and the character pane's boxes are gone.
 - Also here (live run 75): OCR dropped the brackets of a ready quest's title beside its "?" ("4 Return to Rorian"), the log read
   2 of 3 quests and the run stopped `LOG_INCOMPLETE`. `questTitle` takes a bare level when a capital follows it.
+- Also here (live run 78): the portrait's level read "Level 5" alone for a level-4 character, an NPC's tooltip still showing;
+  `tooltipLevel` takes the level only from the "(Player)" line.
 - Evidence: sim (`HuntTests`: the belt, shoes and bracers tooltips as Vision read them live; the cloak with an NPC's subtitle
   above it; the log lines of runs 75 and 76). Live run 76: the shoes (+5, the old boots back in their bag slot) and the belt
   (+18, the slot then empty) were worn; the cloak was not (its name read as world text, fixed above); the bracers (-3) were
-  left.
+  left. Live run 77: the cloak (+3) was worn, the old boots (-5) left, all three quests read, and Return to Rorian handed in
+  at level 4. Live run 78: the reward cloak of run 77 (+2) was worn, the Ragged Cloak back in its slot; after a hunt and a
+  hand-in the check read `NO_UPGRADE`.
 
 ## Limits
 
