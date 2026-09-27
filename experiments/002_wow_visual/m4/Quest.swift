@@ -886,8 +886,12 @@ func deathStep(popup: [ScreenText], dialog: [ScreenText], world: [WorldName] = [
        let b = popup.first(where: { key($0.text) == key("Accept") }) { return (.accept, b.x, b.y) }
     if let b = find(dialog, "Return me to life") { return (.returnToLife, b.x, b.y) }
     // Only the dead see a Spirit Healer, so its name in view is a ghost beside it: its body is right-clicked, seven name
-    // heights below the name (live, 27 Sept: name 38 px tall, bottom at 209, the gossip opened on a click at 470).
-    if let n = world.first(where: { key($0.text).contains(key("Spirit Healer")) }) { return (.talk, n.x, n.bottom + 7 * n.height) }
+    // heights below the name (live, 27 Sept: name 38 px tall, bottom at 209, the gossip opened on a click at 470). The whole
+    // line must be its name: a chat bubble or a sign that mentions one is no ghost (review of #73), and the click stays in
+    // the view above the bars.
+    if let n = world.first(where: { key($0.text) == key("Spirit Healer") && $0.height <= 60 }) {
+        return (.talk, n.x, min(n.bottom + 7 * n.height, 1000))
+    }
     return nil
 }
 

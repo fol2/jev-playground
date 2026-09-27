@@ -1064,7 +1064,8 @@ death is still reported.
   2. "Return me to life." in the Spirit Healer's gossip. After run 65 it opened by itself about 6 s after the release.
      After run 66 it did not, so when the gossip is not open and a "Spirit Healer" name is in view, the healer is
      right-clicked seven name heights below its name (TALK). Only the dead see a Spirit Healer, so that name also finds a
-     ghost at the start of a run;
+     ghost at the start of a run. The whole line must be its name (a chat bubble that mentions one is no ghost), and the
+     click stays in the view above the bars;
   3. "Accept", only on the popup that says "resurrect", beside Cancel, and only after step 2. The button's whole line must
      read "Accept". Another popup's Accept is never taken: a party invite, a summons, or another player's offer to
      resurrect (Accept and Decline).

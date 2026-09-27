@@ -1250,6 +1250,10 @@ extension NavTests {
               && deathStep(popup: [], dialog: gossip, world: healer, last: .talk)?.step == .returnToLife
               && deathStep(popup: dying, dialog: [], world: healer, last: nil)?.step == .release,
               "live, after run 66: no gossip opened after the release, so the Spirit Healer, seen only by the dead, is right-clicked below its name")
+        check(deathStep(popup: [], dialog: [], world: [("Go to the Spirit Healer", 1235, 209, 38)], last: nil) == nil
+              && deathStep(popup: [], dialog: [], world: [("Spirit Healers", 1235, 209, 38)], last: nil) == nil
+              && deathStep(popup: [], dialog: [], world: [("Spirit Healer", 1235, 800, 38)], last: .release).map { $0.y == 1000 } == true,
+              "review of #73: a line that only mentions a Spirit Healer is no ghost; the click stays in the view")
         let release: DeathClick = (.release, 1209, 221), back: DeathClick = (.returnToLife, 100, 306), yes: DeathClick = (.accept, 1211, 249)
         let talk: DeathClick = (.talk, 1235, 475)
         /// The live `seen` over scripted frames (nil: a frame with nothing to click), then the time out.

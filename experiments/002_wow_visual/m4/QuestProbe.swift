@@ -1007,7 +1007,8 @@ final class LiveQuestHost: QuestHost {
     }
 
     /// M4s: resurrect at the Spirit Healer when the screen shows death (SAFETY's; nil when it does not). Each read is on a
-    /// frame captured after the last click. After Release Spirit it waits up to 10 s for the gossip, which opens by itself.
+    /// frame captured after the last click. After Release Spirit it waits up to 10 s for the gossip, which opened by itself
+    /// after run 65 but not after run 66: then the Spirit Healer is right-clicked (TALK).
     func reviveIfDead() async -> String? {
         func texts(_ box: CGRect, _ image: CGImage) -> [ScreenText] {
             guard let crop = image.cropping(to: box) else { return [] }
