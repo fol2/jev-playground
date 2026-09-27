@@ -1124,9 +1124,10 @@ extension NavTests {
         // M4y: a step's record across runs (the owner, 27 Sept: "can the engine self-improve?").
         var memory = recordStep([:], key: "HUNT Harvesting Windstones", outcome: "HUNT_NO_TARGET_FOUND", level: 4)
         memory = recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "HUNT_NO_TARGET_FOUND", level: 4)
-        let unmoved = recordStep(recordStep(recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "OWNER_TOOK_FOCUS", level: 4),
-                                          key: "HUNT Harvesting Windstones", outcome: "HUNT_TIME_LIMIT", level: 4),
-                               key: "TOWN Uualia Suncrest", outcome: "NO_JUNK", level: 4)
+        // The host's real strings (review of #81): a takeover prefixed by the walk or the hunt, or a town visit's; the clock; the
+        // HUD unread (live run 79); nothing to sell.
+        let unmoved = ["WALK_OWNER_TOOK_FOCUS", "HUNT_OWNER_TOOK_FOCUS", "OWNER_OR_TIME", "HUNT_TIME_LIMIT", "HUNT_HUD_UNREADABLE", "NO_JUNK"]
+            .reduce(memory) { recordStep($0, key: "HUNT Harvesting Windstones", outcome: $1, level: 4) }
         check(memory["HUNT Harvesting Windstones"] == StepMemory(fails: 2, last: "HUNT_NO_TARGET_FOUND", level: 4) && unmoved == memory
               && recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "HUNTED 3", level: 5).isEmpty,
               "M4y: a failure adds to the step's record; the owner's takeover, the clock or nothing to sell leave it; a success forgets it")

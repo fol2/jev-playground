@@ -700,14 +700,15 @@ struct StepMemory: Equatable {
     var level: Int?
 }
 
-/// What a step's outcome teaches: one that worked forgets the step's failures; one that says nothing about the step (the
-/// owner's takeover, the clock, combat or danger on the way, nothing to sell or learn yet, gear unsettled) leaves them; any
-/// other adds one.
+/// What a step's outcome teaches: one that worked forgets the step's failures; one that says nothing about the step leaves
+/// them: the owner's takeover however it is prefixed ("WALK_OWNER_TOOK_FOCUS", "HUNT_OWNER_TOOK_FOCUS", "OWNER_OR_TIME"; review
+/// of #81), the clock, combat or danger on the way, the engine's own faults (keys held, a handoff, a HUD unread), nothing to
+/// sell or learn yet, gear unsettled. Any other adds one.
 func recordStep(_ memory: [String: StepMemory], key: String, outcome: String, level: Int?) -> [String: StepMemory] {
     var memory = memory
     let worked = ["COMPLETED", "ACCEPTED", "HUNTED", "BY_ROAD", "USED", "SOLD", "TRAINED", "RETREATED", "KILLED"].contains { outcome.hasPrefix($0) }
-    let silent = ["OWNER_TOOK_FOCUS", "WALK_COMBAT", "WALK_DANGER_AHEAD", "GEAR_UNSETTLED", "NO_JUNK"].contains(outcome)
-        || outcome.hasSuffix("TIME_LIMIT") || outcome.hasPrefix("NOTHING_TO_") || outcome.hasPrefix("BACK_")
+    let silent = ["OWNER", "TIME_LIMIT", "COMBAT", "DANGER", "KEYS_HELD", "HANDOFF", "UNREADABLE"].contains { outcome.contains($0) }
+        || ["GEAR_UNSETTLED", "NO_JUNK"].contains(outcome) || outcome.hasPrefix("NOTHING_TO_") || outcome.hasPrefix("BACK_")
     if worked { memory[key] = nil } else if !silent { memory[key] = StepMemory(fails: (memory[key]?.fails ?? 0) + 1, last: outcome, level: level) }
     return memory
 }
@@ -1245,8 +1246,10 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .town(let n): outcome = await host.visit(n)
         }
         r.steps.append((offer.step.name, outcome))
-        switch offer.step {  // a retreat or a fight ahead is about the creature there, not a step to remember across runs
-        case .retreat, .fightAhead: break
+        // A retreat or a fight ahead is about the creature there, and a giver's key is where its "!" showed this time (review
+        // of #81): none is a step to remember across runs.
+        switch offer.step {
+        case .retreat, .fightAhead, .accept: break
         default: host.remember(offer.step.key, outcome: outcome, level: read.level)
         }
         if outcome == "WALK_DANGER_AHEAD" {

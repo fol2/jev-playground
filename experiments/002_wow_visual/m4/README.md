@@ -1255,7 +1255,9 @@ the in-run `failed` set is forgotten when a run ends.
 - `recordStep` (pure): a step's outcome updates its record, by the step's key. A success (`COMPLETED`, `HUNTED`, `SOLD`,
   `TRAINED`...) forgets its failures; an outcome that says nothing about the step (the owner's takeover, the clock, combat or
   danger on the way, nothing to sell or learn, gear unsettled) leaves them; any other adds one, with the outcome and the level.
-  A retreat or a fight ahead is not recorded: it is about the creature there.
+  A retreat or a fight ahead is not recorded: it is about the creature there; nor an accept, whose key is where its "!"
+  showed. Review of #81: the takeover is silent however the host prefixes it (`WALK_`, `HUNT_`, `OWNER_OR_TIME`), and so are
+  the engine's own faults (keys held, a handoff, a HUD unread).
 - `withHistory`: `runQuests` adds a step's record to its criterion ("Earlier runs: this step failed 2 times since it last
   worked, the last time as HUNT_NO_TARGET_FOUND at level 4; a step that failed the same way rarely works unless something has
   changed since"). Jev still chooses: knowledge, not a rule, and no step is removed.
@@ -1266,8 +1268,8 @@ the in-run `failed` set is forgotten when a run ends.
 - Evidence: sim (`HuntTests`: two failures counted, the takeover, the clock and nothing to sell leave them, a success forgets
   them; a run's Jev reads the record in the hunt's criterion and the outcome is remembered). Live run 79: `step_memory` logged
   "HUNT Foul Matriarch" failed once (`WALK_NO_PROGRESS`, the walk west stopped against a boulder at 40.7,22.9, as in run 78)
-  and "HUNT Harvesting Windstones" once (`HUNT_HUD_UNREADABLE`), and the character's memory held both; that Jev reads them
-  in the next run is still to be seen live.
+  and "HUNT Harvesting Windstones" once (`HUNT_HUD_UNREADABLE`, now silent: that record was dropped), and the character's
+  memory held them; that Jev reads them in the next run is still to be seen live.
 
 ## Limits
 
