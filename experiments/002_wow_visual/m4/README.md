@@ -115,6 +115,10 @@ All boxes are capture pixels of the 2560×1320 window.
   - The rule now counts only silver connected to the navy dot. The facing is the ray from the
     dot along which that silver runs longest, which is the cone's axis. An icon adds a short
     blob, never an 8–10 px run.
+  - The tail is the largest compact navy part (within 7 × 7 px) beside silver. Live run 36 (27 Sept):
+    a quest area's blue band crossed the arrow's tip, its pixels beside the tip pulled the "dot"
+    there, and the facing read 258–344° for 131°; the walk turned on the spot until `NO_PROGRESS`.
+    On that run's frames the rule reads 113–124°, and a synthetic band is a check.
   - On eight lossless (PNG) captures turning in place beside three quest icons, it was within
     12° of the author's labels. Successive readings stepped 46–59° per 300 ms Q press.
   - Saved JPEGs do not replay the live frames faithfully. The same frame decoded two ways
@@ -761,6 +765,11 @@ Run 33 (27 Sept, about 01:30) accepted Embracing the Elements, The Gift of Skysi
 Run 34 (27 Sept, about 01:47) found the "..." pins and read their tooltips, but no cursor line parsed, so again no pin
 and `HUNT_NO_TARGET_FOUND`. OCR of the run's recording gave "Cursor: 45.8. 27.1" and "42.G. 22.9": `mapCursor` now takes a
 dot between numbers of one decimal each, and "G" for 6. `map_pin` events log the cursor's text.
+
+Run 35 (27 Sept, about 01:57) read every pin, the hunt's at 45.8, 27.1. The walk there stopped `DANGER_AHEAD` 1.9 from
+it: two level-1 Juvenile Vuldren, one's red-brown body read as a red name. Only RETREAT was offered, and the run ended.
+Near a kill quest's pin red names are most likely its creatures, so a hunt's walk stopped by one within 3 units starts
+the hunt there (`huntStartsNear`): the hunt reads each plate's name, fights only what counts, and fights back.
 
 ## Limits
 

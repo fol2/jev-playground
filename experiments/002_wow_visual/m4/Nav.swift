@@ -113,7 +113,24 @@ func arrowFacing(_ image: RGBA) -> Double? {
         }
         return false
     }
-    navy = navy.filter { nearSilver($0.0, $0.1) }  // the lavender quest-area outline is not beside silver
+    // The tail is a compact dot (4 x 4 px live) beside silver, the largest one within 7 x 7, of all the navy in the box: a
+    // quest area's blue band across the arrow's tip is one long part, and beside silver too (live run 36, 27 Sept: its
+    // pixels pulled the "dot" to the tip, the facing read 258-344° for 131°, and the walk turned on the spot until
+    // NO_PROGRESS). The lavender outline is long as well. No such dot reads nothing.
+    var parts: [[(Int, Int)]] = [], left = navy
+    while let seed = left.popLast() {
+        var part = [seed], i = 0
+        while i < part.count {
+            let (px, py) = part[i]
+            i += 1
+            let near = left.indices.filter { abs(left[$0].0 - px) <= 1 && abs(left[$0].1 - py) <= 1 }
+            part += near.map { left[$0] }
+            for k in near.reversed() { left.remove(at: k) }
+        }
+        parts.append(part)
+    }
+    navy = parts.filter { p in p.map(\.0).max()! - p.map(\.0).min()! < 7 && p.map(\.1).max()! - p.map(\.1).min()! < 7 }
+        .map { $0.filter { nearSilver($0.0, $0.1) } }.max { $0.count < $1.count } ?? []
     guard navy.count >= 3 else { return nil }
     let nx = Double(navy.map(\.0).reduce(0, +)) / Double(navy.count)
     let ny = Double(navy.map(\.1).reduce(0, +)) / Double(navy.count)
