@@ -1151,7 +1151,7 @@ extension NavTests {
               "M4y live runs 77-78: Jev reads a step's failures in earlier runs in its criterion, and the step's outcome is remembered")
         // M4ab (the owner: "it keep updating inventory and quest, even there're no related events"): what a step makes stale.
         check(staleAfter(.handIn(stones), "COMPLETED_TO_WEAR") == [.log, .bags, .level] && staleAfter(.handIn(stones), "WALK_NO_PROGRESS").isEmpty
-              && staleAfter(.hunt(stones), "HUNTED 2") == [.log, .bags, .level] && staleAfter(.hunt(stones), "HUNT_NO_TARGET_FOUND").isEmpty
+              && staleAfter(.hunt(stones), "HUNTED 2") == [.log, .bags, .level] && staleAfter(.hunt(stones), "HUNT_NO_TARGET_FOUND") == [.log, .bags, .level]
               && staleAfter(.hunt(stones), "WALK_DANGER_AHEAD").isEmpty && staleAfter(.town(uualia), "SOLD 38") == [.bags]
               && staleAfter(.town(boro), "TRAINED 1").isEmpty && staleAfter(.retreat, "RETREATED").isEmpty
               && staleAfter(.use(stones, item: "Skysight"), "USED_ABILITY") == [.log, .bags] && staleAfter(.fightAhead, "FLED") == [.log, .bags, .level],

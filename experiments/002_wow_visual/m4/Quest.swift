@@ -694,8 +694,9 @@ struct QuestRead {
 /// M4ab (the owner, 27 Sept: "the cache memory also had issues... it keep updating inventory and quest, even there're no
 /// related events. just waste of time"; live run 80: 7 map scans, 7 bag reads of 93 slot hovers and 8 level reads for 8 steps,
 /// 9-20 s before each decision): the reads a step's outcome makes stale. A hand-in changes the log, the bags (its reward) and
-/// the level (its experience); an accept or a use the log and the bags; a fight, or a hunt that met creatures, all three (kills,
-/// loot, experience); a sale the bags; a walk that stopped, a retreat or a road nothing (the place is read each step).
+/// the level (its experience); an accept or a use the log and the bags; a fight, or a hunt that reached its area, all three
+/// (kills, loot, experience: a hunt that fought may still end NO_TARGET_FOUND, as live run 39's did after the last Cirrusfly;
+/// review of #84); a sale the bags; a walk that stopped on the way, a retreat or a road nothing (the place is read each step).
 enum StaleRead: Hashable { case log, bags, level }
 
 func staleAfter(_ step: QuestStep, _ outcome: String) -> Set<StaleRead> {
@@ -704,7 +705,7 @@ func staleAfter(_ step: QuestStep, _ outcome: String) -> Set<StaleRead> {
     case .handIn: return outcome.hasPrefix("COMPLETED") ? all : []
     case .accept: return outcome.hasPrefix("ACCEPTED") ? [.log, .bags] : []
     case .use: return outcome.hasPrefix("USED") ? [.log, .bags] : []
-    case .hunt: return outcome == "HUNT_NO_TARGET_FOUND" || outcome.hasPrefix("WALK_") ? [] : all
+    case .hunt: return outcome.hasPrefix("WALK_") ? [] : all
     case .fightAhead: return all
     case .town(let n): return n.role == "vendor" && outcome.hasPrefix("SOLD") ? [.bags] : []
     case .road, .retreat: return []
