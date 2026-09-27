@@ -256,6 +256,12 @@ struct NavTests {
         let body35 = RedName(x0: 1128, x1: 1152, y0: 631, y1: 639), nest = RedName(x0: 888, x1: 920, y0: 399, y1: 415)
         let plates35 = [PlateBar(hostile: false, x0: 1162, x1: 1352, y0: 547, y1: 563), PlateBar(hostile: false, x0: 516, x1: 709, y0: 609, y1: 625)]
         let plates24 = [PlateBar(hostile: false, x0: 958, x1: 1155, y0: 396, y1: 411)]
+        let runs67 = PlateBar(hostile: true, x0: 1264, x1: 1446, y0: 626, y1: 639)  // live run 67, walk2/f122: a Roiling Winds
+        let yellow = PlateBar(hostile: false, x0: 1200, x1: 1386, y0: 500, y1: 514)
+        let warned = walkWarnings(danger: [], plates: [runs67, yellow], facing: 67, width: 2560)
+        check(warned.count == 1 && abs(angleError(warned[0], 67)) <= NavLimits.warnCone
+              && walkWarnings(danger: [], plates: [yellow], facing: 67, width: 2560).isEmpty,
+              "live run 67: a hostile plate nearly ahead warns the walk as a red name does; a neutral one does not")
         check(dangerNames([body35], plates: plates35).isEmpty && dangerNames([nest], plates: plates24) == [nest]
               && dangerNames([RedName(x0: 1300, x1: 1340, y0: 683, y1: 699)], plates: plates35).count == 1
               && dangerNames([RedName(x0: 1420, x1: 1460, y0: 600, y1: 616)], plates: plates35).count == 1

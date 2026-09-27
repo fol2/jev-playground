@@ -128,8 +128,9 @@ final class LiveNavBody: NavBody {
         let image = frame.image
         let pixels = rgba(image)
         let names = redNames(pixels)
+        let hostile = nameplates(pixels).filter(\.hostile)
         var file: String? = nil  // the saved frame, as its folder and name, for learning from later (M5 facing)
-        if frameNo % 2 == 0 || !names.isEmpty {  // every frame with a red name is kept, for calibration
+        if frameNo % 2 == 0 || !names.isEmpty || !hostile.isEmpty {  // every frame with a red name or plate is kept, for calibration
             write(image, to: directory.appendingPathComponent(String(format: "f%03d.jpg", frameNo)), type: .jpeg)
             file = directory.lastPathComponent + String(format: "/f%03d.jpg", frameNo)
         }
@@ -142,9 +143,10 @@ final class LiveNavBody: NavBody {
         }
         let hud = observe(pixels, plates: false)
         let red = redDanger(image, pixels, names: names, reader: redReader)
-        let warnings = red.danger.map { viewBearing($0.centre, facing: facing, width: pixels.width) }
+        let warnings = walkWarnings(danger: red.danger, plates: hostile, facing: facing, width: pixels.width)
         let fields: [String: Any] = ["frame": frameNo - 1, "file": orNull(file), "x": at.x, "y": at.y, "facing": Int(facing.rounded()),
-                                     "combat": hud.combat].merging(seen.fields) { a, _ in a }
+                                     "combat": hud.combat, "hostile_plates": hostile.map { [$0.x0, $0.y0, $0.x1, $0.y1] }]
+            .merging(seen.fields) { a, _ in a }
         emit("look", fields.merging(red.fields) { a, _ in a })
         return NavObs(stamp: frame.stamp, x: at.x, y: at.y, facing: facing, combat: hud.combat, player: ghost ? 1 : hud.player,
                       warnings: warnings)
@@ -271,7 +273,8 @@ func navReplay(_ directory: String) throws -> Int32 {
         let target = upscaledText(image, HuntHUD.targetName).joined(separator: " ")
         let hud = observe(rgba(image), plates: true)
         let red = redDanger(image, rgba(image), names: redNames(rgba(image)), reader: reader).fields
-        log.emit("frame", red.merging(["file": name, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
+        let plates = nameplates(rgba(image)).filter(\.hostile).map { [$0.x0, $0.y0, $0.x1, $0.y1] }
+        log.emit("frame", red.merging(["file": name, "hostile_plates": plates, "facing": orNull(arrowFacing(rgba(image)).map { Int($0.rounded()) }),
                            "coords_text": text, "x": orNull(at?.x), "y": orNull(at?.y),
                            "objectives": parseTracker(upscaledText(image, HuntHUD.tracker)).map { "\($0.quest): \($0.done)/\($0.need) \($0.text)" },
                            "target": target, "target_health": Int(hud.target * 100),
