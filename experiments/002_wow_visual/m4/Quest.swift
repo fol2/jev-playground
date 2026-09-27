@@ -713,8 +713,8 @@ enum QuestLimits {
     /// The learned reader names a mark's kind reliably from this height (px) up: 20 of 20 on saved frames, 27 Sept. Below
     /// it, far marks of 3-5 px, it named a "!" as "?" at confidence 1.00, so a small mark keeps its place whatever it reads.
     static let kindMinHeight = 6.0
-    // Only a kill lets a quest run go on after a fight back. Not the hunt's JEV_STOP: M3 cannot select an
-    // attacker behind (Tab looks ahead), and walking on while still attacked would only fight again.
+    // Only a kill lets a quest run go on after a fight back. Not a JEV_STOP (in combat STOP is not offered, but a reply Jev
+    // cannot give ends the fight so): walking on while still attacked would only fight again.
     static let fightWon: Set<String> = ["KILLED_AND_LOOTED", "KILLED_NO_CORPSE"]
     // A fight ahead out of combat that did not start (health under the fight's start) or that Jev stopped ends nothing: the
     // stop stands (M4p). A fight in combat ("BACK_" outcomes: attacked since the stop, or after a JEV_STOP) follows M4i: only

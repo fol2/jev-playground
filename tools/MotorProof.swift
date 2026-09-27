@@ -6,7 +6,7 @@ import ImageIO
 
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
-let minFightChecks = 228  // the current count: removing a check must lower this on purpose
+let minFightChecks = 231  // the current count: removing a check must lower this on purpose
 let minNavChecks = 420  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
@@ -361,6 +361,13 @@ func navTrap() throws {
                     throw GateError("\(file): a turn key is pressed without a watchdog grant for that key on the line before")
                 }
             }
+        }
+    }
+    // Every key the fight's live host presses is granted on the line before (review of #76: its turn round held E ungranted).
+    let fightProbeLines = try source(fightDir + "FightProbe.swift").components(separatedBy: "\n")
+    for (i, line) in fightProbeLines.enumerated() where line.contains("keys.press(") {
+        guard i > 0, fightProbeLines[i - 1].contains(".grant(") else {
+            throw GateError("FightProbe.swift: a key is pressed without a watchdog grant on the line before")
         }
     }
     // M5's learned reader in shadow is never waited for: the busy check returns at once, and every read, the model

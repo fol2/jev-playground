@@ -223,7 +223,7 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
     - The hover also tries below a label that names the corpse, then round the character, where a creature killed in
       melee falls (`corpseSearchPoints`). Every point is confirmed by the corpse's tooltip first. The label is never
       clicked blind: a living creature's plate of the same name reads as one. The search stops after 30 s.
-  - Evidence: sim only (`FightTests`: 227 checks). Live: the next run.
+  - Evidence: sim only (`FightTests`). Live: the next run.
 - **Fight back from behind, live run 68 (27 Sept).** The character died on the way to safety.
   - Its fight back was attacked by Roiling Winds casting from behind. Tab finds only an enemy in front, and six
     SELECT_TARGETs read "no target selected" while health fell from 69% to 53%.
@@ -235,8 +235,11 @@ error cues and the owner's tactics. Their lessons are folded into the rules abov
     - STOP is offered only out of combat.
     - In combat, SELECT_TARGET tabs, then turns a quarter (E for 600 ms, at the walk's measured 150° a second) and tabs
       again, a whole turn at most.
-    - The target frame is its evidence (`Episode.alive`), not a plate.
-  - Evidence: sim only (`FightTests`); live: the next run.
+    - The target frame is its evidence (`Episode.alive`), not a plate. The search is pure (`searchTarget`), and Jev's
+      SELECT_TARGET text says that it turns round in combat.
+    - Every key the live fight host presses is granted to the watchdog first, the turn round's E included, and the motor
+      proof checks it (review of #76). The turns round are kept apart from the approach's turn budget.
+  - Evidence: sim only (`FightTests`: the search behind, a whole turn at most, one Tab out of combat); live: the next run.
 - Labels are the author's, from the saved frames and chat lines.
 - The fixed-script and Jev runs were not compared on the same episodes, so nothing here
   claims Jev beats rules.

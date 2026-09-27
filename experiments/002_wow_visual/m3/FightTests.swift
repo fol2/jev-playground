@@ -31,9 +31,24 @@ struct FightTests {
         await watchdog()
         liveKeys()
         await sim()
+        await search()
         tactics()
         await chains()
         print("fight checks passed: \(checks)")
+    }
+
+    /// SELECT_TARGET's search (live run 68): in combat it turns round until Tab selects, four Tabs at most; out of it, one Tab.
+    static func search() async {
+        var tabs = 0, turns = 0
+        let behind = await searchTarget(combat: true, tab: { tabs += 1; return Obs(target: tabs < 3 ? 0 : 0.8, combat: true) }, turn: { turns += 1 })
+        check(behind.selected && behind.turns == 2 && tabs == 3 && turns == 2,
+              "live run 68: attacked from behind, a quarter turn and Tab again until the target frame shows one")
+        tabs = 0; turns = 0
+        let nobody = await searchTarget(combat: true, tab: { tabs += 1; return Obs(target: 0, combat: true) }, turn: { turns += 1 })
+        let calm = await searchTarget(combat: false, tab: { Obs(target: 0) }, turn: { turns += 10 })
+        check(!nobody.selected && tabs == 4 && turns == 3 && !calm.selected && turns == 3,
+              "in combat a whole turn at most (four Tabs, three turns); out of combat one Tab and no turn")
+        check(FightAction.selectTarget.facts.contains("turns a quarter"), "Jev is told that SELECT_TARGET turns round in combat")
     }
 
     static func blank() -> RGBA {
