@@ -485,3 +485,22 @@ walk, hunt: frame -> FacingReader (the arrow's crop, classes every 10 degrees) +
 2. An object detector (`MLObjectDetector`, in tiles at native resolution) follows when the audit has more marks.
 3. The same detector then takes the HUD anchors (minimap, portrait, action bar, target frame), so boxes
    follow the layout instead of fixed pixels.
+
+## Depth (27 Sept)
+
+The owner, 27 Sept: Apple's models that understand the 3D world from 2D pictures ("apple depth pro is the first priority").
+
+- Offline, on 268 live walk frames of 26-27 Sept, labelled by what the next straight move did (moved 0.4 or more: open, 256;
+  moved 0.05 or less, blocked, and not a walk's first two decisions: blocked, 12), the view ahead's disparity against the
+  ground by the character (rows 0.30-0.45 over 0.55-0.68 of the frame's middle column) separated blocked from open at AUC
+  0.79 with Apple's Depth Anything V2 small (Core ML, 25 ms a frame on this M4) and at 0.64 with Depth Pro (Core ML, 5 s a
+  frame, all of it on the Neural Engine by its compute plan). Depth Pro's maps of a wall close ahead read flat.
+- `DepthReader` (Reader.swift) runs Depth Anything V2 small from the private models folder
+  (`runs/002_wow_visual/perception/models/DepthAnythingV2SmallF16.mlpackage`, from `apple/coreml-depth-anything-v2-small`,
+  Apache-2.0), compiled once per process; `viewDepth` (Nav.swift, pure) turns its disparity into the ahead, left and right
+  ratios. Without the model, walks go on without them.
+- M4 walks give Jev the ratios as `view_depth` in each move's state, read on the latest frame once per decision; the goal
+  text explains them. No rule acts on them: Jev weighs them, and each decision record keeps them for a live evaluation.
+- Evidence: offline as above (a side tool in the scratchpad; the frames are private). Sim: `NavTests` on synthetic grids and
+  the state packet. Live: the next run.
+

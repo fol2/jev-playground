@@ -381,7 +381,34 @@ enum NavAction: String, JevAction {
     }
 }
 
-let navInstructions = "Which move is most likely to get the character to `destination`, given `position`, `recent_moves` and `blocked_headings_near_here`?"
+let navInstructions = "Which move is most likely to get the character to `destination`, given `position`, `recent_moves`, `blocked_headings_near_here` and, when present, `view_depth`?"
+
+/// M5 depth (the owner, 27 Sept: Apple's depth models): how open the view is ahead of the character and to either side. Per
+/// column of the frame, the ground ahead's disparity (rows 0.30-0.45) over the ground by the character (rows 0.55-0.68): well
+/// under 1 is ground reaching away, about 1 or more a surface standing close. Offline, on 268 live walk frames of 26-27 Sept
+/// labelled by what the next straight move did (moved 0.4 or more: open; 0.05 or less and blocked: blocked), the centre's
+/// ratio separated them at AUC 0.79 with Apple's Depth Anything V2 small (25 ms a frame), and at 0.64 with Depth Pro (5 s).
+struct ViewDepth: Equatable {
+    var left: Double
+    var ahead: Double
+    var right: Double
+    var json: [String: Any] { ["left": left, "ahead": ahead, "right": right] }
+}
+
+/// The view's depth from a disparity grid, row-major, `width` x `height`, larger nearer; nil for a grid of another size.
+func viewDepth(_ disparity: [Float], width: Int, height: Int) -> ViewDepth? {
+    guard width > 1, height > 1, disparity.count == width * height else { return nil }
+    func median(_ x0: Double, _ x1: Double, _ y0: Double, _ y1: Double) -> Float {
+        var v: [Float] = []
+        for y in Int(y0 * Double(height))..<max(Int(y0 * Double(height)) + 1, Int(y1 * Double(height))) {
+            for x in Int(x0 * Double(width))..<max(Int(x0 * Double(width)) + 1, Int(x1 * Double(width))) { v.append(disparity[y * width + x]) }
+        }
+        v.sort()
+        return v[v.count / 2]
+    }
+    func ratio(_ x0: Double, _ x1: Double) -> Double { roundTo(Double(median(x0, x1, 0.30, 0.45) / max(0.0001, median(x0, x1, 0.55, 0.68)))) }
+    return ViewDepth(left: ratio(0.10, 0.30), ahead: ratio(0.42, 0.58), right: ratio(0.70, 0.90))
+}
 
 struct NavAttempt {
     let action: NavAction
@@ -439,7 +466,7 @@ func navAdmissible(_ o: NavObs, destination d: NavDestination, episode e: NavEpi
     }
 }
 
-func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEpisode, decisionsLeft: Int) -> [String: Any] {
+func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEpisode, decisionsLeft: Int, depth: ViewDepth? = nil) -> [String: Any] {
     let aim = bearing(from: o.point, to: d.point)
     let position: [String: Any] = ["x": o.x, "y": o.y, "facing_deg": Int(o.facing.rounded())]
     let destination: [String: Any] = [
@@ -450,13 +477,15 @@ func navStatePacket(_ o: NavObs, destination d: NavDestination, episode e: NavEp
         "best_distance": e.best.isFinite ? roundTo(e.best) : roundTo(distance(o.point, d.point)),
         "decisions_since_best": e.sinceBest, "decisions_left": decisionsLeft,
     ]
-    let state: [String: Any] = [
-        "goal": "Reach the destination on the zone map with this character. Moves cannot see obstacles: a move that ends blocked ran into something on that heading (a tree, rock, fence or building), and other headings may be clear.",
+    var state: [String: Any] = [
+        "goal": "Reach the destination on the zone map with this character. A move that ends blocked ran into something on that heading (a tree, rock, fence or building), and other headings may be clear."
+            + (depth == nil ? " Moves cannot see obstacles." : " `view_depth` reads the view from the screen, ahead of the character (the way it faces) and to its left and right: the nearness of the ground there against the ground by the character, under about 0.75 open ground reaching away, about 1 or more a surface close in front (a rock, wall or slope)."),
         "position": position, "destination": destination, "progress": progress,
         "recent_moves": e.attempts.suffix(NavLimits.recentMoves).map(\.json),
         "blocked_headings_near_here": e.blockedHeadings(near: o).map { Int($0.rounded()) },
         "units": "zone-map units: x and y are map percent, distances are in y units (one x unit is 1.5 y units); running covers about 0.2 per second; headings are compass degrees, 0 north, 90 east",
     ]
+    if let depth { state["view_depth"] = depth.json }
     return state
 }
 
@@ -466,6 +495,7 @@ protocol NavBody: AnyObject {
     func now() -> Double
     func sleep(_ seconds: Double) async
     func look() -> NavObs?  // nil: coordinates or arrow unreadable
+    func viewDepth() -> ViewDepth?  // M5 depth on the latest frame; nil without the model (and in a simulation)
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
     var facingState: FacingState? { get }  // the live facing's readings, for a turn test; nil in a simulation
@@ -473,6 +503,7 @@ protocol NavBody: AnyObject {
 
 extension NavBody {
     var facingState: FacingState? { nil }
+    func viewDepth() -> ViewDepth? { nil }
 }
 
 extension NavBody {
@@ -618,7 +649,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
         if allowed.isEmpty { return finish("NO_ADMISSIBLE_MOVE") }
 
         let state = navStatePacket(o, destination: d, episode: result.episode,
-                                   decisionsLeft: NavLimits.maxDecisions - result.decisions)
+                                   decisionsLeft: NavLimits.maxDecisions - result.decisions, depth: body.viewDepth())
         let question = actionQuestion(allowed, instructions: navInstructions)
         let asked = body.now()
         guard let stamp = o.stamp, let context = executive.request(stamp: stamp, candidates: allowed.map(\.rawValue),

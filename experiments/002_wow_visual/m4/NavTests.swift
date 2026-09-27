@@ -379,6 +379,22 @@ struct NavTests {
         let keys = ["goal", "position", "destination", "progress", "recent_moves", "blocked_headings_near_here", "units"]
         check(keys.allSatisfy { state[$0] != nil } && state.count == keys.count, "the state packet has exactly its seven fields")
         check((state["recent_moves"] as? [[String: Any]])?.count == NavLimits.recentMoves, "recent moves are capped at six")
+        // M5 depth: a grid of open ground (disparity falling away up the frame, a wall of near disparity on the left) and one of a
+        // surface standing close ahead (disparity alike top and bottom). Sim: synthetic disparity, not the model's.
+        let (w, h) = (100, 80)
+        let open = (0..<(w * h)).map { i -> Float in
+            let x = i % w, y = i / w
+            return x < 30 ? 1.0 : Float(y) / Float(h)
+        }
+        let wall = [Float](repeating: 0.8, count: w * h)
+        let seen = viewDepth(open, width: w, height: h), close = viewDepth(wall, width: w, height: h)
+        check(seen.map { $0.ahead < 0.75 && $0.right < 0.75 && $0.left >= 1 } == true && close == ViewDepth(left: 1, ahead: 1, right: 1)
+              && viewDepth(wall, width: w + 1, height: h) == nil,
+              "M5 depth: ground reaching away reads under 0.75 ahead, a surface close reads 1; a grid of the wrong size reads nothing")
+        let seeing = navStatePacket(NavObs(x: 40, y: 30, facing: 350), destination: d, episode: e, decisionsLeft: 32, depth: close)
+        check((seeing["view_depth"] as? [String: Any])?["ahead"] as? Double == 1 && (seeing["goal"] as? String)?.contains("view_depth") == true
+              && (state["goal"] as? String)?.contains("cannot see") == true,
+              "M5 depth: the view's depth reaches Jev's state when read, and the goal says moves cannot see without it")
         let destination = state["destination"] as? [String: Any] ?? [:]
         check(destination["turn_needed_deg"] as? Int == 10 && destination["bearing_deg"] as? Int == 0,
               "the destination carries its bearing and the signed turn needed")

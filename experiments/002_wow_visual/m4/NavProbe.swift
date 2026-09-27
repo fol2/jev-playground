@@ -87,6 +87,11 @@ final class LiveNavBody: NavBody {
         return (reader, Int((hostNow() - began) * 1000))
     }()
     private var redReader: RedNameReader? { Self.loadedRedReader.reader }
+    /// M5 depth (DepthReader), loaded once as the red-name reader is; nil without its private model: walks go on without it.
+    private static let loadedDepth: (reader: DepthReader?, ms: Int) = {
+        let began = hostNow(), reader = try? DepthReader()
+        return (reader, Int((hostNow() - began) * 1000))
+    }()
 
     init(session: Session, feed: FrameFeed, sink: KeySink, directory: URL, log: Log) {
         self.session = session
@@ -95,6 +100,8 @@ final class LiveNavBody: NavBody {
         self.log = log
         let red = Self.loadedRedReader
         log.emit("red_reader", ["loaded": red.reader != nil, "ms": red.ms, "t": hostNow()])
+        let depth = Self.loadedDepth
+        log.emit("depth_reader", ["loaded": depth.reader != nil, "ms": depth.ms, "t": hostNow()])
         let began = hostNow(), facing = facingReader  // compiled here, not on a walk's first frame (review of #63)
         log.emit("facing_reader", ["loaded": facing != nil, "ms": Int((hostNow() - began) * 1000), "t": hostNow()])
         let keys = LiveKeys(sink: sink, releaseCodes: NavLimits.releaseCodes, clock: hostNow) { event, fields in
@@ -121,6 +128,12 @@ final class LiveNavBody: NavBody {
     }
     func ownerTookFocus() -> Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == session.app.processIdentifier
+    }
+
+    /// The view's depth on the latest fresh frame, once per decision (runNav), not per look.
+    func viewDepth() -> ViewDepth? {
+        guard let reader = Self.loadedDepth.reader, let frame = runtimeFrame(session, feed) else { return nil }
+        return try? reader.read(frame.image)
     }
 
     func look() -> NavObs? {
