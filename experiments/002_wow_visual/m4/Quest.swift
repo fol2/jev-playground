@@ -116,9 +116,15 @@ func yellowBlobs(_ image: RGBA, box: (Int, Int, Int, Int), gap: Int = 13,
 
 /// Quest pins' glyphs on the open world map ("?", "..."), as capture pixels. Pins sit 17 px apart
 /// (Call of Earth and The Gift of Skysight, 24 Sept), and the map's corner buttons are outside the box.
+/// A quest in progress has "..." on a dark disc: three yellow dots of 2-3 px, 3 px apart, which join only with a wider gap,
+/// as a flat row 11-15 px wide (live run 33, 27 Sept: Infestation Investigation's pin and two others were not found, so
+/// the hunt had no area and found no Cirrusfly). Each spot is hovered, and only a tooltip naming a quest pins it.
 func mapPins(_ image: RGBA, box: (Int, Int, Int, Int) = (70, 280, 730, 700)) -> [(x: Double, y: Double)] {
-    yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }
-        .map { (Double($0.sx) / Double($0.n), Double($0.sy) / Double($0.n)) }
+    let centre = { (b: Blob) in (x: Double(b.sx) / Double(b.n), y: Double(b.sy) / Double(b.n)) }
+    let glyphs = yellowBlobs(image, box: box, gap: 2).filter { $0.n >= 10 && $0.x1 - $0.x0 <= 26 && $0.y1 - $0.y0 <= 26 }.map(centre)
+    let dots = yellowBlobs(image, box: box, gap: 4).filter { b in b.n >= 6 && (9...16).contains(b.x1 - b.x0 + 1) && b.y1 - b.y0 + 1 <= 5 }
+        .map(centre).filter { d in !glyphs.contains { hypot($0.x - d.x, $0.y - d.y) < 12 } }
+    return glyphs + dots
 }
 
 /// A "?"'s dot joins its hook: a small round blob under a blob, overlapping it across, no further below than

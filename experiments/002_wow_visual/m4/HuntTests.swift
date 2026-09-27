@@ -616,6 +616,13 @@ extension NavTests {
         check(icons.count == 2 && icons[0].offer && !icons[1].offer, "a minimap \"!\" (a quest to take) is told from a \"?\" by its width")
         check(markYellow(239, 236, 116) && markYellow(184, 155, 39) && !markYellow(135, 111, 74) && !markYellow(144, 115, 59),
               "yellow by hue: the live minimap \"?\" and a dim NPC \"?\", not parchment or tan land")
+        // Live run 33: an in-progress pin's "..." is three dots of 2 x 3 px, 3 px apart (rgb 220 192 110), on a dark disc.
+        var map = [UInt8](repeating: 60, count: 800 * 720 * 4)
+        for x0 in [375, 380, 385] { for dy in 0..<3 { for dx in 0..<2 {
+            let k = ((324 + dy) * 800 + x0 + dx) * 4; map[k] = 220; map[k + 1] = 192; map[k + 2] = 110 } } }
+        let pins = mapPins(RGBA(width: 800, height: 720, pixels: map))
+        check(pins.count == 1 && abs(pins[0].x - 380.5) < 1 && abs(pins[0].y - 325) < 1,
+              "a world map \"...\" pin (a quest in progress) is a flat row of three yellow dots, found as one pin")
 
         check((try? parseNav(["--turn-in", "--keys", "wqe", "--quest", "The Cirrusfly Queen"]))?.quest == "The Cirrusfly Queen",
               "--turn-in takes the quest's title")
