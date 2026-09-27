@@ -890,7 +890,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
         + "a hostile creature's red name came into view ahead of it.")] : []
     // The owner, 26-27 Sept: level like a human, who fights what stands in the way. Runs 48-56 stopped at red names on nearly
     // every walk round Thendal (level 2-3 Roiling Winds and Al'Aketh Converts, the character level 2).
-    let fightAhead = stopped != nil ? [("FIGHT_AHEAD", QuestStep.fightAhead, "Fight the hostile creature whose red name stopped the last "
+    let fightAhead = stopped != nil && !failed.contains("FIGHT_AHEAD") ? [("FIGHT_AHEAD", QuestStep.fightAhead, "Fight the hostile creature whose red name stopped the last "
         + "walk: one bounded fight (select it with Tab, pull, melee and heal as the fight chooses), started only at 90% health or more. "
         + "A kill clears the way, so the stopped step is offered again, and its experience is how the character levels; it may be a "
         + "level above the character, and others near it may join.")] : []
@@ -976,7 +976,8 @@ struct QuestResult {
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
-    var stuck = 0, last: QuestStep?
+    var stuck = 0
+    var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
     let deadline = host.now() + QuestLimits.runSeconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -988,7 +989,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
-        let stopped = r.steps.last?.outcome == "WALK_DANGER_AHEAD" ? last : nil, stoppedKey = stopped?.key
+        let stopped = danger, stoppedKey = danger?.key
         let offers = questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
@@ -1018,7 +1019,14 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .fightAhead: outcome = await host.fightAhead()
         }
         r.steps.append((offer.step.name, outcome))
-        last = offer.step
+        if outcome == "WALK_DANGER_AHEAD" {
+            danger = offer.step
+            failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
+        } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
+            failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
+        } else {
+            danger = nil
+        }
         // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
         if offer.skill == "FROM_HERE" && outcome.hasPrefix("HUNTED") { failed.remove(offer.step.key) }

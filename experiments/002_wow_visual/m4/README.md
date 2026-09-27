@@ -975,8 +975,10 @@ the way, for its experience too.
   limits and safety are M3's.
 - **After the fight.**
   - A kill offers the stopped step again: its failure from the stop is forgotten.
-  - A fight that did not start (`HOLD_PLAYER_HEALTH`), or that Jev stopped before it came to blows (`JEV_STOP`), ends
-    nothing, and the stopped step stays failed. Combat, if any, is met by the next walk's fight back.
+  - A fight that did not start (`HOLD_PLAYER_HEALTH`), or that Jev stopped (`JEV_STOP`), leaves the stop standing:
+    `RETREAT` is offered again, and this fight and the stopped step are not (review of #66).
+  - A creature that has come to the character since the stop makes it a fight back (start health 0). One that Jev
+    left fighting the character after a `JEV_STOP` is fought back at once, as SAFETY's, not handed to a quest decision.
   - Any other outcome ends the run, as a lost fight back does.
 - **Bounds.** It is offered only straight after a stop, so a kill does not offer another fight. Each walk that stops
   again offers it again, within the run's 12 steps and 25 minutes.

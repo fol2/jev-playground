@@ -1171,10 +1171,10 @@ extension NavTests {
               "a kill ahead offers the stopped hunt again, and no second fight ahead without a new stop")
         let (_, _, lostRun) = await stoppedHunt("PLAYER_DEAD", ["DO:HUNT_1", "DO:FIGHT_AHEAD"])
         check(lostRun.outcome == "FIGHT_PLAYER_DEAD", "a fight ahead that is not won ends the run")
-        let (held, heldJev, heldRun) = await stoppedHunt("HOLD_PLAYER_HEALTH", ["DO:HUNT_1", "DO:FIGHT_AHEAD"])
-        check(held.handed == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && heldJev.offered.count == 2
-              && heldRun.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
-              "a fight ahead held for health ends nothing: the run goes on, and the stopped hunt stays failed")
+        let (held, heldJev, _) = await stoppedHunt("HOLD_PLAYER_HEALTH", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:RETREAT"])
+        check(held.handed == ["HUNT Infestation Investigation", "FIGHT_AHEAD", "RETREAT"] && heldJev.offered.count == 3
+              && heldJev.offered[2].contains("DO:RETREAT") && !heldJev.offered[2].contains("DO:FIGHT_AHEAD") && !heldJev.offered[2].contains("DO:HUNT_1"),
+              "review of #66: a fight ahead held for health leaves the stop standing: RETREAT is offered again, the fight and the hunt not")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])
