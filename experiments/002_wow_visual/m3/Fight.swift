@@ -221,7 +221,7 @@ struct Episode: Equatable {
         if engaged && sawTargetAlive && !Self.alive(o) {
             // Our own kill: the corpse to loot is ours, not the one seen at the start (live run 59, 27 Sept: a kill after a
             // corpse at the start was taken for that old corpse, the loot undone, and SELECT_TARGET tried 37 times).
-            if oldCorpse && sawTargetAlive { oldCorpse = false }
+            if oldCorpse { oldCorpse = false }
             killed = true
         }
     }

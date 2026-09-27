@@ -329,7 +329,7 @@ struct NavObs: Equatable {
     var facing: Double
     var combat = false
     var player = 1.0
-    var warnings: [Double] = []  // compass bearings of red names in view (M4h); the hunt's body reads none
+    var warnings: [Double] = []  // compass bearings of red names and hostile plates in view (M4h, M4t); the hunt's body reads none
     var point: MapPoint { (x, y) }
 }
 
@@ -393,7 +393,7 @@ struct NavAttempt {
     var after: Double
     var blocked = false
     var arrived = false
-    var warned = false  // a red name came into view ahead
+    var warned = false  // a red name or hostile plate came into view ahead (M4h, M4t)
     var moved: Double { distance(from.point, to.point) }
 
     var json: [String: Any] {

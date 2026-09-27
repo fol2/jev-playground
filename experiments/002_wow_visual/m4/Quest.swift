@@ -653,6 +653,9 @@ struct QuestRead {
     var givers: [Giver] = []
     var items: [String] = []  // the bags' item names, read when a use-at quest may name one (M4m)
     var abilities: [String] = []  // the bar's skills with no fight role ("Skysight"), which a use-at quest may name (M4m)
+    var level: Int? = nil  // the character's, from its own unit tooltip (M4u)
+    var trainedAt: Int? = nil  // the level at the last visit to the class trainer, from the character's memory (M4u)
+    var bagsUsed: Int? = nil  // the bags' slots with an item, when read (M4u)
 }
 
 protocol QuestHost: AnyObject {
@@ -665,6 +668,7 @@ protocol QuestHost: AnyObject {
     func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String  // walk to its area, then one M4b hunt to the deadline: huntOutcome
     func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
+    func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -731,7 +735,8 @@ enum QuestStep {
     case road(PlannedQuest, legs: [MapPoint])  // bound to the route found from the position read
     case use(PlannedQuest, item: String)  // the bag item the quest names (M4m)
     case retreat
-    case fightAhead  // the creature whose red name stopped the last walk (M4p)
+    case fightAhead  // the creature whose red name or plate stopped the last walk (M4p, M4t)
+    case town(TownNPC)  // sell the junk at a vendor, or train at the class trainer (M4u)
     var name: String {
         switch self {
         case .handIn(let q): return q.title
@@ -741,6 +746,7 @@ enum QuestStep {
         case .use(_, let item): return "use: " + item
         case .retreat: return "retreat"
         case .fightAhead: return "fight ahead"
+        case .town(let n): return (n.role == "vendor" ? "sell: " : "train: ") + n.name
         }
     }
     var key: String {  // what a failure is remembered by
@@ -754,6 +760,7 @@ enum QuestStep {
         case .use(let q, _): return "USE " + q.title
         case .retreat: return "RETREAT"
         case .fightAhead: return "FIGHT_AHEAD"
+        case .town(let n): return "TOWN " + n.name
         }
     }
 }
@@ -1021,10 +1028,10 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
             + "detector sees them (PICK_UP_OBJECT). The log reads: \(q.objective)")
     }
     let back = stopped != nil && !failed.contains("RETREAT") ? [("RETREAT", QuestStep.retreat, "Walk back to where the last walk began: "
-        + "a hostile creature's red name came into view ahead of it.")] : []
+        + "a hostile creature's red name or plate came into view ahead of it.")] : []
     // The owner, 26-27 Sept: level like a human, who fights what stands in the way. Runs 48-56 stopped at red names on nearly
     // every walk round Thendal (level 2-3 Roiling Winds and Al'Aketh Converts, the character level 2).
-    let fightAhead = stopped != nil && !failed.contains("FIGHT_AHEAD") ? [("FIGHT_AHEAD", QuestStep.fightAhead, "Fight the hostile creature whose red name stopped the last "
+    let fightAhead = stopped != nil && !failed.contains("FIGHT_AHEAD") ? [("FIGHT_AHEAD", QuestStep.fightAhead, "Fight the hostile creature whose red name or plate stopped the last "
         + "walk: one bounded fight (select it with Tab, pull, melee and heal as the fight chooses), started only at 90% health or more. "
         + "A kill clears the way, so the stopped step is offered again, and its experience is how the character levels; it may be a "
         + "level above the character, and others near it may join.")] : []
@@ -1036,7 +1043,7 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
             h.pin = nil
             return h
         }
-        let why = "the walk there stopped for a hostile creature's red name ahead"
+        let why = "the walk there stopped for a hostile creature's red name or plate ahead"
         switch stopped {
         case .hunt(let q)?: return near(q).map { [("FROM_HERE", QuestStep.hunt($0), "Hunt for \"\(q.title)\" from here: \(why), "
             + "\(away(q.pin!)) units from its area. Near a kill quest's area such creatures are most likely the ones it names. The hunt "
@@ -1110,7 +1117,7 @@ struct QuestResult {
 /// `seconds`: the run's steps' window; a live run passes what is left of its own after setup and a revive at the start
 /// (review of #73: one clock for the whole envelope).
 func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil,
-               seconds: Double = QuestLimits.runSeconds) async -> QuestResult {
+               seconds: Double = QuestLimits.runSeconds, town: [TownNPC] = []) async -> QuestResult {
     var r = QuestResult()
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
     var stuck = 0
@@ -1129,7 +1136,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let stopped = danger, stoppedKey = danger?.key
-        let offers = questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used)
+        let offers = questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used) + townOffers(read, npcs: town, failed: failed)
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -1156,6 +1163,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .use(let q, let item): outcome = await host.useItem(q, item: item)
         case .retreat: outcome = await host.retreat()
         case .fightAhead: outcome = await host.fightAhead()
+        case .town(let n): outcome = await host.visit(n)
         }
         r.steps.append((offer.step.name, outcome))
         if outcome == "WALK_DANGER_AHEAD" {
@@ -1177,6 +1185,10 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             }
             if !back && QuestLimits.fightAheadHeld.contains(fought) { continue }
             return finish("FIGHT_" + fought)
+        }
+        if case .town = offer.step, !outcome.hasPrefix("WALK_") {  // one visit a run, whatever it found (M4u)
+            failed.insert(offer.step.key)
+            continue
         }
         if outcome == "WALK_COMBAT" {  // the owner: survive first, inside the engine
             host.emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back"])
@@ -1204,4 +1216,83 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
     }
     return finish("STEP_LIMIT")
+}
+
+// MARK: M4u — the town stop
+
+/// A town's service NPC (`learning/knowledge/zephras-town.json`): its name as the game draws it over the NPC, what it does,
+/// and where to stand to talk to it (live, 27 Sept: the character stood there, facing it, when its window opened by hand).
+struct TownNPC: Codable, Equatable {
+    let name: String
+    let role: String  // "vendor" (Sell All Junk Items) or "trainer" (the class's spells)
+    let hub: String
+    let at: [Double]
+    var point: MapPoint { (at[0], at[1]) }
+    static let file = "experiments/002_wow_visual/learning/knowledge/zephras-town.json"
+    static func load(_ path: String = file) throws -> [TownNPC] {
+        guard FileManager.default.fileExists(atPath: path) else { return [] }
+        struct Book: Codable { let npcs: [TownNPC] }
+        let npcs = try JSONDecoder().decode(Book.self, from: Data(contentsOf: URL(fileURLWithPath: path))).npcs
+        guard npcs.allSatisfy({ $0.at.count == 2 && ["vendor", "trainer"].contains($0.role) }) else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path])
+        }
+        return npcs
+    }
+}
+
+enum TownLimits {
+    static let sellAt = 8  // bag slots in use from which a vendor is offered: a human empties the bags before they fill
+    static let trainRows = 6  // Train clicks in one visit, at most
+}
+
+/// The level in a unit tooltip ("Level 3 Skyborne Shaman", "Level 3"): the number after the first "Level".
+func tooltipLevel(_ lines: [String]) -> Int? {
+    for line in lines {
+        let words = line.split(separator: " ")
+        if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
+    }
+    return nil
+}
+
+/// Copper from a money line's numbers, read from the right: copper, then silver, then gold ("63" is 63, "1 • 25 •" is 125).
+/// Nil without a number, with more than three, or with a copper or silver part over 99.
+func copper(_ text: String) -> Int? {
+    let parts = text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.reversed().map { $0 }
+    guard !parts.isEmpty, parts.count <= 3, parts[0] <= 99, parts.count < 2 || parts[1] <= 99 else { return nil }
+    return parts.enumerated().reduce(0) { $0 + $1.element * [1, 100, 10000][$1.offset] }
+}
+
+/// The trainer window's spell rows to try, top to bottom (live, 27 Sept): each name line with five letters or more, with
+/// its "Requires: Level N" line under it when there is one. A row whose level reads above `level` is left out; a misread
+/// level ("Level G") is tried: the game's Train does nothing for a row it does not allow.
+func trainerRows(_ lines: [TipLine], level: Int) -> [TipLine] {
+    func requirement(_ l: TipLine) -> Bool { l.text.lowercased().hasPrefix("requires") }
+    return lines.filter { !requirement($0) && $0.text.filter(\.isLetter).count >= 5 }.sorted { $0.y < $1.y }.filter { row in
+        guard let req = lines.first(where: { requirement($0) && $0.y > row.y && $0.y - row.y <= 30 }) else { return true }
+        let words = req.text.split(separator: " ")
+        guard let i = words.firstIndex(where: { $0.lowercased().hasPrefix("level") }), i + 1 < words.count,
+              let need = Int(words[i + 1].filter(\.isNumber)) else { return true }
+        return need <= level
+    }
+}
+
+/// The town steps within one walk (M4u), for Jev to weigh against the quests: TRAIN at the class trainer when the level
+/// read is above the level of the last visit (or none is remembered), SELL_JUNK at a vendor when the bags hold
+/// `TownLimits.sellAt` items or more. Each is offered once a run (its key fails after a visit).
+func townOffers(_ read: QuestRead, npcs: [TownNPC], failed: Set<String>) -> [(skill: String, step: QuestStep, criterion: String)] {
+    let near = npcs.filter { distance(read.player, $0.point) <= QuestLimits.maxLeg && !failed.contains(QuestStep.town($0).key) }
+        .sorted { distance(read.player, $0.point) < distance(read.player, $1.point) }
+    func away(_ n: TownNPC) -> String { String(format: "%.1f", distance(read.player, n.point)) }
+    var out: [(skill: String, step: QuestStep, criterion: String)] = []
+    if let t = near.first(where: { $0.role == "trainer" }), let level = read.level, read.trainedAt.map({ level > $0 }) ?? true {
+        out.append(("TRAIN", .town(t), "Walk to \(t.name), the class trainer in \(t.hub) (\(away(t)) units away), choose \"I'd like "
+            + "training!\" and learn each spell the window offers that the level and the money allow. The character is level \(level); "
+            + (read.trainedAt.map { "it last trained at level \($0)." } ?? "no visit is remembered.")
+            + " New spells go to the bar by themselves."))
+    }
+    if let v = near.first(where: { $0.role == "vendor" }), let used = read.bagsUsed, used >= TownLimits.sellAt {
+        out.append(("SELL_JUNK", .town(v), "Walk to \(v.name), a vendor in \(v.hub) (\(away(v)) units away), and sell every grey item "
+            + "in the bags with one Sell All Junk Items (the game asks to confirm). \(used) bag slots are in use; the money buys training."))
+    }
+    return out
 }

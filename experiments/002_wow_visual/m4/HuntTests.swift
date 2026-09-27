@@ -944,6 +944,9 @@ extension NavTests {
         func useItem(_ quest: PlannedQuest, item: String) async -> String {
             handed.append("USE " + item); return outcome("USE " + item, quest) ?? "USED"
         }
+        func visit(_ npc: TownNPC) async -> String {
+            handed.append("TOWN " + npc.name); return outcomes["TOWN " + npc.name] ?? (npc.role == "vendor" ? "SOLD 38" : "TRAINED 1")
+        }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -1023,6 +1026,37 @@ extension NavTests {
         let overtime = await runQuests(host: longWay, jev: CannedGraph(["DO:ROAD_1", "DO:ROAD_1"]), graph: graph()!, roads: southRoad)
         check(overtime.outcome == "TIME_LIMIT" && longWay.handed == ["ROAD The Adventurer"],
               "a road that ran out of the run's time ends the run at its time limit, with no further step")
+        // M4u: the town stop, on the live reads of 27 Sept (trainer rows as OCR read them; "Level G" is a misread 6).
+        let boro = TownNPC(name: "Windshaper Boro", role: "trainer", hub: "Thendal Village", at: [42.7, 23.2])
+        let uualia = TownNPC(name: "Uualia Suncrest", role: "vendor", hub: "Thendal Village", at: [42.8, 24.3])
+        let book = (try? TownNPC.load()) ?? []
+        check(book.map(\.name).sorted() == ["Uualia Suncrest", "Windshaper Boro"] && book.contains(boro),
+              "M4u: the town book loads the village's vendor and trainer")
+        check(tooltipLevel(["Someone", "Level 3 Skyborne Shaman"]) == 3 && tooltipLevel(["Level 12"]) == 12 && tooltipLevel(["Someone"]) == nil
+              && copper("63") == 63 && copper("1 • 25 •") == 125 && copper("2 5 7") == 20507 && copper("") == nil && copper("1 150") == nil,
+              "M4u: the level from a unit tooltip; money from a window's line, read from the right")
+        let rows: [TipLine] = [TipLine(text: "Kockbiter Weapon fRank 1)", x: 74, y: 234), TipLine(text: "10", x: 310, y: 230),
+                               TipLine(text: "Earth Shock (Rank 1)", x: 78, y: 283), TipLine(text: "Requires: Level 4", x: 78, y: 300),
+                               TipLine(text: "Parthbind l otem", x: 78, y: 335), TipLine(text: "Requires: Level 6", x: 78, y: 350),
+                               TipLine(text: "Healing Wave (Rank 2)", x: 74, y: 379),
+                               TipLine(text: "Requires: Level G, Healing Wave (Rank 1)", x: 78, y: 402)]
+        check(trainerRows(rows, level: 3).map(\.text) == ["Kockbiter Weapon fRank 1)", "Healing Wave (Rank 2)"]
+              && trainerRows(rows, level: 4).map(\.text) == ["Kockbiter Weapon fRank 1)", "Earth Shock (Rank 1)", "Healing Wave (Rank 2)"],
+              "M4u: rows the level allows, top to bottom; a misread level is tried, and the game's Train refuses what it does not allow")
+        func town(_ level: Int?, _ trained: Int?, _ bags: Int?, at: MapPoint? = nil, failed: Set<String> = []) -> [String] {
+            var r = QuestRead(quests: [], player: at ?? (42.8, 23.5), missing: [])
+            r.level = level; r.trainedAt = trained; r.bagsUsed = bags
+            return townOffers(r, npcs: [boro, uualia], failed: failed).map(\.skill)
+        }
+        check(town(4, 3, 10) == ["TRAIN", "SELL_JUNK"] && town(4, nil, nil) == ["TRAIN"] && town(3, 3, 7).isEmpty && town(nil, nil, 8) == ["SELL_JUNK"]
+              && town(4, 3, 10, at: (70, 10)).isEmpty && town(4, 3, 10, failed: [QuestStep.town(boro).key]) == ["SELL_JUNK"],
+              "M4u: TRAIN above the level last trained, SELL_JUNK with the bags filling, within one walk, once a run")
+        var townRead = QuestRead(quests: [], player: thendal, missing: [])
+        townRead.level = 4; townRead.trainedAt = 3; townRead.bagsUsed = 9
+        let shopper = FakeQuests([townRead, townRead, townRead])
+        let shopped = await runQuests(host: shopper, jev: CannedGraph(["DO:TRAIN", "DO:SELL_JUNK"]), graph: graph()!, town: [boro, uualia])
+        check(shopper.handed == ["TOWN Windshaper Boro", "TOWN Uualia Suncrest"] && shopped.outcome == "NOTHING_TO_HAND_IN_OR_TAKE",
+              "M4u: Jev's TRAIN and SELL_JUNK each visit once; with nothing else there the run ends")
         let lateRun = FakeQuests([QuestRead(quests: south, player: thendal, missing: [])])
         let spent = await runQuests(host: lateRun, jev: CannedGraph(["DO:ROAD_1"]), graph: graph()!, roads: southRoad, seconds: 0)
         check(spent.outcome == "TIME_LIMIT" && spent.steps.isEmpty && lateRun.handed.isEmpty,

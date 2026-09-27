@@ -505,7 +505,7 @@ struct FightTests {
         check(FightLimits.maxDecisions == 40 && FightLimits.maxSeconds == 150
               && FightLimits.playerSafety == 0.3 && FightLimits.walkBudgetMs == 3500
               && FightLimits.turnBudgetMs == 2500 && FightLimits.watchdogSeconds == 4
-              && FightLimits.jevTimeout == 4 && FightLimits.lootPolls == 6
+              && FightLimits.jevTimeout == 4 && FightLimits.lootPolls == 6 && FightLimits.corpseHoverSeconds == 30
               && FightLimits.lootPollSeconds == 0.5 && FightLimits.model == "jev-1.13.0",
               "FightLimits match the live envelope")
     }
