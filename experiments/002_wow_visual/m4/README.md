@@ -1356,7 +1356,10 @@ side until the way opens (Bug2, Lumelsky and Stepanov 1987). Our place (coordina
   where only 1.0 was out of bounds then: now 0.8 is, and a view near across stops W and turns in place. Live walk 2 (back to
   the village, 0.5 units): arrived. Live walk 3 (village to Yala Windwatcher, by the road east): six bumps among the village's
   standing stones, whose gaps are finer than the roads' 1-unit places, and NO_PROGRESS; on two it kept to the side away from
-  the goal. The bump memory, the side rules and the dilation above follow from it, and are not yet seen live.
+  the goal. The bump memory, the side rules and the dilation above follow from it. Live walk 4 (the same route, the bump
+  memory holding walk 3's six): arrived at Yala in about 50 s by the road south-east round the stones, one bump in its first
+  second (where walk 3 had stopped), net turn -39 degrees, no model call. Live walk 5 (Yala back to the village, the way a
+  straight walk used to go into the village's tower and circle in it): arrived in about 32 s by the north, no bump.
 
 ## Limits
 
