@@ -42,7 +42,8 @@ enum QuestHUD {
     static let logMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/quest-log.json")  // private, under runs/
     // M4u: the town stop, from the live frames of 27 Sept (direct observation). Each window part is placed from its title
     // line's left-top as OCR reads it (the merchant's and the trainer's windows open at the left, where the quest dialogue does).
-    static let characterMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/character.json")  // private: level last trained
+    // Private: the level last trained (M4u) and the steps' records across runs (M4y).
+    static let characterMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/character.json")
     // Where an NPC's name is sought, read at twice its size: the view but the tracker at the right (live run 73: Windshaper
     // Boro's name stood at x 2130-2270, outside the first box, 512-2048, and the visit ended NPC_NOT_OPENED).
     static let townView = CGRect(x: 100, y: 200, width: 2160, height: 640)
@@ -1002,6 +1003,11 @@ final class QuestRun {
     }
 }
 
+/// The character's memory (M4u, M4y), private under runs/; empty when there is none.
+func characterMemory() -> [String: Any] {
+    (try? Data(contentsOf: QuestHUD.characterMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+}
+
 /// The live side of `runQuests`: the log read of M4d, an M4a walk to the pin (Jev's moves) and M4c's
 /// hand-in (RULE). Each walk gets its own keys: runNav's exit sweep ends a key set for good (live,
 /// 24 Sept: the second walk of a run pressed nothing for ten decisions).
@@ -1018,9 +1024,12 @@ final class LiveQuestHost: QuestHost {
     var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
     var town: [TownNPC] = []  // M4u: the villages' vendors and trainers (learning/knowledge/zephras-town.json)
     var enders: [QuestEnder] = []  // M4v: who takes each quest in, and where (learning/knowledge/zephras-quests.json)
-    /// M4u: the level at the last visit to the trainer, from the character's memory (private, under runs/).
-    var trainedAt: Int? = (try? Data(contentsOf: QuestHUD.characterMemory))
-        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.flatMap { $0["trained_at_level"] as? Int }
+    /// From the character's memory (private, under runs/): the level at the last visit to the trainer (M4u), and each step's
+    /// record across runs (M4y).
+    var trainedAt: Int? = characterMemory()["trained_at_level"] as? Int
+    var history: [String: StepMemory] = ((characterMemory()["steps"] as? [String: [String: Any]]) ?? [:]).compactMapValues { d in
+        (d["fails"] as? Int).map { StepMemory(fails: $0, last: d["last"] as? String ?? "", level: d["level"] as? Int) }
+    }
     var abilities: [String: UInt16] = [:]  // the bar's skills with no fight role, by name, and their keys (M4m)
     private let lock = NSLock()
     private var fighting: LiveHost?  // read by the signal handler's thread
@@ -1132,10 +1141,14 @@ final class LiveQuestHost: QuestHost {
         // M4u: the level, for the trainer; the level last trained, from the character's memory (a lower level read is a new
         // character with the same name: the memory is forgotten); the bags' filled slots when they were read.
         let level = town.isEmpty ? nil : await quester.readLevel()
-        if let level, let t = trainedAt, level < t { trainedAt = nil; try? FileManager.default.removeItem(at: QuestHUD.characterMemory) }
+        if let level, let known = ([trainedAt] + history.values.map(\.level)).compactMap({ $0 }).max(), level < known {
+            trainedAt = nil
+            history = [:]
+            try? FileManager.default.removeItem(at: QuestHUD.characterMemory)
+        }
         return QuestRead(quests: quests, player: player, missing: missing, givers: givers, items: items, abilities: Array(abilities.keys),
                          level: level, trainedAt: trainedAt, bagsUsed: items.isEmpty ? nil : items.count,
-                         gearSettled: !gearUnchecked && !upgradeInBags)
+                         gearSettled: !gearUnchecked && !upgradeInBags, history: history)
     }
 
     /// M4x, a RULE (the owner, 27 Sept: "we should always wear better gear first when non-battle"): out of combat, before the
@@ -1176,10 +1189,26 @@ final class LiveQuestHost: QuestHost {
         // Remembered only when a spell was learnt: a visit short of money is offered again at the same level (review of #77).
         if let level, !learned.isEmpty {
             trainedAt = level
-            try? FileManager.default.createDirectory(at: QuestHUD.characterMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? JSONSerialization.data(withJSONObject: ["trained_at_level": level]).write(to: QuestHUD.characterMemory)
+            saveMemory()
         }
         return outcome
+    }
+
+    /// M4y: a step's outcome into its record (recordStep), and the memory written when the record changed.
+    func remember(_ key: String, outcome: String, level: Int?) {
+        let updated = recordStep(history, key: key, outcome: outcome, level: level)
+        guard updated != history else { return }
+        history = updated
+        emit("step_memory", ["step": key, "outcome": outcome, "fails": orNull(updated[key]?.fails)])
+        saveMemory()
+    }
+
+    /// The character's memory, written whole: the level last trained and the steps' records.
+    private func saveMemory() {
+        let steps = history.mapValues { ["fails": $0.fails, "last": $0.last, "level": orNull($0.level)] as [String: Any] }
+        try? FileManager.default.createDirectory(at: QuestHUD.characterMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: ["trained_at_level": orNull(trainedAt), "steps": steps], options: [.sortedKeys])
+            .write(to: QuestHUD.characterMemory)
     }
 
     /// A bar ability ("Skysight") is used where the quest asks, its pin when its objective says "near": the walk first, then

@@ -947,6 +947,8 @@ extension NavTests {
         func visit(_ npc: TownNPC) async -> String {
             handed.append("TOWN " + npc.name); return outcomes["TOWN " + npc.name] ?? (npc.role == "vendor" ? "SOLD 38" : "TRAINED 1")
         }
+        var remembered: [(key: String, outcome: String)] = []
+        func remember(_ key: String, outcome: String, level: Int?) { remembered.append((key, outcome)) }
         func now() -> Double { clock += 0.1; return clock }
         func ownerTookFocus() -> Bool { false }
         func emit(_ event: String, _ fields: [String: Any]) {}
@@ -957,10 +959,11 @@ extension NavTests {
         var script: [String]
         var offered: [[String]] = []
         var sent: [[String: Any]] = []
+        var criteria: [[String: String]] = []  // what each option said
         init(_ script: [String]) { self.script = script }
         func ask(state: [String: Any], question: [String: Any]) async throws -> [String: Any] {
             let options = Array((question["criteria"] as? [String: String] ?? [:]).keys)
-            offered.append(options.sorted()); sent.append(state)
+            offered.append(options.sorted()); sent.append(state); criteria.append(question["criteria"] as? [String: String] ?? [:])
             guard !script.isEmpty else { throw GraphError.noSkills }
             let name = script.removeFirst()
             return ["model": FightLimits.model, "answers": ["action": ["choice": name, "confidence": 1.0,
@@ -1118,6 +1121,26 @@ extension NavTests {
         check(equipChoices([(belt.name, belt), (shoes.name, shoes), (mail.name, mail), (vest.name, vest), (better.name, better), (meat.name, meat)])
               == ["Ragged Leather Belt", "Linen Vest"],
               "M4x: an upgrade is worn (an empty slot's armour counts); not a worse one, one the class cannot wear, or not gear; the best of one slot")
+        // M4y: a step's record across runs (the owner, 27 Sept: "can the engine self-improve?").
+        var memory = recordStep([:], key: "HUNT Harvesting Windstones", outcome: "HUNT_NO_TARGET_FOUND", level: 4)
+        memory = recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "HUNT_NO_TARGET_FOUND", level: 4)
+        let unmoved = recordStep(recordStep(recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "OWNER_TOOK_FOCUS", level: 4),
+                                          key: "HUNT Harvesting Windstones", outcome: "HUNT_TIME_LIMIT", level: 4),
+                               key: "TOWN Uualia Suncrest", outcome: "NO_JUNK", level: 4)
+        check(memory["HUNT Harvesting Windstones"] == StepMemory(fails: 2, last: "HUNT_NO_TARGET_FOUND", level: 4) && unmoved == memory
+              && recordStep(memory, key: "HUNT Harvesting Windstones", outcome: "HUNTED 3", level: 5).isEmpty,
+              "M4y: a failure adds to the step's record; the owner's takeover, the clock or nothing to sell leave it; a success forgets it")
+        let stones = PlannedQuest(title: "Harvesting Windstones", level: 4, ready: false, objective: "0/15 Windstone Cluster", pin: (43.0, 25.3))
+        var recalled = QuestRead(quests: [stones], player: thendal, missing: [])
+        recalled.history = memory
+        let memoryRun = FakeQuests([recalled])
+        memoryRun.outcomes["HUNT Harvesting Windstones"] = "HUNT_NO_TARGET_FOUND"
+        let memoryJev = CannedGraph(["DO:HUNT_1"])
+        _ = await runQuests(host: memoryRun, jev: memoryJev, graph: graph()!, seconds: 600)
+        check(memoryJev.criteria.first?["DO:HUNT_1"]?.contains("Earlier runs: this step failed 2 times since it last worked, the last time as HUNT_NO_TARGET_FOUND at level 4") == true
+              && withHistory("Hunt.", nil) == "Hunt." && memoryRun.remembered.count == 1
+              && memoryRun.remembered.first.map { $0.key == "HUNT Harvesting Windstones" && $0.outcome == "HUNT_NO_TARGET_FOUND" } == true,
+              "M4y live runs 77-78: Jev reads a step's failures in earlier runs in its criterion, and the step's outcome is remembered")
         // Bag tooltips as Vision read them live on 27 Sept (Thendal Village): the equipped item's box to the left, the
         // backpack's title and search box and world text behind.
         let beltTip = tip([("dangers of T", 2067, 637), ("Ragged Leather Belt", 1862, 1044), ("Waist", 1862, 1060), ("18 Armor", 1862, 1074),

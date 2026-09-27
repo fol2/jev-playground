@@ -688,6 +688,37 @@ struct QuestRead {
     var trainedAt: Int? = nil  // the level at the last visit to the class trainer, from the character's memory (M4u)
     var bagsUsed: Int? = nil  // the bags' slots with an item, when read (M4u)
     var gearSettled = true  // M4x: no upgrade may lie in the bags unworn, so junk may be sold
+    var history: [String: StepMemory] = [:]  // the steps' records across runs, by step key (M4y)
+}
+
+/// A step's record across runs (M4y; the owner, 27 Sept: "can the engine self-improve? eg path finding, hunt"): how often it
+/// has failed since it last worked, how it last ended, and the character's level then. Kept in the character's memory
+/// (private), and read by Jev in the step's criterion: Jev still chooses.
+struct StepMemory: Equatable {
+    var fails: Int
+    var last: String
+    var level: Int?
+}
+
+/// What a step's outcome teaches: one that worked forgets the step's failures; one that says nothing about the step (the
+/// owner's takeover, the clock, combat or danger on the way, nothing to sell or learn yet, gear unsettled) leaves them; any
+/// other adds one.
+func recordStep(_ memory: [String: StepMemory], key: String, outcome: String, level: Int?) -> [String: StepMemory] {
+    var memory = memory
+    let worked = ["COMPLETED", "ACCEPTED", "HUNTED", "BY_ROAD", "USED", "SOLD", "TRAINED", "RETREATED", "KILLED"].contains { outcome.hasPrefix($0) }
+    let silent = ["OWNER_TOOK_FOCUS", "WALK_COMBAT", "WALK_DANGER_AHEAD", "GEAR_UNSETTLED", "NO_JUNK"].contains(outcome)
+        || outcome.hasSuffix("TIME_LIMIT") || outcome.hasPrefix("NOTHING_TO_") || outcome.hasPrefix("BACK_")
+    if worked { memory[key] = nil } else if !silent { memory[key] = StepMemory(fails: (memory[key]?.fails ?? 0) + 1, last: outcome, level: level) }
+    return memory
+}
+
+/// A step's criterion with its record, so Jev can leave a step that keeps failing the same way (live runs 77 and 78: the
+/// Windstones hunt ended HUNT_NO_TARGET_FOUND in each, and was chosen first each time).
+func withHistory(_ criterion: String, _ memory: StepMemory?) -> String {
+    guard let m = memory else { return criterion }
+    return criterion + " Earlier runs: this step failed \(m.fails == 1 ? "once" : "\(m.fails) times") since it last worked, the last time as "
+        + m.last + (m.level.map { " at level \($0)" } ?? "")
+        + "; a step that failed the same way rarely works unless something has changed since (a level, a skill, an item)."
 }
 
 protocol QuestHost: AnyObject {
@@ -701,6 +732,7 @@ protocol QuestHost: AnyObject {
     func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String  // walkLegs: BY_ROAD, ROAD_TIME_LIMIT or a WALK_ outcome
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
+    func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -1181,7 +1213,9 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
         let stopped = danger, stoppedKey = danger?.key
-        let offers = questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used) + townOffers(read, npcs: town, failed: failed)
+        // M4y: each step's record across runs goes into its criterion.
+        let offers = (questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used) + townOffers(read, npcs: town, failed: failed))
+            .map { (skill: $0.skill, step: $0.step, criterion: withHistory($0.criterion, read.history[$0.step.key])) }
         if offers.isEmpty {
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
@@ -1211,6 +1245,10 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         case .town(let n): outcome = await host.visit(n)
         }
         r.steps.append((offer.step.name, outcome))
+        switch offer.step {  // a retreat or a fight ahead is about the creature there, not a step to remember across runs
+        case .retreat, .fightAhead: break
+        default: host.remember(offer.step.key, outcome: outcome, level: read.level)
+        }
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
