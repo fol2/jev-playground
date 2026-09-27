@@ -1284,7 +1284,10 @@ sent it by road; the roads players walked go south round the ridge (42.5, 24.3; 
 - `passesStuck` (pure): a straight walk passing within `stuckNear` (1 unit) of a remembered stop goes by the learned roads
   instead, and its `route` ends at the road's place nearest the pin (`nearest`): the cheapest end lay across the boulder.
 - Evidence: sim (`NavTests`: the committed roads route Thendal Village to the pin round the south once the two stops are
-  remembered; a walk elsewhere does not pass them). Live: the next run that walks west.
+  remembered; a walk elsewhere does not pass them). Live run 80, with the two stops of runs 78 and 79 in the memory (put
+  there from those runs' own `NO_PROGRESS` places): the walk to Foul Matriarch (pin 36.2, 24.1) logged `road_gap` with
+  `stuck_ahead` (13 legs, 18.4 units by road against 10.8 straight) and set off south; its first leg stopped at 41.9, 25.4 for
+  a hostile ahead (`WALK_DANGER_AHEAD`), so the far side is still to be reached live.
 
 ## Limits
 
