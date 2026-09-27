@@ -134,8 +134,14 @@ func confirmedObject(_ reads: [[String]], in objectives: [Objective]) -> Objecti
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
 /// OCR reads one Juvenile Vuldren three ways ("Juvenile Vuldren 30s40", "luvenile Vuldren ЛОРAУ"), and each change
 /// rejected the decision taken on it (live run 26, 26 Sept: target_cue_changed four times, no fight).
+/// A creature that counts for nothing is cued by its name's Latin words only: the OCR tail is digits and Cyrillic look-alikes
+/// that change every frame (live run 48, 27 Sept: "Pesky Cirrusfly Л Л4О", "Pesky Cirrusfiy 4 84О"; 6 of 12 decisions
+/// were rejected target_cue_changed while the same Cirrusfly stayed selected).
 func targetCue(_ name: String?, _ objectives: [Objective]) -> String? {
-    name.map { objective(for: $0, in: objectives)?.text ?? nameKey($0) }
+    name.map { name in
+        objective(for: name, in: objectives)?.text
+            ?? nameKey(name.split(separator: " ").filter { $0.allSatisfy { $0.isASCII && ($0.isLetter || $0 == "'") } }.joined(separator: " "))
+    }
 }
 
 /// Whether most of a target frame's name is in an objective: at least 60% of its four-letter runs. The frame's font
@@ -403,9 +409,19 @@ func merged(_ older: [Seen], _ newer: [Seen]) -> [Seen] {
 }
 
 /// The unfinished objective a sighted creature counts for. Plate names are read small, so two shared
-/// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind).
+/// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind). For a kill objective each word of four letters or more in
+/// its creature name must share one too: "Pesky Cirrusfly" shares "Cirrusfly" with "Cirrusfly Queen slain" but not "Queen"
+/// (live run 48, 27 Sept: the Queen's hunt read every Pesky Cirrusfly as counting and walked toward them). A collect
+/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60).
 func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
-    objectives.first { $0.unfinished && fuzzyNameMatch($0.text, [creature.name]) }
+    let plate = nameKey(creature.name)
+    return objectives.first { o in
+        guard o.unfinished, fuzzyNameMatch(o.text, [creature.name]) else { return false }
+        var words = o.text.split(separator: " ").map { Array(nameKey(String($0))) }
+        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else { return true }
+        words.removeLast()
+        return words.filter { $0.count >= 4 }.allSatisfy { w in (0...(w.count - 4)).contains { plate.contains(String(w[$0..<$0 + 4])) } }
+    }
 }
 
 struct HuntObs: Equatable {

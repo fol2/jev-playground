@@ -200,8 +200,19 @@ extension NavTests {
               && objective(for: "Vuldren Matriarch", in: vuldren) == nil && objective(for: "Pesky Cirrusfly", in: vuldren) == nil,
               "live run 25: a target name that lost its first letter or gained a tail still counts; one family word does not")
         check(targetCue("luvenile Vuldren ЛОРAУ", vuldren) == "Juvenile Vuldren slain" && targetCue("Juvenile Vuldren 30s40", vuldren) == "Juvenile Vuldren slain"
-              && targetCue("Pesky Cirrusfly", vuldren) == "peskycl rrusfly".filter(\.isLetter) && targetCue(nil, vuldren) == nil,
+              && targetCue("Pesky Cirrusfly", vuldren) == "peskycl rrusfly".filter(\.isLetter) && targetCue(nil, vuldren) == nil
+              && ["Pesky Cirrusfly Л Л4О", "Pesky Cirrusfiy 4 84О", "Pesky Cirrusfly"].map { targetCue($0, vuldren) } == Array(repeating: "peskyclrrusfly", count: 3),
               "live run 26: one creature is one cue however its name reads; another is another")
+        let queen = [Objective(quest: "The Cirrusfly Queen", done: 0, need: 1, text: "Cirrusfly Queen slain")]
+        let winds = [Objective(quest: "Agitators", done: 0, need: 6, text: "Roiling Winds destroyed")]
+        func plate(_ name: String) -> Seen { Seen(name: name, hostile: false, bearing: 0, near: false) }
+        check(counts(plate("Pesky Cirrusfly"), queen) == nil && counts(plate("Pesky Cirrushly"), queen) == nil && counts(plate("Cirrusfly Queen"), queen) != nil
+              && counts(plate("Roiling Wind"), winds) != nil && counts(plate("Rolling WWinds"), winds) != nil
+              && counts(plate("luvenile Vuldren ЛОРAУ"), vuldren) != nil && counts(plate("Pesky Cirrusfly"), vuldren) == nil
+              && counts(plate("Pesky Cirrusfly"), [Objective(quest: "Infestation Investigation", done: 3, need: 8, text: "Pesky Cirrusfly slain")]) != nil
+              && counts(plate("AI' Aketh Convert"), [Objective(quest: "Agitators", done: 0, need: 7, text: "Al'Aketh Convert slain")]) != nil
+              && counts(plate("Scrawny Ursera"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
+              "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren, a Pesky Cirrusfly for its own kills, \"AI' Aketh\" for Al'Aketh, and a creature for the item it drops (review of #60)")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]

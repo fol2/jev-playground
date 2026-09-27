@@ -412,7 +412,7 @@ hunt: frame -> ObjectReader (256 px tiles over the ground in view, merged) -> ob
   model found both near ones: two boxes cannot tell the models apart, and the test was not used to choose. The
   detector's recall is a candidate; the live run that offers PICK_UP_OBJECT is the evidence, and its frames are the
   next labels.
-- **A frame takes 0.24 to 0.38 s** (50 tiles; 0.63 s at most), read at each hunt decision while an objective is open.
+- **A frame takes 0.24 to 0.38 s** (50 tiles; 0.63 s at most), read at each hunt decision while a collect objective is open (m4/README.md, M4n).
 - **The hint misses what it does not propose**, so a detection on an unproposed crystal would count as false, and the
   held-out evidence is small (8 objects, 2 of them near).
 - **Which object it is, the detector does not say.** PICK_UP_OBJECT hovers it, and only a tooltip that names an open
