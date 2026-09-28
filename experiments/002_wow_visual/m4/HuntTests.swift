@@ -164,6 +164,11 @@ extension NavTests {
               && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: white)])) == 0
               && redNames(redText((200, 40, 30), at: 1200, y0: 300)).count == 1 && aheadCompany(redText((200, 40, 30), at: 1200, y0: 300)) == 1,
               "reviews of #107: after Tab, an untargeted hostile plate beside the white-outlined target is company, two are two, the target alone none; a red name always counts")
+        let farName = redText((200, 40, 30), at: 1200, y0: 300)
+        check(aheadThreats(farName) { _ in "Juvenile Vuldren" } == 0 && aheadThreats(farName) { _ in "luvenile Vuldren" } == 0
+              && aheadThreats(farName) { _ in "Scrawny Ursera" } == 1 && aheadThreats(farName) { _ in "" } == 1
+              && aheadThreats(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)])) { _ in "Juvenile Vuldren" } == 1,
+              "M4am (review of #109): a far unaggressive creature's own red name is no threat; another's, an unread one or a hostile plate is")
     }
 
     /// A name drawn as real ones measure (24 Sept): 3 px strokes, 11 px tall, on the dark forest floor.
@@ -1452,7 +1457,7 @@ extension NavTests {
         let meek = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5),
                                QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5)])
         meek.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD"]
-        meek.ahead = Ahead(name: "luvenile Vuldren ЛОРAУ", level: 1)
+        meek.ahead = Ahead(name: "luvenile Vuldren ЛОРAУ", level: 1, others: 1, threats: 0)  // far: its own red name is company
         let meekJev = CannedGraph(["DO:HUNT_1", "DO:HUNT_1", "DO:RETREAT"])
         _ = await runQuests(host: meek, jev: meekJev, graph: graph()!)
         check(meek.passes == 1 && meek.handed.prefix(3) == ["HUNT Infestation Investigation", "HUNT Infestation Investigation", "RETREAT"]
@@ -1467,6 +1472,19 @@ extension NavTests {
         _ = await runQuests(host: wander, jev: CannedGraph(["DO:HUNT_2", "DO:HUNT_1"]), graph: graph()!)
         check(wander.passes == 0 && wander.handed.prefix(2) == ["HUNT Infestation Investigation", "HUNT Agitators"],
               "M4am: when Jev takes another step after the pass, that step's walk does not go past red names")
+        // A Vuldren with a hostile that may attack in view (threats), or unread company beside it, is Jev's, as any stop.
+        func meekWith(_ ahead: Ahead) async -> (FakeQuests, CannedGraph) {
+            let host = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5)])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD"]
+            host.ahead = ahead
+            let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT"])
+            _ = await runQuests(host: host, jev: jev, graph: graph()!)
+            return (host, jev)
+        }
+        let (menaced, menacedJev) = await meekWith(Ahead(name: "Juvenile Vuldren", level: 1, others: 2, threats: 1))
+        let (unsure, unsureJev) = await meekWith(Ahead(name: "Juvenile Vuldren", level: 1, others: 1))
+        check(menaced.passes == 0 && menacedJev.offered[1].contains("DO:RETREAT") && unsure.passes == 0 && unsureJev.offered[1].contains("DO:RETREAT"),
+              "M4am: a threat in view beside the unaggressive creature, or unread company, leaves the stop to Jev")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),

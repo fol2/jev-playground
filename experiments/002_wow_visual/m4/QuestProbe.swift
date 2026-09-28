@@ -1126,17 +1126,24 @@ final class LiveQuestHost: QuestHost {
         await press(FightLimits.tab)
         guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
         // M4ak: the other hostiles in view beside it (aheadCompany); none read counts as some, so a lone creature is never assumed.
-        let others = latest().map { aheadCompany(rgba($0)) } ?? 1
+        let seen = latest()
+        let others = seen.map { aheadCompany(rgba($0)) } ?? 1
+        // M4am: for an unaggressive one, which of them may attack, each red name read by its text (a few px of margin).
+        let threats = Creatures.isUnaggressive(name) ? seen.map { image in
+            aheadThreats(rgba(image)) { n in
+                upscaledText(image, CGRect(x: n.x0 - 8, y: n.y0 - 6, width: n.x1 - n.x0 + 16, height: n.y1 - n.y0 + 12)).joined(separator: " ")
+            }
+        } : nil
         // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
         // The pointer moves only while the game is the engine's and out of combat (review of #104).
-        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name, others: others) }
+        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name, others: others, threats: threats) }
         quester.hover(QuestHUD.targetPortrait.x, QuestHUD.targetPortrait.y)
         let hovered = hostNow()
         await quester.sleep(0.4)
         let tip = quester.lines(QuestHUD.unitTip, await quester.frame(after: hovered + 0.3)).map(\.text)
         if !ownerTookFocus() { quester.hover(1280, 60) }
         await clear()
-        return Ahead(name: name, level: unitLevel(tip, named: name), others: others)
+        return Ahead(name: name, level: unitLevel(tip, named: name), others: others, threats: threats)
     }
 
     /// The HUD on a frame no older than the fight's age limit; nil without one.

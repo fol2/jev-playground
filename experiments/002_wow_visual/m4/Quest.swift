@@ -794,6 +794,14 @@ struct Ahead: Equatable {
     var name: String
     var level: Int? = nil
     var others = 0  // other hostile red names or plates in view with it (M4ak)
+    var threats: Int? = nil  // M4am: hostiles in view not known to be unaggressive, it included (aheadThreats); nil unread
+}
+
+/// M4am: the hostiles in view that may attack: untargeted hostile plates, and every red name whose text (`read`) is not an
+/// unaggressive creature's; an unread one counts. A walk stops for a far red name, and the Tab target is usually that
+/// creature, its own red name among aheadCompany's; read by its text, a lone unaggressive one is no threat (review of #109).
+func aheadThreats(_ px: RGBA, read: (RedName) -> String) -> Int {
+    nameplates(px).filter(\.hostile).count + redNames(px).filter { !Creatures.isUnaggressive(read($0)) }.count
 }
 
 /// M4ak (RULE): a lone creature no higher than the character that stopped a walk is fought, not asked about. Jev chose
@@ -1372,9 +1380,11 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
             ahead = await host.stoppedBy()
-            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0, "step": offer.step.name])
-            // M4am: an unaggressive creature alone in the way is walked past, not fled or fought (the owner, 28 Sept), once a step.
-            if let a = ahead, a.others == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
+            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0,
+                                     "threats": orNull(ahead?.threats), "step": offer.step.name])
+            // M4am: an unaggressive creature alone in the way is walked past, not fled or fought (the owner, 28 Sept), once a step:
+            // no hostile in view that may attack (threats), or, unread, none at all beside it.
+            if let a = ahead, (a.threats ?? a.others) == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
                 passed.insert(offer.step.key)
                 host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
                                          "rule": "an unaggressive creature stopped the walk: walk past it"])
