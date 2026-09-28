@@ -68,7 +68,7 @@ enum NavLimits {
     static let unstickDegrees = 25.0
     static let trustSeconds = 10.0  // a turn test's trust, then the two readings must agree or be tested again
     static let recentMoves = 6
-    static let warnCone = 30.0  // a red name within this of the heading is on the way (M4h)
+    static let warnCone = ReflexLimits.warnCone  // a red name within this of the heading is on the way (M4h)
     static let runSpeed = 0.2  // y units per second: 0.63-0.78 per 3.0-3.3 s move on the second live walk
     static let releaseCodes: [UInt16] = [FightLimits.turnLeft, FightLimits.forward, FightLimits.turnRight, FightLimits.zoomOut, FightLimits.zoomIn, 36, 8, 37, 53, 11]  // M4c/d: Enter, C (character pane), L (map), Esc; M4m: B (bags)
 }
@@ -331,6 +331,32 @@ struct NavObs: Equatable {
     var player = 1.0
     var warnings: [Double] = []  // compass bearings of red names and hostile plates in view (M4h, M4t); the hunt's body reads none
     var point: MapPoint { (x, y) }
+}
+
+/// The walker's observation as the world the reflex table reads (#88): health, combat, the position and facing, and every red
+/// name or hostile plate in view as a hostile of unknown name at its bearing, so `hostile_ahead` is the one danger rule.
+func navWorld(_ o: NavObs, at now: Double) -> WorldState {
+    var w = WorldState()
+    let at = o.stamp?.capturedAt ?? now
+    func read<T: Equatable>(_ value: T) -> Belief<T> { .known(Reading(value: value, confidence: 1, capturedAt: at, source: "pixels:hud")) }
+    w.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: at))
+    w.update(\.character.health, read(o.player))
+    w.update(\.character.inCombat, read(o.combat))
+    w.update(\.character.position, read(WorldPoint(x: o.x, y: o.y)))
+    w.update(\.character.facing, read(o.facing))
+    w.entities.observe(o.warnings.map {
+        EntitySighting(nameKey: "hostile", kind: .creature, hostility: .hostile, bearing: $0, near: true, alive: true, confidence: 1,
+                       capturedAt: at, source: "pixels:names")
+    }, at: at, sameBearing: 0.5)
+    return w
+}
+
+/// The reflex table over one tick of a walk (#88): the owner, combat, the floor out of combat and, with `heading`, a hostile
+/// ahead of it; by the destination, the way to safety stops for no hostile and no low health, and an armed walk past (M4am)
+/// for no red name. The frame's freshness is the walker's own reading, so no age applies.
+func walkReflex(_ o: NavObs, destination d: NavDestination, heading: Double?, owner: Bool, now: Double) -> (reflex: Reflex, action: ReflexAction)? {
+    ReflexTable.first(navWorld(o, at: now), ReflexContext(now: now, ownerTookFocus: owner, maximumVisionAge: .infinity, walkingHeading: heading,
+                                                        walkingToSafety: d.toSafety, passing: d.passUntil.map { now < $0 } ?? false, walking: true))
 }
 
 struct NavDestination: Equatable {
@@ -710,7 +736,7 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
     }
 
     while true {
-        if body.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        if let hit = ReflexTable.ownerTakeover(body.ownerTookFocus(), now: body.now()) { body.emit("reflex", reflexEvent(hit)); return finish("OWNER_TOOK_FOCUS") }
         guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
@@ -729,8 +755,14 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
         }
         result.end = o
         let now = body.now()
-        if o.combat { return finish("COMBAT") }
-        if !d.toSafety && o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
+        // The table on this frame (#88): combat and the floor are its; a hostile ahead is asked once the heading is known.
+        if let hit = walkReflex(o, destination: d, heading: nil, owner: false, now: now) {
+            switch hit.action {
+            case .fightBack, .heal: body.emit("reflex", reflexEvent(hit)); return finish("COMBAT")
+            case .stopWalk(.lowHealth, _): body.emit("reflex", reflexEvent(hit)); return finish("LOW_HEALTH")
+            default: break  // a recovery between 30 and 60 % is the loop's after the walk, not the walk's
+            }
+        }
         if distance(o.point, d.point) < d.arrive { return finish("ARRIVED") }
         if now - began >= d.seconds { return finish("TIME_LIMIT") }
         let view = body.viewColumns()  // the depth, once a tick (25 ms)
@@ -799,8 +831,10 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
         let aim = steerAim(want: want, columns: columns, blocked: blocked, side: side?.sign, along: side.map { angleError($0.heading, o.facing) })
         if abs(aim - want) > 10 { going = aim - want }
         let heading = (o.facing + aim + 720).truncatingRemainder(dividingBy: 360)
-        let passing = d.passUntil.map { now < $0 } ?? false
-        if !d.toSafety, !passing, o.warnings.contains(where: { abs(angleError($0, heading)) <= NavLimits.warnCone }) { return finish("DANGER_AHEAD") }
+        if let hit = walkReflex(o, destination: d, heading: heading, owner: false, now: now), case .stopWalk(.hostileAhead, _) = hit.action {
+            body.emit("reflex", reflexEvent(hit))
+            return finish("DANGER_AHEAD")
+        }
         result.decisions += 1
         if now - lastLog >= SteerLimits.logEvery {  // about once a second: what the walk saw and chose, for the live evaluation
             var row: [String: Any] = ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "want": Int(want.rounded()), "aim": Int(aim.rounded()),
@@ -876,11 +910,14 @@ func walk(_ body: NavBody, _ action: NavAction, from start: NavObs, to d: NavDes
         }
         misses = 0
         here = o
-        if o.combat || (!d.toSafety && o.player < FightLimits.playerSafety) || body.ownerTookFocus() { ranOut = false; break }
+        // The table on this frame (#88): the owner, combat and the floor end the move (the caller reads why); a hostile ahead of
+        // this move's heading marks it warned. The way to safety and an armed walk past are the destination's.
+        let hit = walkReflex(o, destination: d, heading: attempt.heading, owner: body.ownerTookFocus(), now: body.now())
+        var ended = false
+        if let hit { switch hit.action { case .pause, .fightBack, .heal, .stopWalk(.lowHealth, _): ended = true; default: break } }
+        if ended, let hit { body.emit("reflex", reflexEvent(hit)); ranOut = false; break }
         if distance(o.point, d.point) < d.arrive { attempt.arrived = true; ranOut = false; break }
-        if !d.toSafety, o.warnings.contains(where: { abs(angleError($0, attempt.heading)) <= NavLimits.warnCone }) {
-            attempt.warned = true; ranOut = false; break
-        }
+        if let hit, case .stopWalk(.hostileAhead, _) = hit.action { body.emit("reflex", reflexEvent(hit)); attempt.warned = true; ranOut = false; break }
         let now = body.now()
         if body.keys.isDown(forward) { trail.append((now, o.point)) } else { trail.removeAll() }
         if let old = trail.last(where: { now - $0.t >= NavLimits.blockedWindow }) {
@@ -940,7 +977,7 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
     }
 
     while true {
-        if body.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        if let hit = ReflexTable.ownerTakeover(body.ownerTookFocus(), now: body.now()) { body.emit("reflex", reflexEvent(hit)); return finish("OWNER_TOOK_FOCUS") }
         guard let o = body.readObservation().value else {
             misses += 1
             if misses >= NavLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
@@ -957,8 +994,13 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
             result.episode.best = distance(o.point, d.point)
         }
         result.end = o
-        if o.combat { return finish("COMBAT") }
-        if !d.toSafety && o.player < FightLimits.playerSafety { return finish("LOW_HEALTH") }
+        if let hit = walkReflex(o, destination: d, heading: nil, owner: false, now: body.now()) {  // the table on this frame (#88)
+            switch hit.action {
+            case .fightBack, .heal: body.emit("reflex", reflexEvent(hit)); return finish("COMBAT")
+            case .stopWalk(.lowHealth, _): body.emit("reflex", reflexEvent(hit)); return finish("LOW_HEALTH")
+            default: break
+            }
+        }
         if distance(o.point, d.point) < d.arrive { return finish("ARRIVED") }
         if result.episode.sinceBest >= NavLimits.noProgressDecisions { return finish("NO_PROGRESS") }
         if result.decisions >= NavLimits.maxDecisions { return finish("DECISION_LIMIT") }
@@ -995,11 +1037,15 @@ func runNav(body: NavBody, jev: JevClient, destination d: NavDestination) async 
             return finish("INVALID_REPLY")
         }
         let current = body.readObservation().value
-        let transition: String?
-        if current?.combat == true { transition = "COMBAT" }
-        else if let current, !d.toSafety, current.player < FightLimits.playerSafety { transition = "LOW_HEALTH" }
-        else if let current, distance(current.point, d.point) < d.arrive { result.end = current; transition = "ARRIVED" }
-        else { transition = nil }
+        var transition: String? = nil
+        if let current, let hit = walkReflex(current, destination: d, heading: nil, owner: false, now: body.now()) {  // the frame the step would act on
+            switch hit.action {
+            case .fightBack, .heal: body.emit("reflex", reflexEvent(hit)); transition = "COMBAT"
+            case .stopWalk(.lowHealth, _): body.emit("reflex", reflexEvent(hit)); transition = "LOW_HEALTH"
+            default: break
+            }
+        }
+        if transition == nil, let current, distance(current.point, d.point) < d.arrive { result.end = current; transition = "ARRIVED" }
         if let transition {
             record["rejection"] = "state_transition:" + transition
             result.records.append(record); body.emit("decision", record)

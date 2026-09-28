@@ -361,10 +361,18 @@ fight, the hunt and the run ended DECISION_LIMIT.
 tools/sdlc motor   # builds and checks M0, M1/M2 and M3 with no live effect
 ```
 
+The fight's reflexes are the engine's reflex table since #88 (`engine/Controller.swift`, `ReflexTable.standard`; the
+entries are listed in [the engine's README](../engine/README.md)): the owner's takeover, the start's enchant (once, and in a
+fight back only at 60 % health or more), the heal floor (`admissible` offers HEAL alone under 30 % in combat) and the stop
+out of combat (`SAFETY_STOP_PLAYER_BELOW_30`) are its; `FightLimits.playerSafety`, `healMana` and `buffAtHealth` alias
+`ReflexLimits`. `BUFF_WEAPON` is no longer offered to Jev (the fight graph and `FightTactics.offerNames`); the tactics
+(`hitAfterKill`, the chains, target selection) stay the fight's. Every build with `Fight.swift` includes `engine/World.swift`
+and `engine/Controller.swift` (`$R` below).
+
 ```sh
 V=experiments/002_wow_visual
 C=experiments/001_wow_fishing/probes/background-click
-R="$V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift"
+R="$V/runtime/Runtime.swift $V/runtime/Input.swift $V/runtime/DecisionGraph.swift $V/runtime/Experience.swift $V/engine/World.swift $V/engine/Controller.swift"
 swiftc -parse-as-library $V/m0/Motor.swift $V/m1/Plate.swift $V/m3/Fight.swift $V/m3/Tactics.swift $V/m3/FightTests.swift $R \
   -o /tmp/fight-tests && /tmp/fight-tests   # from the repo root: the checks load the fight graph and its files
 swiftc -O -parse-as-library -D SEEK -D FIGHT $V/m0/Motor.swift $V/m0/Probe.swift $V/m1/Seek.swift \

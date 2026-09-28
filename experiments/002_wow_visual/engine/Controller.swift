@@ -48,15 +48,21 @@ func failureKind(forCode code: String) -> FailureKind {
 
 // MARK: Reflexes
 
+/// Why a walk stops: a hostile ahead of its heading (M4h, M4t), or the character below the floor out of combat.
+enum WalkStop: String, Equatable { case hostileAhead, lowHealth }
+
 enum ReflexAction: Equatable {
     case pause(String)                 // the owner has the game: release every key and wait
     case holdAndReobserve(String)      // no fresh vision: release held movement, read again, do not act
     case releaseSpirit                 // dead: the death recovery skill (M4s)
     case fightBack                     // in combat: the fight skill owns the keys until the fight ends
     case heal                          // in combat below the floor: heal now (the fight's own reflex)
-    case stopWalk(String)              // a hostile ahead of the heading (M4h, M4t)
+    case stopWalk(WalkStop, String)    // the walk stops: a hostile ahead of the heading, or low health (the way to safety for neither)
     case recover                       // out of combat and hurt: heal, rest or eat before walking on (M4w)
     case buffWeapon                    // about to fight with no weapon enchant (M3, review of #79)
+    case walkPast(String)              // an unaggressive creature alone stopped the walk: walk past it, once a step (M4am)
+    case fightAhead(String)            // a lone creature no higher than the character stopped the walk: fight it (M4ak)
+    case stopFight(String)             // in a fight, below the floor out of combat: the fight ends and the loop recovers (M3)
 }
 
 struct ReflexContext: Equatable {
@@ -65,6 +71,17 @@ struct ReflexContext: Equatable {
     var maximumVisionAge: Double = 1.0
     var walkingHeading: Double? = nil  // set while a walk holds W: its heading
     var aboutToFight: Bool = false     // the planner's next task is a fight
+    var stoppedWalk: Bool = false      // a hostile stopped a walk and the stop stands; the world's `ahead` says what
+    var walkedPast: Bool = false       // the stopped step already walked past once this session (M4am is once a step)
+    var walkingToSafety: Bool = false  // the walk is the way to safety: a hostile ahead does not stop it (M4r)
+    var passing: Bool = false          // a walk past is armed: a red name ahead does not stop this walk (M4am)
+    var inFight: Bool = false          // inside the fight's loop: its stop floor out of combat applies (M3's SAFETY_STOP)
+    var walking: Bool = false          // inside a walk: its floor out of combat applies (LOW_HEALTH; not on the way to safety)
+}
+
+/// A reflex's log line, the same in every loop: its controller, its name and the action.
+func reflexEvent(_ hit: (reflex: Reflex, action: ReflexAction)) -> [String: Any] {
+    ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"]
 }
 
 struct Reflex {
@@ -77,6 +94,8 @@ enum ReflexLimits {
     static let combatHealthFloor = 0.3   // FightLimits.playerSafety
     static let healMana = 0.15           // FightLimits.healMana
     static let walkHealth = 0.6          // HuntLimits.walkHealth
+    static let fightsWeakBlockers = ProcessInfo.processInfo.environment["JEV_BLOCKER_FIGHT"] != "off"  // M4ak's switch
+    static let warnCone = 30.0           // NavLimits.warnCone: a red name or hostile plate within this of the heading stops a walk
 }
 
 /// The standard table, in the order the rules are tried. The first that fires wins the tick.
@@ -93,18 +112,48 @@ enum ReflexTable {
                   (w.character.mana.value ?? 0) >= ReflexLimits.healMana else { return nil }
             return .heal
         },
+        // The enchant at a fight's start (the owner: buff before every fight; live run 72: offered to Jev in every decision,
+        // never chosen), before the fight itself takes over; attacked, only at 60 % health or more, so a hurt fight back spends
+        // its global cooldown on healing, not the enchant (review of #79). Never in a cast, never below the heal floor.
+        Reflex(name: "buff_before_fight", controller: .rule) { w, c in
+            guard c.aboutToFight, w.character.weaponBuffActive.value == false, w.character.casting.value != true,
+                  w.character.inCombat.value == false || (w.character.health.value ?? 0) >= ReflexLimits.walkHealth else { return nil }
+            return .buffWeapon
+        },
         Reflex(name: "combat", controller: .safety) { w, _ in w.character.inCombat.value == true ? .fightBack : nil },
         Reflex(name: "hostile_ahead", controller: .rule) { w, c in
-            guard let heading = c.walkingHeading else { return nil }
-            let ahead = w.entities.hostilesAhead(of: heading)
-            return ahead.isEmpty ? nil : .stopWalk("\(ahead.count) hostile ahead within 30 degrees")
+            guard let heading = c.walkingHeading, !c.walkingToSafety, !c.passing else { return nil }
+            let ahead = w.entities.hostilesAhead(of: heading, within: ReflexLimits.warnCone)
+            return ahead.isEmpty ? nil : .stopWalk(.hostileAhead, "\(ahead.count) hostile ahead within \(Int(ReflexLimits.warnCone)) degrees")
+        },
+        // After a stop, before any plan: M4am (the owner, 28 Sept: "Juvenile Vuldren is unagreesive") is tried before M4ak,
+        // as the run loop did; both replace a Jev decision that the live record shows Jev got wrong (RETREAT at every stop,
+        // runs 89-94). Company, a higher or unread level, a threat in view, or a second stop of the same step stay Jev's.
+        Reflex(name: "walk_past", controller: .rule) { w, c in
+            guard c.stoppedWalk, !c.walkedPast, let a = w.ahead.value, a.unaggressive, (a.threats ?? a.company) == 0 else { return nil }
+            return .walkPast("an unaggressive creature stopped the walk: walk past it")
+        },
+        Reflex(name: "blocker_fight", controller: .rule) { w, c in
+            guard c.stoppedWalk, ReflexLimits.fightsWeakBlockers, let a = w.ahead.value, !a.unaggressive, let level = a.level,
+                  let mine = w.character.level.value, level <= mine, a.company == 0 else { return nil }
+            return .fightAhead("a lone creature no higher than the character stopped the walk: fight it")
+        },
+        // Inside a walk, out of combat below the floor, the walk stops (LOW_HEALTH), except the way to safety, which walks on
+        // (reviews of #72: stopping among hostiles is what it leaves).
+        Reflex(name: "walk_low_health", controller: .safety) { w, c in
+            guard c.walking, !c.walkingToSafety, w.character.inCombat.value == false, let h = w.character.health.value,
+                  h < ReflexLimits.combatHealthFloor else { return nil }
+            return .stopWalk(.lowHealth, "below the floor out of combat: the walk stops")
+        },
+        // Inside a fight, out of combat below the floor, the fight ends and the loop recovers (M3: SAFETY_STOP_PLAYER_BELOW_30;
+        // the owner, 23 Sept: never a stop in combat, where standing still is dying).
+        Reflex(name: "fight_stop_hurt", controller: .safety) { w, c in
+            guard c.inFight, w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.combatHealthFloor else { return nil }
+            return .stopFight("below the floor out of combat: the fight ends")
         },
         Reflex(name: "hurt_out_of_combat", controller: .rule) { w, _ in
             guard w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.walkHealth else { return nil }
             return .recover
-        },
-        Reflex(name: "buff_before_fight", controller: .rule) { w, c in
-            c.aboutToFight && w.character.inCombat.value == false && w.character.weaponBuffActive.value == false ? .buffWeapon : nil
         },
     ]
 
@@ -113,6 +162,13 @@ enum ReflexTable {
             if let action = reflex.fires(world, context) { return (reflex, action) }
         }
         return nil
+    }
+
+    /// The owner's takeover before a loop reads anything this tick: the table's first entry over an empty world.
+    static func ownerTakeover(_ ownerTookFocus: Bool, now: Double) -> (reflex: Reflex, action: ReflexAction)? {
+        guard let hit = first(WorldState(), ReflexContext(now: now, ownerTookFocus: ownerTookFocus, maximumVisionAge: .infinity)),
+              case .pause = hit.action else { return nil }
+        return hit
     }
 }
 
@@ -155,7 +211,7 @@ struct TaskRecord: Equatable {
 
 /// What the loop asks its host to do next.
 enum PlayStep: Equatable {
-    case reflex(ReflexAction, ControllerName)
+    case reflex(ReflexAction, ControllerName, String)  // the action, its controller and the reflex's name, for the log
     case plan                 // out of danger and idle: rank goals and start the best task
     case continueTask         // a task is running: tick it
     case stop(String)         // the envelope is spent or the owner stopped: release everything and report
@@ -186,9 +242,9 @@ struct PlayLoop: Equatable {
             case .holdAndReobserve: break  // the mode stands; nothing acts on stale vision
             case .fightBack, .heal: if mode != .dead { mode = mode == .paused ? .questing : mode }
             case .recover: mode = .recovering
-            case .stopWalk, .buffWeapon: break
+            case .stopWalk, .buffWeapon, .walkPast, .fightAhead, .stopFight: break
             }
-            return .reflex(hit.action, hit.reflex.controller)
+            return .reflex(hit.action, hit.reflex.controller, hit.reflex.name)
         }
         if mode == .paused { mode = .idleSafe }
         if mode == .dead, world.character.dead.value == false { mode = .recovering }

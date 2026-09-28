@@ -329,7 +329,10 @@ struct FightTactics {
     private struct Files: Decodable { let dictionary: String; let chains: String; let className: String
         enum CodingKeys: String, CodingKey { case dictionary, chains, className = "class" } }
 
-    static let offerNames = ["CONTINUE"] + (1...ChainLimits.slots).map { "CHAIN_\($0)" } + FightAction.allCases.map(\.rawValue)
+    /// What Jev may be offered: CONTINUE, the chain slots, and every action but the weapon enchant, which is the reflex table's
+    /// (buff_before_fight, #88) and never a choice; a chain may still cast it as a step.
+    static let offerNames = ["CONTINUE"] + (1...ChainLimits.slots).map { "CHAIN_\($0)" }
+        + FightAction.allCases.filter { $0 != .buffWeapon }.map(\.rawValue)
 
     /// A fresh session per fight: its reads and call budget start again, as the fight's own clock does.
     func session() throws -> GraphSession {

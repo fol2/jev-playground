@@ -8,7 +8,7 @@
   "nodes": {
     "fight": {
       "question": "Choose the next step of this fight toward `goal`. A chain runs its steps without asking again until a break: the character loses health fast, a step fails or cannot be done, the target dies, or a check-in; `chain` says why you are asked now. CONTINUE goes on with the running chain. A single skill is one step, for control of your own. `calculations` holds what each skill has done in this fight, measured from the frames. You may first read the bar's skills, the combat mechanics, the owner's fighting rules or this fight's steps. READ returns information, not an in-game action. The remaining model-call budget is in `decision_graph`.",
-      "skills": ["CONTINUE", "CHAIN_1", "CHAIN_2", "CHAIN_3", "CHAIN_4", "BUFF_WEAPON", "SELECT_TARGET", "FACE_TARGET",
+      "skills": ["CONTINUE", "CHAIN_1", "CHAIN_2", "CHAIN_3", "CHAIN_4", "SELECT_TARGET", "FACE_TARGET",
                  "APPROACH_TO_RANGE", "CAST_LIGHTNING_BOLT", "CAST_SHOCK", "START_MELEE", "HEAL", "LOOT_CORPSE", "WAIT", "STOP"],
       "branches": {},
       "reads": ["skills", "mechanics", "owner_fighting", "recent"]

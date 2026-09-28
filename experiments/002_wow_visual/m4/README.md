@@ -1380,9 +1380,10 @@ session has run.
   budget; `failureKind(forCode:)`), each logged as `task_failed`. The loop records it and plans again without that step.
 - **An unread frame holds.** No fresh frame, an unreadable position or an incomplete log read waits half a second and reads
   again; five in a row record one perception failure and back off ten seconds. Nothing ends.
-- **Reflexes, every tick, before any plan** (`ReflexTable.standard`, each logged `reflex` with its controller): the owner's
-  takeover pauses the loop with no input (held for two minutes, the session ends `OWNER_TOOK_FOCUS`); stale vision holds; death
-  is revived (M4s) and counted; combat is fought back (M4i, SAFETY); low health out of combat is recovered (M4w, RULE), or rested.
+- **Reflexes, every tick, before any plan** (`ReflexTable.standard`, each logged `reflex` with its controller and name): the
+  owner's takeover pauses the loop with no input (held for two minutes, the session ends `OWNER_TOOK_FOCUS`); stale vision holds;
+  death is revived (M4s) and counted; combat is fought back (M4i, SAFETY); low health out of combat is recovered (M4w, RULE), or
+  rested; after a stop, M4am's walk past and M4ak's fight are the table's `walk_past` and `blocker_fight` (#88, below).
 - **Modes** (`session_mode`): dead, recovering, idle-safe, in town, questing, paused. With nothing within reach the loop is
   idle-safe: it walks to the nearest village (M4r), forgets this session's failed steps, and reads again two minutes later.
   The walk's real end is recorded (review of #96): keys held on the way end the session; a fight not won, combat or death
@@ -1404,6 +1405,35 @@ session has run.
   call, death and stuck-walk limits, keys held, a danger stop's retreat and fight ahead, M4ak's and M4am's rules, and `--session`. Live: not yet run; the first
   announced session is its qualification, and its `events.jsonl` (`task_failed`, `reflex`, `session_mode`, `session_end`) the
   evidence.
+
+## The reflex layer (#88; 28 Sept)
+
+Buff before the fight, heal under the floor, fight back when attacked, stop for a hostile ahead, heal before walking, release
+and revive, and the way to safety were each first offered to Jev, each failed live, and each came back as a RULE or SAFETY
+reflex in its own pull request (#72, #73, #76, #79, #107, #109). They now live in one place, `ReflexTable.standard`
+(`engine/Controller.swift`; the order and each entry's controller are in [the engine's README](../engine/README.md)), and
+every loop asks it each tick, building a `WorldState` from what it already reads:
+
+- **The run loop** (`runQuests`): the owner's takeover before the quest read (`ReflexTable.ownerTakeover`); after a stop,
+  `walk_past` (M4am) then `blocker_fight` (M4ak) over the `ahead` belief (`Ahead.belief`: the creature knowledge stays here,
+  in m4, and the table judges a belief) and the log's level. The codes are the run's, unchanged.
+- **The session loop**: as before, plus the two stop rules from the table instead of its own copy.
+- **The fight** (`runFight`, `admissible`): the owner on the last frame, the start's enchant (`buff_before_fight`, with the
+  review of #79's 60 % rule), the heal floor (`combat_low_health`: HEAL alone, WAIT in a cast) and the stop out of combat
+  (`fight_stop_hurt`: `SAFETY_STOP_PLAYER_BELOW_30`). `BUFF_WEAPON` is no longer Jev's offer (the fight graph and
+  `FightTactics.offerNames` lost it; a chain may still cast it). The tactics are the fight's.
+- **The hunt** (`runHunt`, `huntAdmissible`): the owner before the survey; death (`DEAD`); in combat FIGHT alone (or
+  LOOK_AROUND and FIGHT); under 60 % out of combat no walk or pick-up (REST and EAT_DRINK stay Jev's choices).
+- **The walks** (`runSteer`, `runNav`, `walk()`): the owner; combat (`COMBAT`); under 30 % out of combat (`LOW_HEALTH`,
+  `walk_low_health`); a red name or hostile plate within 30° of the heading (`DANGER_AHEAD`, `hostile_ahead`), never on the
+  way to safety nor during an armed walk past (`walk()` now honours the pass too, as `runSteer` did).
+- **Recovery and the way to safety**: `recover()` (M4w) asks the table whether a heal is due; `leaveDanger` asks it about the
+  owner and `leaveDangerRounds` about combat.
+- **Evidence.** Sim only: `EngineTests` (the order, each entry, combat over recovery and buffing, the #79 rule, the stop
+  floors, the owner's takeover), and the old suites unchanged in what they assert: a walk stops for a hostile ahead and at low
+  health, a hurt character heals before walking, a dead one releases and revives, the enchant is cast at a fight's start, the
+  hunt fights when attacked; `BUFF_WEAPON` is asserted absent from Jev's offers. Live: the next run's `events.jsonl` shows each
+  reflex as `reflex` with `controller` and `reflex` (its name).
 
 ## M4ad — the hunt walks as the steering walk (28 Sept)
 

@@ -1422,7 +1422,7 @@ final class LiveQuestHost: QuestHost {
     func leaveDanger(after outcome: String) async -> String? {
         guard leavesDanger(outcome) else { return nil }
         guard !holding else { return "WALK_KEYS_HELD" }
-        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        if let hit = ReflexTable.ownerTakeover(ownerTookFocus(), now: hostNow()) { emit("reflex", reflexEvent(hit)); return "OWNER_TOOK_FOCUS" }
         guard let at = await quester.position(turn: false) else { return "WALK_HUD_UNREADABLE" }
         guard let safe = safePlace(from: at) else {
             return QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) ? "SAFE" : "NO_SAFE_PLACE"

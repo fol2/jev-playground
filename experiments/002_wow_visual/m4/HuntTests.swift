@@ -1450,7 +1450,7 @@ extension NavTests {
         check(weak.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && weakJev.offered.count == 2 && weakJev.offered[1].contains("DO:HUNT_1")
               && strong.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"] && crowd.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
               && unlevelled.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
-              && !fightsBlocker(Ahead(name: "x", level: 3), characterLevel: nil) && fightsBlocker(Ahead(name: "x", level: 4), characterLevel: 4),
+              && Ahead(name: "Scrawny Ursera", level: 3, others: 1, threats: 0).belief == AheadBelief(nameKey: "scrawnyursera", level: 3, company: 1, threats: 0),
               "M4ak: a lone creature at or below the character's level is fought by rule and the stopped hunt offered again; a higher one, company or an unread level is Jev's")
         // M4am (the owner, 28 Sept: "Juvenile Vuldren is unagreesive"): an unaggressive creature alone in the way is walked past,
         // once a step: no retreat, no fight, the stopped hunt offered again; a second stop on that step is Jev's.
@@ -1463,7 +1463,7 @@ extension NavTests {
         check(meek.passes == 1 && meek.handed.prefix(3) == ["HUNT Infestation Investigation", "HUNT Infestation Investigation", "RETREAT"]
               && meekJev.offered.count >= 3 && meekJev.offered[1].contains("DO:HUNT_1") && !meekJev.offered[1].contains("DO:RETREAT")
               && Creatures.isUnaggressive("Juvenile Vuldren") && Creatures.isUnaggressive("luvenile Vuldren ЛОРAУ")
-              && !Creatures.isUnaggressive("Scrawny Ursera") && !fightsBlocker(Ahead(name: "Juvenile Vuldren", level: 1), characterLevel: 5),
+              && !Creatures.isUnaggressive("Scrawny Ursera") && Ahead(name: "luvenile Vuldren ЛОРAУ", level: 1).belief.unaggressive,
               "M4am: an unaggressive creature alone in the way is walked past once, not fled or fought; the second stop is Jev's")
         // The pass is the stopped step's own (review of #109): Jev taking another step first drops it, so no other walk goes past.
         let wander = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: [], level: 5)])

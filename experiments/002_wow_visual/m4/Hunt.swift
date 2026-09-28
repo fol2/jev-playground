@@ -31,7 +31,7 @@ enum HuntLimits {
     static let eatBelowHealth = 0.8, eatBelowMana = 0.5
     static var drink: UInt16 = 29, eat: UInt16 = 27  // 23 Sept defaults; live runs take them from the bar's tooltips
     static let eatSeconds = 20.0
-    static let walkHealth = 0.6  // below this, rest before walking on
+    static let walkHealth = ReflexLimits.walkHealth  // below this, rest before walking on (the table's floor, #88)
     // ponytail: an assumed horizontal field of view; calibrate from a plate's shift over a known turn.
     static let viewDegrees = 90.0
     static let nearRow = 0.35  // a plate lower in view than this fraction of its height is near (roughly 25 yards)
@@ -553,10 +553,27 @@ func emptyHuntEnd(_ steps: [HuntStep]) -> String {
     steps.filter { $0.action.isWalk }.count >= HuntLimits.maxMoves ? "MOVE_LIMIT" : "NO_ADMISSIBLE_SKILL"
 }
 
+/// The hunt's survey as the world the reflex table reads (#88): health, mana, combat, and death as an empty bar out of combat.
+func huntWorld(_ o: HuntObs, at now: Double) -> WorldState {
+    var w = WorldState()
+    let at = o.stamp?.capturedAt ?? now
+    func read<T: Equatable>(_ value: T) -> Belief<T> { .known(Reading(value: value, confidence: 1, capturedAt: at, source: "pixels:hud")) }
+    w.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: at))
+    w.update(\.character.health, read(o.player))
+    w.update(\.character.mana, read(o.mana))
+    w.update(\.character.inCombat, read(o.combat))
+    w.update(\.character.dead, read(o.player < 0.01 && !o.combat))
+    return w
+}
+
 func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []) -> [HuntAction] {
-    // Attacked with nothing alive selected: the attacker may be behind, where Tab never reaches (live hunt
-    // 9 died to a Roiling Wind at the edge of the view), so LOOK_AROUND turns and Tabs; FIGHT can heal.
-    if o.combat { return o.targetAlive ? [.fight] : [.lookAround, .fight] }
+    // The table first (#88): in combat the fight is the only answer (attacked with nothing alive selected, the attacker may
+    // be behind, where Tab never reaches: live hunt 9 died to a Roiling Wind at the edge of the view, so LOOK_AROUND turns and
+    // Tabs; FIGHT can heal); dead, nothing; hurt out of combat, no walk or pick-up until rested (Jev chooses how, below).
+    let reflex = ReflexTable.first(huntWorld(o, at: 0), ReflexContext(now: 0, ownerTookFocus: false, maximumVisionAge: .infinity))?.action
+    if reflex == .releaseSpirit { return [] }
+    if o.combat || reflex == .fightBack || reflex == .heal { return o.targetAlive ? [.fight] : [.lookAround, .fight] }
+    let rested = reflex != .recover
     let last = steps.last?.action
     let open = { (heading: Double) in !blocked.contains { abs(angleError($0, heading)) < NavLimits.headingTolerance } }
     let repeated = { (action: HuntAction) in
@@ -576,10 +593,10 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
     // only if its tooltip names that objective. Not after two that picked nothing up since the last walk: a Tab or a look
     // around does not make a false object worth hovering again (review of #59).
     let empty = steps.reversed().prefix { !$0.action.isWalk }.filter { $0.action == .pickUp && !$0.result.hasPrefix("picked up") }.count >= 2
-    if !o.objects.isEmpty && o.objectives.contains(where: collects) && o.player >= HuntLimits.walkHealth && !empty {
+    if !o.objects.isEmpty && o.objectives.contains(where: collects) && rested && !empty {
         out.append(.pickUp)
     }
-    if o.here != nil && o.player >= HuntLimits.walkHealth && steps.filter({ $0.action.isWalk }).count < HuntLimits.maxMoves {
+    if o.here != nil && rested && steps.filter({ $0.action.isWalk }).count < HuntLimits.maxMoves {
         if let c = questCreature(o), open(c.bearing) { out.append(.toCreature) }
         if let a = o.area, !a.inside {
             out += ([.toArea] + HuntAction.detours).filter { open(a.bearing + $0.areaOffset!) && ($0 == .toArea || !repeated($0)) }
@@ -915,7 +932,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
 
     while r.decisions < HuntLimits.maxDecisions {
         if host.now() - began >= seconds { return finish("TIME_LIMIT") }
-        if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        if let hit = ReflexTable.ownerTakeover(host.ownerTookFocus(), now: host.now()) { host.emit("reflex", reflexEvent(hit)); return finish("OWNER_TOOK_FOCUS") }
         guard var o = host.readSurvey().value else {
             misses += 1
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
@@ -943,7 +960,11 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         }
         let blocked = o.here.map { r.walks.blockedHeadings(near: $0) } ?? []
         persistPending(after: o, blocked: blocked)
-        if o.player < 0.01 && !o.combat { return finish("DEAD") }  // an empty health bar out of combat
+        if let hit = ReflexTable.first(huntWorld(o, at: host.now()), ReflexContext(now: host.now(), ownerTookFocus: false, maximumVisionAge: .infinity)),
+           case .releaseSpirit = hit.action {  // an empty health bar out of combat: the table's death, the loop's revive (M4s)
+            host.emit("reflex", reflexEvent(hit))
+            return finish("DEAD")
+        }
         if remaining(wanted, in: o.objectives).isEmpty { return finish("OBJECTIVES_COMPLETE") }
         if !o.combat && r.fights.count >= HuntLimits.maxFights { return finish("FIGHT_LIMIT") }
         if !o.combat && sinceFight >= HuntLimits.searchLimit { return finish("NO_TARGET_FOUND") }

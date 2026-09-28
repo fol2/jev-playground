@@ -230,6 +230,17 @@ struct QuestBelief: Equatable {
     var inThisZone: Bool
 }
 
+/// What stopped a walk, by the Tab target after a red name ahead (M4ah, M4ai): its name key, its level from the unit
+/// tooltip (nil unread), the other hostile names or plates in view with it, those among them that may attack (nil unread;
+/// M4am), and whether knowledge says it does not attack first. The host fills it; the reflex table reads it (M4am, M4ak).
+struct AheadBelief: Equatable {
+    var nameKey: String
+    var level: Int? = nil
+    var company = 0
+    var threats: Int? = nil
+    var unaggressive = false
+}
+
 struct CharacterBelief: Equatable {
     var health: Belief<Double> = .never   // 0...1
     var mana: Belief<Double> = .never     // 0...1
@@ -259,6 +270,7 @@ struct WorldState: Equatable {
     var character = CharacterBelief()
     var target = TargetBelief()
     var entities = EntityTracker()
+    var ahead: Belief<AheadBelief> = .never  // what stopped the last walk, while that stop stands
     var quests: Belief<[QuestBelief]> = .never
     var bagItems: Belief<[String]> = .never
     var barSkills: Belief<[String]> = .never
