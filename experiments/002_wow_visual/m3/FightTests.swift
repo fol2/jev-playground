@@ -170,6 +170,15 @@ struct FightTests {
 
         let plate = Plate(x0: 1214, x1: 1346, top: 400, bottom: 413)
         let unlooted = Episode(engaged: true, killed: true)
+        let before = Obs(player: 0.7, combat: true)
+        check(hitAfterKill(unlooted, Obs(player: 0.6, combat: true), previous: before, sinceKill: 1)
+              && !hitAfterKill(unlooted, Obs(player: 0.69, combat: true), previous: before, sinceKill: 1)
+              && !hitAfterKill(unlooted, Obs(player: 0.6, combat: false), previous: before, sinceKill: 1)
+              && !hitAfterKill(unlooted, Obs(player: 0.6, target: 0.8, combat: true), previous: before, sinceKill: 1)
+              && !hitAfterKill(Episode(engaged: true, killed: true, looted: true), Obs(player: 0.6, combat: true), previous: before, sinceKill: 1)
+              && hitAfterKill(unlooted, Obs(player: 0.7, combat: true), previous: before, sinceKill: FightLimits.combatAfterKill)
+              && !hitAfterKill(unlooted, Obs(player: 0.7, combat: true), previous: before, sinceKill: FightLimits.combatAfterKill - 1),
+              "live run 90: hit again after the kill, in combat, with nothing alive selected, is another attacker, as is combat kept up past its linger; not a lingering combat ring, not out of combat, not with a live target, not once looted")
         let dead = admissible(Obs(combat: true), unlooted)
         check(has(dead, .lootCorpse) && !has(dead, .selectTarget),
               "unlooted kill: LOOT_CORPSE and no SELECT_TARGET")
@@ -528,6 +537,34 @@ struct FightTests {
         let vanished = await runFight(host: wisp, jev: ScriptedJev())
         check(vanished.outcome == "KILLED_NO_CORPSE" && vanished.episode.killed && !vanished.holdingKeys,
               "a kill that leaves no corpse label ends the fight after one loot attempt")
+
+        // M3c (live run 90: a second Scrawny Ursera killed the character while the fight looked for the first one's corpse).
+        let pair = SimFight(clock: FightClock())
+        pair.addAfterKill = true
+        pair.healSeconds = 2.5  // Healing Wave's cast: a heal each step hides every fall, so the combat kept up is the evidence
+        var setAside = 0
+        pair.emitHandler = { event, fields in if event == "reflex", (fields["trigger"] as? String)?.hasPrefix("hit again") == true { setAside += 1 } }
+        let both = await runFight(host: pair, jev: ScriptedJev())
+        check(both.outcome == "KILLED_AND_LOOTED" && setAside == 1 && pair.performed.filter { $0 == .selectTarget }.count == 2
+              && both.episode.killed && both.episode.looted && pair.player > 0,
+              "hit again after the kill: the fight sets the kill aside, selects the attacker, kills it and loots it")
+
+        // Live run 93: a corpse at the start is not our kill, so the fought creature's hits before its death are no attacker.
+        let corpseFirst = SimFight(clock: FightClock())
+        corpseFirst.startCorpse = true
+        corpseFirst.closesAfterBolts = 1
+        corpseFirst.damageScale = 0.3  // a longer fight: the corpse's "kill" is more than combatAfterKill old at this one
+        corpseFirst.healSeconds = 2.5
+        corpseFirst.boltSeconds = 1.5
+        corpseFirst.selected = true  // the hunt selected the creature, as live: it is fought before the corpse is looted
+        corpseFirst.targetHP = 1.0
+        corpseFirst.plateX = 1280
+        corpseFirst.combat = true
+        var falseAside = 0
+        corpseFirst.emitHandler = { event, fields in if event == "reflex", (fields["trigger"] as? String)?.hasPrefix("hit again") == true { falseAside += 1 } }
+        let owned = await runFight(host: corpseFirst, jev: ScriptedJev<FightAction>(preference: [.castLightningBolt, .heal, .lootCorpse, .selectTarget, .wait, .stop]))
+        check(falseAside == 0 && owned.episode.killed && owned.outcome != "DECISION_LIMIT",
+              "a corpse at the start is not our kill: the fought creature's hits before its death set nothing aside (\(owned.outcome))")
 
         // 24 Sept live: after the loot click the capture went quiet and the empty frame read as 0 % health.
         let blip = SimFight(clock: FightClock())

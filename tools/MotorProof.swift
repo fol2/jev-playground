@@ -6,8 +6,8 @@ import ImageIO
 
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
-let minFightChecks = 233  // the current count: removing a check must lower this on purpose
-let minNavChecks = 490  // the current count: removing a check must lower this on purpose
+let minFightChecks = 236  // the current count: removing a check must lower this on purpose
+let minNavChecks = 497  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -356,6 +356,10 @@ func navTrap() throws {
     }
     if !after("final class LiveQuestHost", quest).contains("if npc.role == \"vendor\" && (gearUnchecked || upgradeInBags) { return \"GEAR_UNSETTLED\" }") {
         throw GateError("the quest host may sell junk while an upgrade is unworn")
+    }
+    // M4al (live runs 87-98): a read that closes the backpack closes it whoever opened it; left open, unit tooltips drew beside it.
+    if !after("func readBags(close: Bool = true)", quest).contains("if close && (bags.opened || stillShown) { await tap(QuestHUD.bags) }") {
+        throw GateError("readBags may leave open a backpack it did not open")
     }
     let (fightCore, navCore, huntCore) = (try source(fightDir + "Fight.swift"), try source(navDir + "Nav.swift"), try source(navDir + "Hunt.swift"))
     if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")

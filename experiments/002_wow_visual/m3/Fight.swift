@@ -70,6 +70,7 @@ enum FightLimits {
     static let model = "jev-1.13.0"
     static let faceTolerance = 0.05
     static let healthDrop = 0.02
+    static let combatAfterKill = 8.0  // s: the combat ring lingers a few seconds after the last attacker dies; longer is another (M3c)
     static let probabilitySlack = 0.02
     static let boltFill = 0.75
     static let fillDrop = 0.3
@@ -257,6 +258,16 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
     if o.player < 0.95 { out.append(.heal) }
     if e.killed && !e.looted { out.append(.lootCorpse) }
     return out
+}
+
+/// Hit again after a kill, in combat, with nothing alive selected: another creature is attacking (live run 90: a second
+/// Scrawny Ursera killed the character during 30 s of looking for the first one's corpse, as LOOT_CORPSE was all a kill
+/// allowed). The corpse waits, and the attacker is fought: the kill is set aside, so SELECT_TARGET is offered again.
+/// The evidence is a fall in health since the previous observation, or combat still on `combatAfterKill` after the kill:
+/// a heal each step can hide every fall (review of #103), but not the combat an attacker keeps up.
+func hitAfterKill(_ e: Episode, _ o: Obs, previous: Obs, sinceKill: Double) -> Bool {
+    e.killed && !e.looted && o.combat && !Episode.alive(o)
+        && (o.player < previous.player - FightLimits.healthDrop || sinceKill >= FightLimits.combatAfterKill)
 }
 
 func events(previous: Obs, current: Obs, errorText: String?) -> [String] {
@@ -538,6 +549,7 @@ func fightGraphOutcome(_ error: Error) -> String {
 func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth,
               tactics: FightTactics? = nil) async -> FightResult {
     var episode = Episode()
+    var killedAt: Double?  // when the kill was seen (M3c)
     var lastAction = "none", lastResult = "episode start"
     var decisions = 0, jevCalls = 0, steps = 0, chainSteps = 0
     var latencies: [Double] = []
@@ -588,7 +600,19 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         lastStamp = o.stamp
+        // Our own kill seen on an earlier frame: the dying creature's own last hit is not an attacker, and neither is a corpse
+        // seen at the start (live run 93: the start's corpse counted, the fought creature's death read as a hit after a kill,
+        // and its kill was set aside; 30 SELECT_TARGETs out of combat followed, and DECISION_LIMIT).
+        let killedBefore = episode.killed && !episode.oldCorpse
         episode.update(o)
+        killedAt = episode.killed && !episode.oldCorpse ? killedAt ?? host.now() : nil  // our kill's time, not the start's corpse
+        if killedBefore, let at = killedAt, hitAfterKill(episode, o, previous: prev, sinceKill: host.now() - at) {
+            killedAt = nil
+            episode.killed = false
+            episode.sawTargetAlive = false
+            episode.meleeOn = false
+            host.emit("reflex", ["controller": "RULE", "trigger": "hit again after the kill, in combat", "does": "fight the attacker; the corpse waits"])
+        }
         if let step = ranOn {  // what the last step did, now that a newer frame shows it
             tally.record(step.action, before: step.obs, after: o, seconds: host.now() - step.at, meleeOn: episode.meleeOn)
             running?.observe(before: step.obs, after: o, killed: episode.killed)
@@ -806,6 +830,11 @@ final class SimFight: FightHost {
     var hitPerStep = 0.05
     var spendsMana = false
     var damageScale = 1.0  // below 1: a tougher creature, for a chain that must check in
+    var addAfterKill = false  // M3c: a second creature attacks once the first is dead, until it is selected
+    var healSeconds = 0.0  // the heal's cast, for a fight whose clock must run (M3c)
+    var boltSeconds = 0.0  // the bolt's cast, likewise
+    private var adding = false
+    private var combatEnds: Double?
     private var bolts = 0
 
     init(clock: FightClock) { self.clock = clock }
@@ -843,6 +872,7 @@ final class SimFight: FightHost {
     func errorText() -> String? { errorMessage }
 
     func observe(plates: Bool) -> Obs {
+        if let end = combatEnds, clock.now() >= end { combat = false; combatEnds = nil }
         if stalls > 0 { stalls -= 1; return Obs(fresh: false) }
         var o = Obs()
         o.stamp = ObservationStamp(stream: "sim-fight", geometry: "sim-layout", capturedAt: now())
@@ -912,6 +942,8 @@ final class SimFight: FightHost {
             selected = false
             plateX = nil
             corpseLootable = leavesCorpse
+            if addAfterKill { adding = true; addAfterKill = false }
+            if !adding { combatEnds = clock.now() + 3 }  // the last attacker is dead: combat ends a few seconds later, as live
         }
     }
 
@@ -919,6 +951,7 @@ final class SimFight: FightHost {
         performed.append(action)
         let result = await act(action, &episode)
         if let n = closesAfterBolts, bolts >= n, selected, targetHP > 0, action != .stop { player = max(0, player - hitPerStep) }
+        if adding && !selected { player = max(0, player - 0.1); combat = true }
         return result
     }
 
@@ -935,6 +968,7 @@ final class SimFight: FightHost {
             await tap(FightLimits.tab)
             await sleep(0.2)
             episode.meleeOn = false
+            adding = false  // the attacker is the new target
             selected = true
             targetHP = 1.0
             rangeRed = true
@@ -952,6 +986,7 @@ final class SimFight: FightHost {
             return "within Lightning Bolt range"
         case .castLightningBolt:
             holdBolt()
+            await sleep(boltSeconds)
             bolts += 1
             spend(0.07)
             strike(1.0 / 3)
@@ -968,10 +1003,12 @@ final class SimFight: FightHost {
             return "automatic swings on"
         case .heal:
             await tap(FightLimits.heal)
+            await sleep(healSeconds)
             spend(0.11)
             player = 1.0
             return "Healing Wave cast at 75 % and finishing"
         case .lootCorpse:
+            if adding { return "not looted: hit while searching for its corpse" }
             if corpseLootable {
                 episode.looted = true
                 corpseLootable = false

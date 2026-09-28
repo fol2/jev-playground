@@ -818,7 +818,7 @@ a Cirrusfly selected in front of the character. None landed a blow.
 - In the same run the hunt for the Cirrusfly Queen read every Pesky Cirrusfly as counting ("Cirrusfly" shared) and
   walked toward them. For a kill objective a plate now counts only if each word of four letters or more in the
   objective's creature name shares a four-letter run with it. A collect objective names an item the creature drops, so
-  it keeps the looser rule.
+  it kept the looser rule, until M4ae (below) made it whole words.
 
 Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
 slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as
@@ -936,7 +936,8 @@ so the pick-up is a choice Jev makes, not a script's loop; and it sees through a
   - The pointer jumps to the object (one move event). Two fresh tooltip reads there must name one open collect
     objective, and neither may be a unit's ("Level" line, `confirmedObject`). Only then, with no combat read just
     before, is it right-clicked. Click-to-Move walks there and picks it up.
-  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
+  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s
+    (15 s since M4af).
   - An attack ends the wait, as does no count by then, and a tap of forward stops Click-to-Move. A pick-up that
     counts is progress, as a fight is, for the hunt's search limit.
 - **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
@@ -1022,7 +1023,7 @@ Between live runs 56 and 57 the character stood idle among level 2-3 hostiles by
 killed. The owner, 27 Sept: "error exit should still try best to leave danger zone".
 
 - **`leaveDanger`** (LiveQuestHost). Before a quest run exits, the character walks to the nearest safe place within
-  one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
+  25 units (`safePlace`, `QuestLimits.safeReach`; 12 until M4ag), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
   Shen'dar, Valanaar), by their NPCs' places in the town research.
 - **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
   - the owner's takeover, whatever step it stopped;
@@ -1033,14 +1034,14 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - In combat, SAFETY fights back first (one M3 fight, as in M4i). No fresh HUD counts as combat.
   - Out of combat, it walks. A walk that meets combat is fought, then walked again, for at most four walks. The last
     walk's combat is fought too.
-  - A lost fight, or any other walk end, stops it.
+  - A walk that ran out of its time is walked on too (M4ag). A lost fight, or any other walk end, stops it.
 - **Time.** Everything ends inside the envelope's 30 minutes from the run's start. A fight starts only with its whole
   150 s left. A walk gets what is left, at most 180 s, and none starts with less than 20 s left.
   - So that a fight is always left for it, the run starts no step after 20 minutes, not 25. The last step's walk and
     its fight back end by 25:30.
 - **The walk.**
-  - Its moves are a fixed preference: straight, then the detours. It makes no model call, so a run that ended on a
-    failed Jev call still walks.
+  - It makes no model call, so a run that ended on a failed Jev call still walks. Its moves were a fixed preference
+    (straight, then the detours); since M4ac it is the steering walk, by the roads where they lead there.
   - It walks on past a red name ahead, and at low health out of combat (`toSafety`): stopping among hostiles is what
     it leaves. Live run 65 met combat at once, ended, and the character died where it stood.
 - **Steps.** SAFETY's fights back no longer use Jev's twelve steps. Run 65 spent them on five attacked walks and their
@@ -1412,6 +1413,174 @@ the rock slopes west of Thendal Village; and LOOK_AROUND, offered out of combat,
   no look round out of combat; the ridge's bump kept where it happened). Live run 85: the Windstones hunt fought and killed
   four creatures (its fight limit) on the grove's flat ground among the trees, none of its frames on a rock slope; the run
   retreated three times from danger ahead and fought one creature back (killed and looted); no death.
+
+## M4ae — a creature counts for something to collect only if it drops it (28 Sept)
+
+Live run 85: the Windstones hunt fought four Roiling Winds, and each ended `KILLED_NO_CORPSE`. That result was correct: an
+elemental leaves no corpse. The fault was the choice. `counts` said a Roiling Wind counts for "Windstone Cluster", because
+the two names share two runs of four letters ("wind", "inds"). So Jev saw a creature that counted, and chose GO_TO_QUEST_CREATURE over
+PICK_UP_OBJECT, while the detector held a cluster at the character's feet.
+
+- **Collect objectives:** a creature now counts for one only if a whole word of its name (four letters or more) is a word
+  of the objective ("Scrawny Ursera" for "Scrawny Ursera Claw"), or two neighbouring words of the objective joined, where
+  OCR read one word apart ("Urs'anah" for "Head of Urs anah"). A junk tail on the plate does not stop the match; a short read ("Winds", "Wind") never matches
+  "Windstone".
+- **Kill objectives:** unchanged.
+- **Jev's walk facts:** the hunt's walking moves now describe what they are since M4ad: up to 1.5 y units, 10 s at most,
+  steering round what they meet. The old text said "about 3 s". The run's `hunt_limits` records `walk_s` as the step's
+  seconds.
+- **Evidence:** sim only. `HuntTests` checks Roiling Winds, full or short, against "Windstone Cluster", and that it
+  is no quest creature for it; it also checks Urs'anah, with a tail or without, against her head. The live
+  proof is the next Windstones hunt.
+
+## M4af — a pick-up that worked is counted (28 Sept)
+
+Live run 86, after M4ae: the Windstones hunt chose PICK_UP_OBJECT twice. Both hovers read "Raw Windstone / Harvesting
+Windstones / 3/15 Windstone Cluster".
+- The first right-click walked the character to a far cluster by Click-to-Move, which took about 8.5 s.
+- The second started the gathering cast in reach. The chat said "You receive loot: [Windstone Cluster]x2", and the tracker
+  showed 5/15.
+
+Both were still recorded as "its count did not rise within 8 s". As the tracker changed, OCR missed the quest's title, so
+"5/15 Windstone Cluster" was read under the quest above it (Foul Matriarch). The check needed the same quest and the same
+text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run walked on and fought instead.
+
+- **The count check (`pickedUp`):** a pick-up's count is found by the objective's own text; the quest title is not needed.
+  The "Ready for turn-in" check still goes by quest, since that line has no text of its own.
+- **The wait:** a pick-up now waits up to 15 s (`HuntLimits.pickUpSeconds`) for the walk, the cast and the count. It was
+  8 s, and it still ends at once on success or an attack.
+- **Evidence:**
+  - Sim: `HuntTests` parses run 86's tracker with the title unread and finds the rise; an unchanged count finds none.
+  - Live: run 86's recording (121–143 s) shows the first click's walk cut at 8 s, just short of the cluster. It shows the
+    second click's cast bar, the loot line (x2) and 5/15. The next Windstones hunt is the proof that a pick-up is
+    counted.
+- **Also:** the count before the click is read from a frame taken just before it, not from the survey. The owner's
+  takeover ends the wait with no key pressed, and `hunt_limits` records `pick_up_s`. Jev's PICK_UP_OBJECT facts
+  say the new wait (15 s at most), not "a few seconds".
+
+## M4ag — a run's end walks home from farther (28 Sept)
+
+Live run 86 ended at (36.7, 33.5), where its Foul Matriarch walk had stopped for danger and its retreat had come back
+to. Thendal Village was 13.6 units away, beyond `safeReach` (12). So `safePlace` found none, and the run exited with no
+`leave_danger`. The character stood there for the seven minutes before run 87, and run 87 began with it as a ghost by
+the Spirit Healer: killed while idle, then released by the game.
+
+- **The limit:** `QuestLimits.safeReach` is now 25 units. The way home is steered (M4ac), by the learned roads where they
+  lead there, else straight at the village. It stays inside the run envelope's reserve, as before.
+- **A longer way:** a walk to safety that ran out of its time (`TIME_LIMIT`, one walk at most 180 s) is now walked on
+  from where it stopped, as one that met combat is. It is still at most four walks (`safeWalks`), all by the envelope's
+  end.
+- **Evidence:**
+  - Sim: `HuntTests` checks that run 86's end point walks to Thendal Village, and that a point 42 units from any village
+    still walks nowhere. It also checks that a timed-out walk is walked on to arrival.
+  - Live: the next run that ends away from a village.
+
+## M4ah — Jev is told what stopped the walk (28 Sept)
+
+Live run 89: four walks stopped for a red name ahead (`WALK_DANGER_AHEAD`), and Jev chose RETREAT each time (0.87–0.98),
+over FIGHT_AHEAD. That included both walks towards Foul Matriarch, whose objective is those very Ursera Scavengers. Jev's
+state said nothing of what stood ahead, and the owner's rules say a red name is danger.
+
+- **`stoppedBy`** (`QuestHost`, live in `LiveQuestHost`): after a stop, Tab selects the nearest enemy in front, as a player
+  looks before choosing, and the target frame's name is read. That is usually what stopped the walk; Tab takes the
+  nearest. It follows the hunt's own key sequence (`selectNearest`):
+  - Esc only while the target frame names something;
+  - a Game Menu that opened anyway is closed;
+  - then Tab, each key given time to show.
+
+  The selection is dropped the same way after, since Tab does not move off a selection and FIGHT_AHEAD's fight selects
+  its own. Selecting starts no fight. It runs only out of combat, and never while the owner has the game; logged
+  `stopped_by`.
+- **Jev's state:** while the stop stands (RETREAT or FIGHT_AHEAD on offer), the quest state has
+  `"stopped_by": {"name", "counts_for_objective"}`. M4ai adds `level` and `character_level`. The objective is matched against the log's objectives
+  (`logObjectives`, `objective(for:)`), or "none". Nothing is added when the name did not read. No criterion or graph
+  changed: the choice stays Jev's.
+- **Evidence:**
+  - Sim: `HuntTests` checks the quarry named with its objective, another creature with "none", an unread name with
+    nothing, and nothing before a stop or after the retreat; also the log's two objectives for Foul Matriarch.
+  - Live: the next run whose walk stops for a red name.
+
+## M4ai — Jev is told the level of what stands ahead (28 Sept)
+
+Live run 91: a walk stopped for a red name, `stopped_by` read "Scrawny Ursera" (it counts for no objective), and Jev chose
+RETREAT. A level 4 character retreated from a creature of level 3 or 4, a fight a player takes for its experience.
+
+- **`stoppedBy`** now returns an `Ahead` (a name and a level). After Tab reads the name, the pointer rests on the target
+  frame's portrait (`QuestHUD.targetPortrait`, the mirror of the character's own). The level comes from its unit tooltip
+  (`unitLevel`: "Level 3"; nil for "??"). It counts only when the tooltip's first line names the Tab target; a
+  "Requires Level" line and a player's line are ignored. The pointer moves only while the game is the engine's and out
+  of combat. Once attacked, the target is not dropped, so the fight back has it.
+- **Jev's state:** `stopped_by` has `level` and `character_level` beside the name and the objective. No criterion changed.
+- **Evidence:**
+  - Sim: `HuntTests` checks the level in the state, and `unitLevel` on run 90's tooltip ("Scrawny Ursera", "Level 3",
+    "Beast") and on an elite's "??".
+  - The portrait's place was checked on run 91's fight frame: the portrait is centred at (1795, 993), with the level
+    badge below it.
+  - Live, run 92: `stopped_by` read "Scrawny Ursera", level 3, at character level 4. Jev still chose RETREAT, but
+    FIGHT_AHEAD rose from 0.02–0.13 (run 89) to 0.19. The information is Jev's; whether to fight such a blocker is a
+    policy question for the reflex table (#88).
+
+## M4aj — the hunt remembers where it picked things up (28 Sept)
+
+Live runs 85–89: the Windstones' clusters were found round Thendal Grove, but the minimap shows no ring for that quest.
+So every hunt searched by compass (run 87 wandered south and east among Vuldren and Cirrusflies, and found none).
+
+- **Remembered:** a pick-up that counts records where the character stood, under its objective (`HuntHost.remember(place:
+  for:)`; live in the private `runs/002_wow_visual/memory/places.json`, the newest 32 per objective; logged
+  `place_remembered`).
+- **Used:** with no ring on the minimap, the nearest remembered place for an open collect objective is the hunt's area
+  (`readSurvey`, `rememberedArea`). It is inside within 3 units, since the two seeded pick-ups were 3.3 apart. So
+  GO_TO_QUEST_AREA and the area detours are offered as for a ring. Jev's state says `"on_minimap": false, "remembered_from_pick_ups": true`.
+- **Seeded:** from the two pick-ups that worked, (41.6, 26.8) in run 86 (its recording's minimap) and (43.8, 26.5) in
+  run 89.
+- **Evidence:**
+  - Sim: `HuntTests` checks the two pick-ups remembered under their objective; the nearest place as the area (not
+    inside, at its distance); GO_TO_QUEST_AREA offered; the state's flags; no area without places; inside within the
+    radius.
+  - Live, run 93: Jev chose GO_TO_QUEST_AREA twice by the remembered area (south-west, to the grove). It picked up a
+    cluster there (10/15), and the place was remembered at (41.4, 26.9); `places: 2` shows the seeded file was read.
+    It ended SAFE, with no death.
+- **Also:** the places of every open collect objective are pooled, so with two such quests the nearest of either leads.
+
+## M4ak — a lone creature no higher than the character is fought, not asked about (28 Sept)
+
+Live runs 89–94: Jev chose RETREAT at every red-name stop (0.77–0.98). With `stopped_by` it knew what stood there and
+at what level (M4ah, M4ai), and it still retreated, from a level 1 Juvenile Vuldren at level 4 too (run 94). The
+walks to Foul Matriarch, Skysight and the Windstones' grove stood still, and so did the levelling.
+
+- **The rule** (`fightsBlocker`, RULE, in `runQuests`): after a stop, a creature whose level reads no higher than the
+  character's, with no other hostile red name or plate in view (`Ahead.others`), is fought: FIGHT_AHEAD, with no Jev
+  call. It is logged `quest_step` with `controller: RULE` and the rule's words.
+- **Everything else stays Jev's:** a higher level, company, an unread level or an unread character level.
+- **Unchanged:** the fight is M3's, with its own start health (90%) and safety. A kill offers the stopped step again
+  (M4p).
+- **Counting company** (`aheadCompany`, live after Tab): the untargeted hostile plates, plus every red name. The
+  target's own plate is white-outlined and is not among them; a near target's name is on its plate, not red. A far
+  target's red name counts as company, and so does a red that is not a creature, or no frame at all. So the rule never
+  takes a creature for alone that may not be. The cost is that a far creature is Jev's, not the rule's. Jev's
+  `stopped_by` carries the count as `other_hostiles_in_view`.
+- **Off switch:** `JEV_BLOCKER_FIGHT=off`.
+- **Evidence:**
+  - Sim: `HuntTests` checks that a lone level 1 at level 4 is fought by rule and the stopped hunt offered again. A level
+    5, company and an unread level go to Jev (RETREAT in the script). On synthetic plates, an untargeted hostile plate
+    beside the white-outlined target counts as company, the target alone as none, and a red name always as one
+    (reviews of #107: the larger of the two less one missed a companion, and so would taking a red name off whenever
+    the target's plate went unread).
+  - Live, run 95 (the first count): the rule fought a lone level 1 Juvenile Vuldren that stopped the walk to Skysight
+    (`controller: RULE`), killed it, and the run went on. No death; it ended SAFE.
+
+## M4al — the backpack is closed after a read, whoever opened it (28 Sept)
+
+Live runs 87–98: the Combined Backpack stood open through whole runs. `readBags` closed it only when that read had
+opened it, so once it was open (from an earlier step or session) it stayed open. With it open, the game draws unit
+tooltips beside it, outside the tooltip box. The recording of run 98 shows "Scrawny Ursera / Level 3 / Beast" drawn by
+the backpack. So M4ai's target levels read null at most stops, and M4ak's rule seldom fired. PICK_UP_OBJECT's hovers also
+read "nothing" four times in run 98.
+
+- **The fix:** a read with `close` (the quest run's bag reads) now closes the backpack whenever its title still shows
+  after the read. Before, it did so only if it had opened it.
+- **Evidence:** a source check in `tools/MotorProof.swift`. Run 98's recording is the cause. Live: the next run's
+  `stopped_by` levels.
 
 ## Limits
 

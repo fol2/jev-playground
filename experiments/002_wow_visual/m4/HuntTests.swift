@@ -39,6 +39,18 @@ extension NavTests {
         check(done.outcome == "OBJECTIVES_COMPLETE" && done.steps.filter { $0.action == .pickUp }.count == 2
               && done.steps.allSatisfy { $0.action != .pickUp || $0.result.hasPrefix("picked up") } && ground.fightsRun == 0,
               "two Windstone Clusters in view: two pick-ups and the objective is complete, no fight (\(done.outcome))")
+        // M4aj: each pick-up is remembered where it was; with no ring on the minimap, the nearest place is the area.
+        let homing = plain([], objectives: windstones)
+        homing.places = [(x: 44, y: 29), (x: 50, y: 20)]
+        let far = homing.readSurvey().value
+        let areaState = far.map { huntStatePacket($0, recent: [], fights: [], blocked: [])["selected_quest_area"] as? [String: Any] } ?? nil
+        check(ground.remembered.count == 2 && ground.remembered.allSatisfy { $0.objective == "Windstone Cluster" }
+              && far?.areaRemembered == true && far?.area?.inside == false && abs((far?.area?.distance ?? 0) - distance((40, 30), (44, 29))) < 0.05
+              && far.map { huntAdmissible($0).contains(.toArea) } == true
+              && areaState?["on_minimap"] as? Bool == false && areaState?["remembered_from_pick_ups"] as? Bool == true
+              && plain([], objectives: windstones).readSurvey().value?.area == nil
+              && rememberedArea(from: (44, 31), places: [(x: 44, y: 29)])?.inside == true && rememberedArea(from: (44, 32.5), places: [(x: 44, y: 29)])?.inside == false && rememberedArea(from: (44, 29), places: []) == nil,
+              "M4aj: pick-ups are remembered under their objective; with no ring on the minimap the nearest remembered place is the area to walk to")
         let decoy = plain([], objectives: windstones)
         decoy.objects = [SimHunt.Mob(name: "Glowing Lantern", x: 40, y: 29.5)]
         let skipped = await runHunt(host: decoy, jev: huntScripted([.pickUp, .nextTarget, .lookAround, .east, .west]))
@@ -146,6 +158,12 @@ extension NavTests {
               "the white-outlined (targeted) plate is left to findTargetPlate")
         check(nameplates(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark)], width: 100)).isEmpty,
               "a bar narrower than a plate is not one")
+        let white: (UInt8, UInt8, UInt8) = (230, 230, 230)
+        check(aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: white), (x: 1500, y: 240, rgb: (95, 30, 25), outline: dark)])) >= 1
+              && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark), (x: 1500, y: 240, rgb: (95, 30, 25), outline: dark)])) >= 2
+              && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: white)])) == 0
+              && redNames(redText((200, 40, 30), at: 1200, y0: 300)).count == 1 && aheadCompany(redText((200, 40, 30), at: 1200, y0: 300)) == 1,
+              "reviews of #107: after Tab, an untargeted hostile plate beside the white-outlined target is company, two are two, the target alone none; a red name always counts")
     }
 
     /// A name drawn as real ones measure (24 Sept): 3 px strokes, 11 px tall, on the dark forest floor.
@@ -213,6 +231,18 @@ extension NavTests {
               && counts(plate("AI' Aketh Convert"), [Objective(quest: "Agitators", done: 0, need: 7, text: "Al'Aketh Convert slain")]) != nil
               && counts(plate("Scrawny Ursera"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
               "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren, a Pesky Cirrusfly for its own kills, \"AI' Aketh\" for Al'Aketh, and a creature for the item it drops (review of #60)")
+        let stones = [Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster")]
+        let head = [Objective(quest: "Foul Matriarch", done: 0, need: 1, text: "Head of Urs anah")]
+        check(["Roiling Winds", "Rolling WWinds", "Winds", "Wind"].allSatisfy { counts(plate($0), stones) == nil }
+              && questCreature(HuntObs(objectives: stones, seen: [Seen(name: "Roiling Winds", hostile: true, bearing: 342, near: true)])) == nil
+              && counts(plate("Urs'anah"), head) != nil && counts(plate("Urs'anah ЛОРAУ"), head) != nil
+              && counts(plate("Scrawny Ursera ЛОРAУ"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
+              "live run 85: a Roiling Wind, however much of its name reads, shares only letters with a Windstone Cluster and is no quest creature for it; Urs'anah counts for her head, a junk tail or not")
+        let picking = Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster")
+        let titleUnread = parseTracker(["[5] Foul Matriarch", "- 0/8 Ursera Scavenger slain", "- 0/1 Head of Urs'anah", "- 5/15 Windstone Cluster"])
+        check(titleUnread.last?.quest == "Foul Matriarch" && pickedUp(picking, in: titleUnread)?.done == 5
+              && pickedUp(picking, in: parseTracker(["[4] Harvesting Windstones", "- 3/15 Windstone Cluster"])) == nil,
+              "live run 86: a pick-up's count is found by the objective's text when its quest's title went unread; no rise, no pick-up")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]
@@ -929,6 +959,8 @@ extension NavTests {
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
+        var ahead: Ahead?  // what a red name stopped a walk for (M4ah, M4ai)
+        func stoppedBy() async -> Ahead? { ahead }
         func fightAhead() async -> String { handed.append("FIGHT_AHEAD"); return outcomes["FIGHT_AHEAD"] ?? "KILLED_AND_LOOTED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
@@ -1369,6 +1401,50 @@ extension NavTests {
             let jev = CannedGraph(script)
             return (host, jev, await runQuests(host: host, jev: jev, graph: graph()!))
         }
+        // M4ah (live run 89: four stops, four retreats): Jev sees what stopped the walk, and whether it counts.
+        func stopFor(_ name: String?, level: Int? = nil) async -> CannedGraph {
+            let winds = PlannedQuest(title: "Agitators", level: 3, ready: false, objective: "- 0/6 Roiling Winds destroyed", pin: (44, 25))
+            let host = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: [], level: 4),
+                                   QuestRead(quests: [infest, winds], player: (42, 24), missing: [])])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Agitators": "WALK_DANGER_AHEAD"]
+            host.ahead = name.map { Ahead(name: $0, level: level, others: 1) }  // company: Jev's, not M4ak's rule
+            let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT"])
+            _ = await runQuests(host: host, jev: jev, graph: graph()!)
+            return jev
+        }
+        let quarry = await stopFor("Pesky Cirrusfly", level: 3), other = await stopFor("Juvenile Vuldren"), unread = await stopFor(nil)
+        let seen = quarry.sent[1]["stopped_by"] as? [String: Any]
+        check(seen?["name"] as? String == "Pesky Cirrusfly" && seen?["counts_for_objective"] as? String == "Pesky Cirrusfly slain"
+              && seen?["level"] as? Int == 3 && seen?["character_level"] as? Int == 4 && (other.sent[1]["stopped_by"] as? [String: Any])?["level"] is NSNull
+              && (other.sent[1]["stopped_by"] as? [String: Any])?["counts_for_objective"] as? String == "none"
+              && unitLevel(["Scrawny Ursera", "Level 3", "Beast"], named: "Scrawny Ursera 71 871") == 3
+              && unitLevel(["Urs'anah", "Level ?? Elite"], named: "Urs'anah") == nil
+              && unitLevel(["Roiling Winds", "Level 5", "Elemental"], named: "Scrawny Ursera") == nil
+              && unitLevel(["Scrawny Ursera", "Requires Level 12"], named: "Scrawny Ursera") == nil
+              && unread.sent[1]["stopped_by"] == nil && quarry.sent[0]["stopped_by"] == nil && quarry.sent.count == 3 && quarry.sent[2]["stopped_by"] == nil
+              && logObjectives([PlannedQuest(title: "Foul Matriarch", level: 5, ready: false, objective: "0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah")])
+                  .map(\.text) == ["Ursera Scavenger slain", "Head of Urs'anah"],
+              "M4ah: after a red name stops a walk, Jev's state names it and the objective it counts for; none unread, none before a stop or after the retreat")
+        // M4ak (live runs 89-94: Jev retreated from every stop, a level 1 Vuldren at level 4 too): a lone creature no higher
+        // than the character is fought by rule, with no Jev call; a higher one, or one with company, is Jev's.
+        func blockerRun(_ ahead: Ahead) async -> (FakeQuests, CannedGraph) {
+            let host = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 4),
+                                   QuestRead(quests: [infest], player: (43, 25), missing: [], level: 4)])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "FIGHT_AHEAD": "KILLED_AND_LOOTED"]
+            host.ahead = ahead
+            let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT", "DO:HUNT_1"])
+            _ = await runQuests(host: host, jev: jev, graph: graph()!)
+            return (host, jev)
+        }
+        let (weak, weakJev) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1))
+        let (strong, _) = await blockerRun(Ahead(name: "Al'Aketh Brute", level: 5))
+        let (crowd, _) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1, others: 1))
+        let (unlevelled, _) = await blockerRun(Ahead(name: "Juvenile Vuldren"))
+        check(weak.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && weakJev.offered.count == 2 && weakJev.offered[1].contains("DO:HUNT_1")
+              && strong.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"] && crowd.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
+              && unlevelled.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
+              && !fightsBlocker(Ahead(name: "x", level: 3), characterLevel: nil) && fightsBlocker(Ahead(name: "x", level: 4), characterLevel: 4),
+              "M4ak: a lone creature at or below the character's level is fought by rule and the stopped hunt offered again; a higher one, company or an unread level is Jev's")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),
@@ -1411,6 +1487,9 @@ extension NavTests {
         check(wayLost == "FIGHT_PLAYER_DEAD" && wayStuck == "WALK_NO_PROGRESS" && wayEndless == "SAFE_ROUNDS"
               && wayEndlessSteps.filter { $0.hasPrefix("walk") }.count == QuestLimits.safeWalks && wayEndlessSteps.last == "fight",
               "review of #72: the way to safety ends on a lost fight, a walk's other end or its walks; the last walk's combat is fought too")
+        let (wayLong, wayLongSteps) = await wayRounds([false, false], [], ["TIME_LIMIT", "ARRIVED"])
+        check(wayLong == "SAFE" && wayLongSteps == ["walk 180", "walk 180"],
+              "M4ag: a walk to safety that ran out of time is walked on from where it stopped")
         let (wayLateFight, wayLateFightSteps) = await wayRounds([true], ["KILLED_AND_LOOTED"], [], left: [FightLimits.maxSeconds - 1])
         let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
         check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
@@ -1491,8 +1570,8 @@ extension NavTests {
               && !leavesDanger("DEATH_AFTER_RELEASE_SPIRIT"),
               "M4s: a ghost with no gossip, a button that never takes, a failed click or a gossip back after Accept stops it where it stands")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
-              && same(safePlace(from: (44, 40)), 43.4, 44.8),
-              "the nearest village within one walk; none when already there or too far")
+              && same(safePlace(from: (44, 40)), 43.4, 44.8) && same(safePlace(from: (36.7, 33.5)), 43.2, 24.0),
+              "the nearest village within reach; none when already there or too far; live run 86's end, 13.6 away, walks home")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])

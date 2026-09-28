@@ -50,6 +50,7 @@ enum QuestHUD {
     // Boro's name stood at x 2130-2270, outside the first box, 512-2048, and the visit ended NPC_NOT_OPENED).
     static let townView = CGRect(x: 100, y: 200, width: 2160, height: 640)
     static let portrait = (x: 764.0, y: 995.0)  // the character's own portrait: its unit tooltip names its level
+    static let targetPortrait = (x: 1796.0, y: 995.0)  // the target frame's portrait, the mirror of the character's (M4ai)
     static let junkButton = (dx: 12.0, dy: 411.0)  // Sell All Junk Items, the coin bag under the merchant's grid
     static let junkTip = (dx: 20.0, dy: 355.0, width: 240.0, height: 40.0)  // its tooltip, just above it
     static let merchantMoney = (dx: 140.0, dy: 430.0, width: 120.0, height: 40.0)
@@ -255,7 +256,10 @@ final class QuestRun {
             if let name { items.append((name, at, reward)); empty = 0 } else { empty += 1 }
         }
         hover(1280, 60)
-        if close && bags.opened { await tap(QuestHUD.bags) }
+        // Closed whoever opened it (live runs 87-98: a backpack left open from before was never closed, and unit tooltips
+        // drew beside it, out of the tooltip box: target levels and pick-up tooltips read nothing).
+        let stillShown = lines(QuestHUD.bagTitle, await frame()).contains { nameKey($0.text).contains("backpack") }
+        if close && (bags.opened || stillShown) { await tap(QuestHUD.bags) }
         return items
     }
 
@@ -1086,6 +1090,51 @@ final class LiveQuestHost: QuestHost {
         return "BACK_" + (await fight(inCombat: true))
     }
 
+    /// M4ah: what stands ahead when a red name stopped the walk. Tab selects the nearest enemy in front, as a player looks
+    /// before choosing; usually the stop, not always (Tab takes the nearest). It follows the hunt's own sequence
+    /// (selectNearest): Esc only while the target frame names something (Esc with none is the Game Menu), a Game Menu that
+    /// opened anyway is closed, then Tab, each key given time to show. The selection is dropped the same way after: Tab does
+    /// not move off a selected creature, and FIGHT_AHEAD's fight selects its own. Selecting starts no fight. Out of combat
+    /// only, and never while the owner has the game.
+    func stoppedBy() async -> Ahead? {
+        guard !ownerTookFocus(), walker?.holding != true, combatNow() == false else { return nil }
+        func latest() -> CGImage? {
+            guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+                  frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+            return frame.image
+        }
+        func named() -> String? {
+            let name = latest().map { upscaledText($0, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces) } ?? ""
+            return name.isEmpty ? nil : name
+        }
+        func menu() -> Bool { latest().map { upscaledText($0, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu") } ?? false }
+        func press(_ code: UInt16) async {
+            guard !ownerTookFocus() else { return }
+            await quester.tap(code)
+            await quester.sleep(HuntLimits.settle)
+        }
+        func clear() async {
+            guard combatNow() == false else { return }  // attacked meanwhile: the target stays for the fight back
+            if named() != nil { await press(QuestHUD.escape) }
+            if menu() { await press(QuestHUD.escape) }
+        }
+        await clear()
+        await press(FightLimits.tab)
+        guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
+        // M4ak: the other hostiles in view beside it (aheadCompany); none read counts as some, so a lone creature is never assumed.
+        let others = latest().map { aheadCompany(rgba($0)) } ?? 1
+        // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
+        // The pointer moves only while the game is the engine's and out of combat (review of #104).
+        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name, others: others) }
+        quester.hover(QuestHUD.targetPortrait.x, QuestHUD.targetPortrait.y)
+        let hovered = hostNow()
+        await quester.sleep(0.4)
+        let tip = quester.lines(QuestHUD.unitTip, await quester.frame(after: hovered + 0.3)).map(\.text)
+        if !ownerTookFocus() { quester.hover(1280, 60) }
+        await clear()
+        return Ahead(name: name, level: unitLevel(tip, named: name), others: others)
+    }
+
     /// The HUD on a frame no older than the fight's age limit; nil without one.
     private func vitalsNow() -> Obs? {
         guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
@@ -1346,8 +1395,9 @@ final class LiveQuestHost: QuestHost {
         try? JSONSerialization.data(withJSONObject: stuck.map { [$0.x, $0.y] }).write(to: QuestHUD.stuckMemory)
     }
 
-    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks' moves are a
-    /// fixed preference (straight, then detours), with no model call, so a run that ended on a failed Jev call walks too.
+    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks are steered
+    /// (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that ended on a failed Jev
+    /// call walks too.
     /// It ends inside the run envelope's 30 minutes (the run stops new steps at 20). No fresh HUD counts as combat.
     func leaveDanger(after outcome: String) async {
         guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),

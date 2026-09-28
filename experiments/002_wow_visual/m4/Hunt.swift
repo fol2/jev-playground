@@ -9,6 +9,9 @@ enum HuntLimits {
     static let maxSeconds = 900.0
     static let stepLength = 1.5  // M4ad: y units a walking move steers on for, at most stepSeconds
     static let stepSeconds = 10.0
+    static let pickUpSeconds = 15.0  // a right-click's walk, the gathering cast and the count (live run 86: 8.5 s of walk alone)
+    static let placeRadius = 3.0  // y units: within this of a remembered pick-up place is inside its area (M4aj; run 86's and 89's were 3.3 apart)
+    static let placesKept = 32  // remembered pick-up places per objective, the newest
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
     static let searchLimit = 12  // hunt decisions in a row without a fight
@@ -131,6 +134,12 @@ func confirmedObject(_ reads: [[String]], in objectives: [Objective]) -> Objecti
     let named = reads.suffix(2).map { objectTipObjective($0, in: objectives) }
     guard let first = named.first ?? nil, named.last ?? nil == first else { return nil }
     return first
+}
+
+/// The count a pick-up raised, found by the objective's own text. The quest's title can go unread while the tracker changes:
+/// live run 86 read "5/15 Windstone Cluster" under the quest above it, and a pick-up that worked was recorded as failed.
+func pickedUp(_ counted: Objective, in tracker: [Objective]) -> Objective? {
+    tracker.first { nameKey($0.text) == nameKey(counted.text) && $0.done > counted.done }
 }
 
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
@@ -422,13 +431,20 @@ func merged(_ older: [Seen], _ newer: [Seen]) -> [Seen] {
 /// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind). For a kill objective each word of four letters or more in
 /// its creature name must share one too: "Pesky Cirrusfly" shares "Cirrusfly" with "Cirrusfly Queen slain" but not "Queen"
 /// (live run 48, 27 Sept: the Queen's hunt read every Pesky Cirrusfly as counting and walked toward them). A collect
-/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60).
+/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60);
+/// a whole word of the plate must be one of its words instead (M4ae: shared letters made Roiling Winds count for Windstones).
 func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
     let plate = nameKey(creature.name)
     return objectives.first { o in
         guard o.unfinished, fuzzyNameMatch(o.text, [creature.name]) else { return false }
         var words = o.text.split(separator: " ").map { Array(nameKey(String($0))) }
-        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else { return true }
+        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else {
+            // Something to collect counts a creature that drops it: a whole word of its name is a word of the objective
+            // ("Scrawny Ursera" for "Scrawny Ursera Claw"), or two of its words read apart ("Urs'anah" for "Head of Urs anah").
+            // Shared letters are not a drop: live run 85 fought four Roiling Winds for "Windstone Cluster".
+            let named = Set(words.map { String($0) } + zip(words, words.dropFirst()).map { String($0 + $1) })
+            return creature.name.split(separator: " ").contains { let w = nameKey(String($0)); return w.count >= 4 && named.contains(w) }
+        }
         words.removeLast()
         return words.filter { $0.count >= 4 }.allSatisfy { w in (0...(w.count - 4)).contains { plate.contains(String(w[$0..<$0 + 4])) } }
     }
@@ -446,6 +462,7 @@ struct HuntObs: Equatable {
     var gameMenu = false
     var facing: Double? = nil  // the minimap arrow
     var area: QuestArea? = nil
+    var areaRemembered = false  // the area is a remembered pick-up place, not the minimap's ring (M4aj)
     var here: NavObs? = nil  // coordinates and facing, as a walk reads them
     var seen: [Seen] = []  // this view's plates, plus a fresh LOOK_AROUND's
     var objects: [SeenObject] = []  // objects on the ground in view (M5); none without the detector's model
@@ -484,7 +501,8 @@ enum HuntAction: String, JevAction {
 
     var facts: String {
         let walk = "then selects the nearest enemy in front. Stops early if blocked or attacked."
-        if let heading = compassHeading { return "Walks about 3 s on compass heading \(Int(heading))° (0 north, 90 east), \(walk)" }
+        let steps = "Walks up to \(HuntLimits.stepLength) y units (\(Int(HuntLimits.stepSeconds)) s at most), steering round what it meets,"
+        if let heading = compassHeading { return "\(steps) on compass heading \(Int(heading))° (0 north, 90 east), \(walk)" }
         switch self {
         case .fight:
             return "Fights the selected creature to the end: pull, spells, melee, healing and looting, each chosen in its own decisions. Costs mana and usually health."
@@ -493,20 +511,20 @@ enum HuntAction: String, JevAction {
         case .lookAround:
             return "Turns a full circle in four 90° steps without moving, listing the creatures whose nameplates come into view with their compass bearings, then selects the nearest enemy in front."
         case .toCreature:
-            return "Walks about 3 s towards the nearest creature in view that counts for an unfinished objective, \(walk)"
+            return "\(steps) towards the nearest creature in view that counts for an unfinished objective, \(walk)"
         case .toArea:
-            return "Walks about 3 s towards the selected quest's area on the minimap, \(walk)"
+            return "\(steps) towards the selected quest's area on the minimap, \(walk)"
         case .detourLeft45, .detourRight45, .detourLeft90, .detourRight90:
             let side = rawValue.contains("LEFT") ? "left" : "right", by = rawValue.hasSuffix("45") ? 45 : 90
-            return "Walks about 3 s on a heading \(by)° \(side) of the selected quest's area, \(walk)"
+            return "\(steps) on a heading \(by)° \(side) of the selected quest's area, \(walk)"
         case .backTrack:
-            return "Walks about 3 s directly away from the selected quest's area, \(walk)"
+            return "\(steps) directly away from the selected quest's area, \(walk)"
         case .rest:
             return "Stands still for 20 s to regain health and mana, about 40% of each. A fight can start only at 90% health or more. Ends early if something attacks."
         case .eatDrink:
             return "Sits to drink water and eat bread for 20 s: restores health and mana to full, far faster than standing. Only out of combat; ends early if something attacks, and standing up stops it."
         case .pickUp:
-            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, a few seconds. Stops early if attacked."
+            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, \(Int(HuntLimits.pickUpSeconds)) s at most. Stops early if attacked."
         default:
             return ""
         }
@@ -634,7 +652,8 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         target["counts_for_objective"] = objective(for: name, in: o.objectives)?.text ?? "none"
         if let inRange = o.targetInRange { target["in_lightning_bolt_range"] = inRange }
     }
-    var area: [String: Any] = ["on_minimap": o.area != nil]
+    var area: [String: Any] = ["on_minimap": o.area != nil && !o.areaRemembered]
+    if o.areaRemembered { area["remembered_from_pick_ups"] = true }
     if let a = o.area {
         area["character_inside"] = a.inside
         area["distance"] = roundTo(a.distance)
@@ -672,6 +691,8 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
 /// its host is a NavBody: `look` reads position and facing for the walk skill.
 protocol HuntHost: NavBody {
     func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)]  // M4ad: the steering walks' bump memory (none in a sim)
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint]  // M4aj: where the unfinished collect objectives' objects were picked up
+    func remember(place: MapPoint, for objective: String)
     func remember(bumps: [(at: MapPoint, heading: Double, side: Double)])
     func survey() -> HuntObs?  // everything, OCR included; nil when the tracker is unreadable
     func vitals() -> HuntObs?  // pixels only (no OCR), for polling; nil without a fresh frame
@@ -685,13 +706,20 @@ protocol HuntHost: NavBody {
 extension HuntHost {
     var facingState: FacingState? { nil }
     func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)] { [] }
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint] { [] }
+    func remember(place: MapPoint, for objective: String) {}
     func remember(bumps: [(at: MapPoint, heading: Double, side: Double)]) {}
 }
 
 extension HuntHost {
     func readSurvey() -> Observation<HuntObs> {
-        guard let o = survey(), let stamp = o.stamp,
+        guard var o = survey(), let stamp = o.stamp,
               stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("hunt_unreadable") }
+        // M4aj: with no area on the minimap, where this quest's objects were picked up before is the area to walk to.
+        if o.area == nil, let here = o.here, let remembered = rememberedArea(from: here.point, places: knownPlaces(o.objectives)) {
+            o.area = remembered
+            o.areaRemembered = true
+        }
         return .observed(o, stamp)
     }
 }
@@ -701,6 +729,24 @@ func tap(_ host: HuntHost, _ code: UInt16) async {
     await host.sleep(HuntLimits.tap)
     host.keys.lift(code)
     await host.sleep(HuntLimits.settle)
+}
+
+/// M4ak: the hostiles in view besides the Tab target: untargeted hostile plates (the target's own is white-outlined and left
+/// to findTargetPlate) plus every red name. A near target's name is on its plate, not red; a far target's red name counts
+/// as company, as does a red that is no creature, so the rule never takes a creature for alone that may not be (reviews
+/// of #107: the larger of the two less one missed a companion, and taking the target's red name off when findTargetPlate
+/// missed a near plate would too). The cost: a far creature is Jev's, not the rule's.
+func aheadCompany(_ px: RGBA) -> Int {
+    nameplates(px).filter(\.hostile).count + redNames(px).count
+}
+
+/// M4aj: an area from remembered pick-up places, for a collect objective whose area the minimap does not show (live runs
+/// 85-89: the Windstones' clusters were found round Thendal Grove, but with no ring on the minimap each hunt searched by
+/// compass). The nearest place is its centre.
+func rememberedArea(from here: MapPoint, places: [MapPoint]) -> QuestArea? {
+    guard let p = places.min(by: { distance(here, $0) < distance(here, $1) }) else { return nil }
+    let d = distance(here, p)
+    return QuestArea(bearing: bearing(from: here, to: p), distance: d, inside: d < HuntLimits.placeRadius)
 }
 
 /// Tab does not move off a selected creature, and Esc with nothing selected opens the Game Menu. So Esc
@@ -1014,7 +1060,13 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             if let here = host.look() { panorama = (here, look.seen) }
         case .pickUp:
             result = await host.pickUp(objectives: o.objectives)
-            if result.hasPrefix("picked up") { sinceFight = 0 }  // progress, as a fight is
+            if result.hasPrefix("picked up") {
+                sinceFight = 0  // progress, as a fight is
+                // M4aj: remembered where it was, so a later hunt with no area on the minimap walks back here.
+                if let here = host.look(), let picked = o.objectives.filter(collects).first(where: { result.contains($0.text) }) {
+                    host.remember(place: here.point, for: picked.text)
+                }
+            }
         case .rest:
             result = await rest(host, seconds: HuntLimits.restSeconds)
         case .eatDrink:
@@ -1067,6 +1119,10 @@ final class SimHunt: HuntHost {
     var gameMenu = false
     var fightOutcome = "KILLED_AND_LOOTED"
     var fightsRun = 0
+    var places: [MapPoint] = []  // M4aj: remembered pick-up places, offered while a collect objective is open
+    var remembered: [(at: MapPoint, objective: String)] = []
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint] { objectives.contains(where: collects) ? places : [] }
+    func remember(place: MapPoint, for objective: String) { remembered.append((place, objective)) }
     var foughtInCombat: [Bool] = []  // each fight's inCombat, as the hunt passed it
     var surveyBlind = false
     var positionBlind = false  // surveys read, but not the place (the arrow unread)

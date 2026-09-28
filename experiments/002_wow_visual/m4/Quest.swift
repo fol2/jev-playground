@@ -765,13 +765,52 @@ protocol QuestHost: AnyObject {
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
+    func stoppedBy() async -> Ahead?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
 }
 
+extension QuestHost {
+    func stoppedBy() async -> Ahead? { nil }
+}
+
+/// What stands ahead after a red name stopped a walk: its name, and its level from its unit tooltip (M4ai), nil when unread.
+struct Ahead: Equatable {
+    var name: String
+    var level: Int? = nil
+    var others = 0  // other hostile red names or plates in view with it (M4ak)
+}
+
+/// M4ak (RULE): a lone creature no higher than the character that stopped a walk is fought, not asked about. Jev chose
+/// RETREAT at every such stop (live runs 89-94, 0.77-0.98), from a level 1 Juvenile Vuldren at level 4 too, and the
+/// quests that way stood still. Any other stop is Jev's, as before; the fight's own start health (90%) still holds.
+/// `JEV_BLOCKER_FIGHT=off` turns it off.
+func fightsBlocker(_ ahead: Ahead?, characterLevel: Int?) -> Bool {
+    guard QuestLimits.fightsWeakBlockers, let a = ahead, let level = a.level, let character = characterLevel else { return false }
+    return level <= character && a.others == 0
+}
+
+/// A creature's level from its unit tooltip ("Scrawny Ursera", "Level 3", "Beast"): the number after "Level"; nil for "??".
+/// Only a tooltip whose first line names `name` counts, as a leftover or another unit's would give another level (review of
+/// #104); an item's "Requires Level" and a player's line are not a creature's.
+func unitLevel(_ lines: [String], named name: String) -> Int? {
+    guard let first = lines.first, fuzzyNameMatch(first, [name]) || fuzzyNameMatch(name, [first]) else { return nil }
+    for line in lines.dropFirst() where !line.lowercased().contains("requires") && !line.lowercased().contains("player") {
+        let words = line.split(separator: " ")
+        if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
+    }
+    return nil
+}
+
+/// The objectives a quest log's lines name ("0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah"), each under its quest.
+func logObjectives(_ quests: [PlannedQuest]) -> [Objective] {
+    quests.flatMap { q in parseTracker([q.title] + q.objective.components(separatedBy: " - ")) }
+}
+
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
+    static let fightsWeakBlockers = ProcessInfo.processInfo.environment["JEV_BLOCKER_FIGHT"] != "off"  // M4ak
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let huntSlots = 2  // HUNT_1 and HUNT_2
     static let useSlots = 1  // USE_1 (M4m)
@@ -783,7 +822,9 @@ enum QuestLimits {
     static let safePlaces: [(name: String, at: MapPoint)] = [("Thendal Village", (43.2, 24.0)), ("Shen'dar Village", (43.4, 44.8)),
                                                             ("Valanaar", (58.2, 78.4))]
     static let safeArrive = 1.0
-    static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
+    // The farthest a run's end walks to a village. It was 12, "a run of its own" beyond: live run 86 ended 13.6 from Thendal
+    // Village, walked nowhere, and the character died standing there before the next run. Roads carry a long walk (M4ac).
+    static let safeReach = 25.0
     static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
     static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
     static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
@@ -1053,6 +1094,8 @@ func revive(_ first: DeathClick?, clicks: Int, click: (DeathClick) async -> Bool
 /// and its outcome, a walk's other end with "WALK_" and its. Everything ends by `end`: a fight starts only with its
 /// whole `FightLimits.maxSeconds` left, and a walk gets what is left, at most `NavLimits.maxSeconds` (reviews of #72).
 /// Live run 65 (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and died.
+/// A walk that ran out of its time is walked on from where it stopped, as one that met combat is (M4ag: a village up to 25
+/// units away can take more than one walk's time).
 func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCombat: () async -> Bool,
                        fightBack: () async -> String, walk: (Double) async -> String) async -> String {
     var walked = 0
@@ -1069,12 +1112,12 @@ func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCom
         walked += 1
         let outcome = await walk(min(NavLimits.maxSeconds, left))
         if outcome == "ARRIVED" { return "SAFE" }
-        if outcome != "COMBAT" { return "WALK_" + outcome }
+        if outcome != "COMBAT" && outcome != "TIME_LIMIT" { return "WALK_" + outcome }
     }
     return "SAFE_ROUNDS"
 }
 
-/// The nearest safe place within one walk of `at`, unless the character is already at one.
+/// The nearest safe place within `QuestLimits.safeReach` of `at`, unless the character is already at one.
 func safePlace(from at: MapPoint) -> MapPoint? {
     if QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) { return nil }
     return QuestLimits.safePlaces.map(\.at).filter { distance(at, $0) <= QuestLimits.safeReach }.min { distance(at, $0) < distance(at, $1) }
@@ -1197,10 +1240,13 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
 /// taken are READ resources, loaded only when Jev asks for them.
-func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) -> [String: Any] {
+/// `stoppedBy`: what the last walk stopped for (M4ah), with the objective it counts for: Jev chose RETREAT nearly every time
+/// without it (live run 89: four walks stopped, four retreats, two of them from Foul Matriarch's own quarry). Its level and
+/// the character's (M4ai: run 91 retreated from a level 3 Scrawny Ursera at level 4, a fight a player would take).
+func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], stoppedBy: Ahead? = nil) -> [String: Any] {
     let plan = questPlan(read.quests, from: read.player)
     let zone = Set(thisZone(plan, from: read.player).map(\.title))
-    return ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
+    var state: [String: Any] = ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
             "player": [read.player.x, read.player.y],
             "units": "zone-map coordinates; distances in y units, about 5 s of running each",
             "quest_log": plan.map { q -> [String: Any] in
@@ -1209,6 +1255,12 @@ func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) ->
                  "distance": q.pin.map { roundTo(distance(read.player, $0), 10) } as Any? ?? NSNull()] },
             "givers": read.givers.map { ["tooltip": $0.names, "distance": roundTo(distance(read.player, $0.pin), 10)] },
             "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
+    if let stoppedBy {
+        state["stopped_by"] = ["name": stoppedBy.name, "level": orNull(stoppedBy.level), "character_level": orNull(read.level),
+                               "other_hostiles_in_view": stoppedBy.others,
+                               "counts_for_objective": objective(for: stoppedBy.name, in: logObjectives(read.quests))?.text ?? "none"] as [String: Any]
+    }
+    return state
 }
 
 struct QuestResult {
@@ -1235,6 +1287,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
     var stuck = 0
     var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
+    var ahead: Ahead?  // what it stopped for, by Tab's target (M4ah, M4ai)
     let deadline = host.now() + seconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -1256,19 +1309,28 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
-        let decision: GraphDecision
-        do {
-            decision = try await graph.next(state: questState(read, steps: r.steps),
-                skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
-                now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
-        } catch {
+        // M4ak: a lone creature no higher than the character that stopped the walk is fought by rule, with no Jev call.
+        let ruled = danger != nil && fightsBlocker(ahead, characterLevel: read.level) ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
+        let offer: (skill: String, step: QuestStep, criterion: String)
+        if let ruled {
+            offer = ruled
+        } else {
+            let decision: GraphDecision
+            do {
+                decision = try await graph.next(state: questState(read, steps: r.steps, stoppedBy: danger == nil ? nil : ahead),
+                    skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
+                    now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
+            } catch {
+                for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+                return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+            }
             for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
-            return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+            guard let chosen = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
+            offer = chosen
         }
-        for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
-        guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
         if host.now() >= deadline { return finish("TIME_LIMIT") }  // a decision takes up to 20 s: none starts after the deadline
-        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "step": offer.step.name])
+        host.emit("quest_step", ["controller": ruled == nil ? "JEV" : "RULE", "skill": offer.skill, "step": offer.step.name]
+            .merging(ruled == nil ? [:] : ["rule": "a lone creature no higher than the character stopped the walk: fight it"]) { a, _ in a })
         let outcome: String
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
@@ -1289,11 +1351,14 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
+            ahead = await host.stoppedBy()
+            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0, "step": offer.step.name])
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
         } else {
             danger = nil
+            ahead = nil
         }
         // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
