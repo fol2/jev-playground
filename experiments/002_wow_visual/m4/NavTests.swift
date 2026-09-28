@@ -600,8 +600,14 @@ struct NavTests {
         var past = d
         past.passUntil = pastWalker.now() + QuestLimits.passSeconds
         let went = await runSteer(body: pastWalker, path: [], destination: past)
-        check(halted.outcome == "DANGER_AHEAD" && went.outcome != "DANGER_AHEAD" && (pastWalker.look()?.y ?? 30) < 29,
-              "M4am: a red name ahead stops a steering walk, but not while it walks past an unaggressive creature (\(went.outcome))")
+        let attacked = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        attacked.hostiles = [(40, 27)]
+        attacked.combat = true
+        var attackedPast = d
+        attackedPast.passUntil = attacked.now() + QuestLimits.passSeconds
+        let hit = await runSteer(body: attacked, path: [], destination: attackedPast)
+        check(halted.outcome == "DANGER_AHEAD" && went.outcome != "DANGER_AHEAD" && (pastWalker.look()?.y ?? 30) < 29 && hit.outcome == "COMBAT",
+              "M4am: a red name ahead stops a steering walk, but not while it walks past an unaggressive creature; combat still stops it (\(went.outcome), \(hit.outcome))")
         // `turned`: the net rotation one way (a spin is a whole turn in one direction), from the facing's signed changes.
         func walked(_ sim: SimNav, path: [MapPoint] = [], known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> (result: NavResult, blocks: Int, turned: Double) {
             var blocks = 0, turned = 0.0, last: Double? = nil
