@@ -33,7 +33,7 @@ struct EngineChecks {
         planner()
         await judge()
         report()
-        let floor = 60  // the motor proof's minimum (tools/MotorProof.swift): removing a check must lower it on purpose
+        let floor = 111  // the count, as the motor proof's floor (tools/MotorProof.swift): removing a check must lower both on purpose
         if failures > 0 { print("engine checks failed: \(failures) of \(checks)") }
         print("engine checks passed: \(checks - failures)")
         if failures > 0 || checks < floor { exit(1) }
@@ -147,9 +147,54 @@ struct EngineChecks {
         check(ReflexTable.first(healthy(at: 10, combat: true), ctx)?.action == .fightBack, "in combat: the fight owns the keys")
         var walk = healthy(at: 10)
         walk.entities.observe([sighting("Roiling Winds", 95, at: 10)], at: 10)
-        check(ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90))?.action == .stopWalk("1 hostile ahead within 30 degrees"),
+        check(ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90))?.action == .stopWalk(.hostileAhead, "1 hostile ahead within 30 degrees"),
               "a hostile ahead stops the walk")
+        let walking = ReflexContext(now: 10, ownerTookFocus: false, walking: true)
+        check(ReflexTable.first(healthy(at: 10, health: 0.2), walking)?.action == .stopWalk(.lowHealth, "below the floor out of combat: the walk stops")
+              && ReflexTable.first(healthy(at: 10, health: 0.2), walking)?.reflex.controller == .safety
+              && ReflexTable.first(healthy(at: 10, health: 0.2), ReflexContext(now: 10, ownerTookFocus: false, walkingToSafety: true, walking: true))?.action == .recover
+              && ReflexTable.first(healthy(at: 10, health: 0.5), walking)?.action == .recover
+              && ReflexTable.first(healthy(at: 10, combat: true, health: 0.2), walking)?.action == .heal
+              && ReflexTable.ownerTakeover(true, now: 10)?.reflex.name == "owner_takeover" && ReflexTable.ownerTakeover(false, now: 10) == nil,
+              "a walk below 30 % out of combat stops (SAFETY); the way to safety walks on; 30-60 % is a recovery the walk ignores; combat is the fight's; the owner's takeover reads before any frame")
         check(ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 200)) == nil, "a hostile behind does not")
+        check(ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90, walkingToSafety: true)) == nil
+              && ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90, passing: true)) == nil,
+              "the way to safety and an armed walk past do not stop for a hostile ahead")
+        // After a stop (#88): M4am then M4ak, in the table, in that order.
+        func stopped(_ a: AheadBelief?, level: Int? = 4, past: Bool = false, combat: Bool = false, health: Double = 1) -> (reflex: Reflex, action: ReflexAction)? {
+            var w = healthy(at: 10, combat: combat, health: health)
+            if let a { w.ahead = .known(Reading(value: a, confidence: 1, capturedAt: 10, source: "ocr:tab")) }
+            if let level { w.update(\.character.level, .known(Reading(value: level, confidence: 1, capturedAt: 10, source: "ocr:log"))) }
+            return ReflexTable.first(w, ReflexContext(now: 10, ownerTookFocus: false, stoppedWalk: true, walkedPast: past))
+        }
+        let meek = AheadBelief(nameKey: "juvenilevuldren", level: 1, company: 1, threats: 0, unaggressive: true)
+        check(stopped(meek)?.action == .walkPast("an unaggressive creature stopped the walk: walk past it") && stopped(meek)?.reflex.name == "walk_past"
+              && stopped(meek)?.reflex.controller == .rule && stopped(meek, past: true) == nil
+              && stopped(AheadBelief(nameKey: "juvenilevuldren", level: 1, company: 1, threats: 1, unaggressive: true)) == nil
+              && stopped(AheadBelief(nameKey: "juvenilevuldren", level: 1, company: 1, unaggressive: true)) == nil,
+              "M4am: an unaggressive creature with no threat in view is walked past once, by RULE; a threat, unread company or a second stop is Jev's")
+        let weak = AheadBelief(nameKey: "scrawnyursera", level: 3)
+        check(stopped(weak)?.action == .fightAhead("a lone creature no higher than the character stopped the walk: fight it")
+              && stopped(weak)?.reflex.name == "blocker_fight" && stopped(weak)?.reflex.controller == .rule
+              && stopped(AheadBelief(nameKey: "scrawnyursera", level: 4)) != nil && stopped(AheadBelief(nameKey: "alakethbrute", level: 5)) == nil
+              && stopped(AheadBelief(nameKey: "scrawnyursera", level: 3, company: 1)) == nil && stopped(AheadBelief(nameKey: "scrawnyursera")) == nil
+              && stopped(weak, level: nil) == nil && stopped(nil) == nil,
+              "M4ak: a lone creature no higher than the character is fought by RULE; company, a higher or unread level, or no reading, is Jev's")
+        check(stopped(weak, combat: true)?.action == .fightBack && stopped(meek, combat: true)?.action == .fightBack,
+              "combat outranks the stop rules: attacked at a stop, the fight back comes first")
+        // Review of #117: the floors outrank a hostile ahead (one walk() call carries the heading), and a recovery outranks the
+        // stop rules: hurt at a stop, the session recovers first and the stop stands for the next tick.
+        var hurtWalk = healthy(at: 10, health: 0.2)
+        hurtWalk.entities.observe([sighting("Roiling Winds", 95, at: 10)], at: 10)
+        let order = ReflexTable.standard.map(\.name)
+        func before(_ a: String, _ b: String) -> Bool { order.firstIndex(of: a)! < order.firstIndex(of: b)! }
+        check(ReflexTable.first(hurtWalk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90, walking: true))?.reflex.name == "walk_low_health"
+              && stopped(weak, health: 0.45)?.action == .recover && stopped(meek, health: 0.45)?.action == .recover
+              && stopped(weak, health: 0.2)?.action == .recover && stopped(weak, health: 0.6)?.action != .recover
+              && before("combat", "walk_low_health") && before("walk_low_health", "hostile_ahead") && before("fight_stop_hurt", "hostile_ahead")
+              && before("hostile_ahead", "hurt_out_of_combat") && before("hurt_out_of_combat", "walk_past") && before("walk_past", "blocker_fight"),
+              "review of #117: the floors before a hostile ahead; a recovery before the stop rules; the fight before them all")
         check(ReflexTable.first(healthy(at: 10, health: 0.5), ctx)?.action == .recover, "hurt out of combat: recover before walking")
         var unbuffed = healthy(at: 10)
         unbuffed.update(\.character.weaponBuffActive, .known(Reading(value: false, confidence: 1, capturedAt: 10, source: "pixels:hud")))
@@ -157,6 +202,22 @@ struct EngineChecks {
         check(ReflexTable.first(unbuffed, ctx) == nil, "no fight coming: no buff reflex")
         let combatFirst = ReflexTable.first(healthy(at: 10, combat: true, health: 0.5), ReflexContext(now: 10, ownerTookFocus: false, aboutToFight: true))
         check(combatFirst?.action == .fightBack && combatFirst?.reflex.controller == .safety, "combat outranks recovery and buffing")
+        func fightBack(health: Double, mana: Double = 1, casting: Bool = false) -> ReflexAction? {
+            var w = healthy(at: 10, combat: true, health: health, mana: mana)
+            w.update(\.character.weaponBuffActive, .known(Reading(value: false, confidence: 1, capturedAt: 10, source: "pixels:hud")))
+            w.update(\.character.casting, .known(Reading(value: casting, confidence: 1, capturedAt: 10, source: "pixels:hud")))
+            return ReflexTable.first(w, ReflexContext(now: 10, ownerTookFocus: false, aboutToFight: true))?.action
+        }
+        check(fightBack(health: 0.8) == .buffWeapon && fightBack(health: 0.5) == .fightBack && fightBack(health: 0.2) == .heal
+              && fightBack(health: 0.2, mana: 0.05) == .fightBack && fightBack(health: 0.8, casting: true) == .fightBack,
+              "review of #79: a fight back with the enchant down casts it first only at 60 % health or more, never in a cast, never below the heal floor")
+        let inFight = ReflexContext(now: 10, ownerTookFocus: false, inFight: true)
+        check(ReflexTable.first(healthy(at: 10, health: 0.2), inFight)?.action == .stopFight("below the floor out of combat: the fight ends")
+              && ReflexTable.first(healthy(at: 10, health: 0.2), inFight)?.reflex.controller == .safety
+              && ReflexTable.first(healthy(at: 10, health: 0.2), ctx)?.action == .recover
+              && ReflexTable.first(healthy(at: 10, health: 0.5), inFight)?.action == .recover
+              && ReflexTable.first(healthy(at: 10, combat: true, health: 0.2), inFight)?.action == .heal,
+              "M3's stop: in a fight, below 30 % out of combat ends the fight (SAFETY); outside a fight it is a recovery; in combat it is a heal")
         check(failureKind(forCode: "WALK_HUD_UNREADABLE") == .perception && failureKind(forCode: "NEXT_ZONE_NEEDS_ROADS") == .knowledge
               && failureKind(forCode: "WALK_DANGER_AHEAD") == .safety && failureKind(forCode: "WALK_NO_PROGRESS") == .budget
               && failureKind(forCode: "DIALOGUE_NOT_OPEN") == .execution && failureKind(forCode: "WALK_COMBAT") == .environment
@@ -174,7 +235,7 @@ struct EngineChecks {
         check(loop.mode == .questing && loop.next(world: healthy(at: 11), context: ReflexContext(now: 11, ownerTookFocus: false)) == .continueTask,
               "a running task is ticked")
         let stale = loop.next(world: healthy(at: 5), context: ReflexContext(now: 12, ownerTookFocus: false))
-        check(stale == .reflex(.holdAndReobserve("no frame newer than 1.0 s"), .safety) && loop.mode == .questing,
+        check(stale == .reflex(.holdAndReobserve("no frame newer than 1.0 s"), .safety, "stale_vision") && loop.mode == .questing,
               "an unread frame holds; it does not end the session or the task")
         loop.end(task: "HAND_IN Agitators", controller: .rule, outcome: .failed(TaskFailure(kind: .execution, code: "DIALOGUE_NOT_OPEN", detail: "")), at: 20)
         check(loop.mode == .idleSafe && loop.usage.consecutiveFailures == 1 && loop.failures.count == 1
@@ -197,14 +258,14 @@ struct EngineChecks {
         check(fresh.usage.consecutiveFailures == 0, "a planned step's success resets the run of failures")
         var dead = healthy(at: 50)
         dead.update(\.character.dead, .known(Reading(value: true, confidence: 1, capturedAt: 50, source: "ocr:release")))
-        check(fresh.next(world: dead, context: ReflexContext(now: 50, ownerTookFocus: false)) == .reflex(.releaseSpirit, .safety) && fresh.mode == .dead,
+        check(fresh.next(world: dead, context: ReflexContext(now: 50, ownerTookFocus: false)) == .reflex(.releaseSpirit, .safety, "dead") && fresh.mode == .dead,
               "death is a mode, not an end")
         fresh.countDeath()
-        check(fresh.next(world: healthy(at: 60, health: 0.4), context: ReflexContext(now: 60, ownerTookFocus: false)) == .reflex(.recover, .rule)
+        check(fresh.next(world: healthy(at: 60, health: 0.4), context: ReflexContext(now: 60, ownerTookFocus: false)) == .reflex(.recover, .rule, "hurt_out_of_combat")
               && fresh.mode == .recovering, "alive again and hurt: recovering")
         check(fresh.next(world: healthy(at: 70), context: ReflexContext(now: 70, ownerTookFocus: false)) == .plan && fresh.mode == .idleSafe,
               "recovered: idle-safe, then plan")
-        check(fresh.next(world: healthy(at: 80), context: ReflexContext(now: 80, ownerTookFocus: true)) == .reflex(.pause("owner has the game"), .owner)
+        check(fresh.next(world: healthy(at: 80), context: ReflexContext(now: 80, ownerTookFocus: true)) == .reflex(.pause("owner has the game"), .owner, "owner_takeover")
               && fresh.mode == .paused, "the owner pauses the loop")
         check(fresh.next(world: healthy(at: 90), context: ReflexContext(now: 90, ownerTookFocus: false)) == .plan && fresh.mode == .idleSafe,
               "and the loop resumes when the owner lets go")

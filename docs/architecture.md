@@ -41,9 +41,12 @@ pixels -> readers -> world model -> reflexes -> session loop -> planner -> skill
 ### Reflexes
 
 One ordered table, tried every tick before any task: owner takeover, stale vision, death, combat with
-low health, combat, hostile ahead of a walk, hurt out of combat, buff before a fight. Each is `OWNER`,
-`SAFETY` or `RULE`, each has a simulation test, and none is ever offered to Jev. The owner's words:
-"buff and heal are not in the skills chain but they are needed when needed".
+low health, buff before a fight, combat, hostile ahead of a walk, walk past an unaggressive creature, fight
+a weak blocker, low health in a walk, the stop floor in a fight, hurt out of combat. Each is `OWNER`,
+`SAFETY` or `RULE`, each has a simulation test, and none is ever offered to Jev. Every loop (run, session,
+fight, hunt, walk) builds a world from what it observes and asks the same table; the loop keeps its own
+effect and codes (#88). The owner's words: "buff and heal are not in the skills chain but they are needed
+when needed".
 
 ### The session loop
 

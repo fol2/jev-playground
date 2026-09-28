@@ -1332,12 +1332,13 @@ final class LiveQuestHost: QuestHost {
     /// Walk even a short way: walking faces the NPC, so its mark is in view (live, 24 Sept: 1.0 away and
     /// behind the camera, no mark was found). nil when there, else the outcome that ends the step.
     /// A leg of a learned road (`road`) may be longer than one walk: walkStart.
-    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
+    func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5,
+              pass: Bool? = nil) async -> String? {
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests. Checked before any turn to read the place.
         // M4am: the pass is the first walk's after it was armed, within its window: a walk that never starts (there, refused)
-        // or a step with no walk leaves it to no later walk.
-        let passing = !retreating && passArmed.map { hostNow() - $0 < QuestLimits.passSeconds } == true
+        // or a step with no walk leaves it to no later walk. A road-gap leg is told its pass by the walk that spent it (below).
+        let passing = pass ?? (!retreating && passArmed.map { hostNow() - $0 < QuestLimits.passSeconds } == true)
         passArmed = nil
         if walker?.holding == true { return "WALK_KEYS_HELD" }
         if !retreating { await healBeforeWalking() }  // a retreat leaves the danger first; a heal would stand in it
@@ -1387,8 +1388,14 @@ final class LiveQuestHost: QuestHost {
             let length = zip([at] + legs, legs).map { distance($0, $1) }.reduce(0, +)
             emit("road_gap", ["pin": [pin.x, pin.y], "straight": roundTo(distance(at, pin)), "legs": legs.count, "road": roundTo(length),
                               "stuck_ahead": stuckAhead])
+            // M4am by road: this walk spent passArmed above, so its pass goes to the first leg that walks (`walks` counts
+            // walkers made; a leg already there makes none), and no later leg arms a second one (review of #117).
+            var passLeft = passing
             return await roadGapWalk(legs, arrive: arrive, until: min(runDeadline, hostNow() + QuestLimits.roadGapSeconds), now: now) { i, leg, reach in
-                await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true, arrive: reach)
+                let walksBefore = walks
+                let outcome = await walk(to: leg, label: "\(label) by road, leg \(i + 1) of \(legs.count)", road: true, arrive: reach, pass: passLeft)
+                if walks > walksBefore { passLeft = false }
+                return outcome
             }
         }
         walks += 1
@@ -1396,8 +1403,9 @@ final class LiveQuestHost: QuestHost {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let legs = newWalker(folder)
         walker = legs
-        let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive))
+        var destination = NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive)
+        if passing { destination.passUntil = hostNow() + QuestLimits.passSeconds }  // M4am, as the steering branch (review of #117)
+        let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
         guard !legs.holding else { return "WALK_KEYS_HELD" }
         if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome
@@ -1422,7 +1430,7 @@ final class LiveQuestHost: QuestHost {
     func leaveDanger(after outcome: String) async -> String? {
         guard leavesDanger(outcome) else { return nil }
         guard !holding else { return "WALK_KEYS_HELD" }
-        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        if let hit = ReflexTable.ownerTakeover(ownerTookFocus(), now: hostNow()) { emit("reflex", reflexEvent(hit)); return "OWNER_TOOK_FOCUS" }
         guard let at = await quester.position(turn: false) else { return "WALK_HUD_UNREADABLE" }
         guard let safe = safePlace(from: at) else {
             return QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) ? "SAFE" : "NO_SAFE_PLACE"

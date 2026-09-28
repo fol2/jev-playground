@@ -148,13 +148,15 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
         observe()
         let now = host.now()
         let step = loop.next(world: world, context: ReflexContext(now: now, ownerTookFocus: host.ownerTookFocus(),
-                                                                   maximumVisionAge: SessionLimits.visionAge))
+                                                                   maximumVisionAge: SessionLimits.visionAge, stoppedWalk: danger != nil,
+                                                                   walkedPast: danger.map { passed.contains($0.key) } ?? false))
         modeChanged()
+        var ruleFight: String?  // M4ak from the table: this tick's plan takes the fight ahead by rule, when it is offered
         switch step {
         case .stop(let why):
             return await finish(why)
-        case .reflex(let action, let controller):
-            host.emit("reflex", ["controller": controller.rawValue, "action": "\(action)"])
+        case .reflex(let action, let controller, let name):
+            host.emit("reflex", ["controller": controller.rawValue, "reflex": name, "action": "\(action)"])
             switch action {
             case .pause:
                 // The owner has the game: no input, and the session waits. Held this long, the owner has taken over.
@@ -201,10 +203,21 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
                 let outcome = await host.recover()
                 note("recover", .rule, outcome)
                 if outcome != "RECOVERED" { await host.wait(SessionLimits.restSeconds) }  // no heal to cast: stand and regenerate
-            case .stopWalk, .buffWeapon:
-                break  // the skills own their walks and fights; this loop never holds a walking heading
+            case .stopWalk, .buffWeapon, .stopFight:
+                break  // the skills own their walks and fights; this loop never holds a walking heading nor runs a fight's ticks
+            case .walkPast(let rule):
+                // M4am: the stopped step is not failed; it is offered again on the next tick, and its own walk goes past.
+                if let stopped = danger {
+                    passed.insert(stopped.key)
+                    failed.remove(stopped.key)
+                    host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": stopped.name, "rule": rule])
+                    passing = stopped.key
+                }
+                danger = nil; ahead = nil; world.ahead = .never
+            case .fightAhead(let rule):
+                ruleFight = rule  // planned this tick, below, with no Jev call
             }
-            continue
+            if ruleFight == nil { continue }
         case .plan, .continueTask:
             break
         }
@@ -235,6 +248,7 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             continue
         }
         unread = 0
+        if let level = read.level { world.update(\.character.level, .known(Reading(value: level, confidence: 1, capturedAt: now, source: "ocr:log"))) }
         let stopped = danger, stoppedKey = danger?.key
         let offers = (questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used) + townOffers(read, npcs: town, failed: failed))
             .map { (skill: $0.skill, step: $0.step, criterion: withHistory($0.criterion, read.history[$0.step.key])) }
@@ -246,14 +260,14 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             let safety = await host.toSafety()
             note("idle", .safety, safety)
             if endsSession(safety) { return await finish(safety) }  // keys held on the way: no input after (review of #96)
-            failed = []; danger = nil; ahead = nil; passing = nil
+            failed = []; danger = nil; ahead = nil; passing = nil; world.ahead = .never
             await host.wait(idleWait(after: safety))
             continue
         }
 
         // Decide: Jev, through the quest graph, as runQuests does. A failed call is a recorded failure, not an end.
-        // M4ak: a lone creature no higher than the character that stopped the walk is fought by rule, with no Jev call.
-        let ruled = danger != nil && fightsBlocker(ahead, characterLevel: read.level) ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
+        // M4ak, from the table: the fight ahead by rule when it is offered (a held fight is not offered again: then Jev's).
+        let ruled = ruleFight != nil ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
         let offer: (skill: String, step: QuestStep, criterion: String)
         if let ruled {
             offer = ruled
@@ -278,7 +292,7 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
         }
         let controller: ControllerName = ruled == nil ? .jev : .rule
         host.emit("quest_step", ["controller": controller.rawValue, "skill": offer.skill, "step": offer.step.name]
-            .merging(ruled == nil ? [:] : ["rule": "a lone creature no higher than the character stopped the walk: fight it"]) { a, _ in a })
+            .merging(ruled == nil ? [:] : ["rule": ruleFight ?? ""]) { a, _ in a })
         var mode = PlayMode.questing
         if case .town = offer.step { mode = .inTown }
         loop.begin(task: offer.step.name, mode: mode, at: host.now())
@@ -311,16 +325,8 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             ahead = await host.stoppedBy()
             host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0,
                                      "threats": orNull(ahead?.threats), "step": offer.step.name])
-            // M4am, as in runQuests: an unaggressive creature with no threat in view is walked past, not fled or fought, once a step.
-            if let a = ahead, (a.threats ?? a.others) == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
-                passed.insert(offer.step.key)
-                host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
-                                         "rule": "an unaggressive creature stopped the walk: walk past it"])
-                passing = offer.step.key
-                danger = nil
-                ahead = nil
-                continue  // the stopped step is not failed: it is offered again, and its walk goes past
-            }
+            // The table answers the stop on the next tick from this reading: M4am walks past, M4ak fights, else it is Jev's.
+            world.ahead = ahead.map { .known(Reading(value: $0.belief, confidence: 1, capturedAt: now, source: "ocr:tab")) } ?? .never
             failed.remove(QuestStep.fightAhead.key)
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)
@@ -329,6 +335,7 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
         } else {
             danger = nil
             ahead = nil
+            world.ahead = .never
         }
         if offer.skill == "FROM_HERE" && outcome.hasPrefix("HUNTED") { failed.remove(offer.step.key) }
         if case .fightAhead = offer.step {

@@ -51,9 +51,9 @@ enum FightLimits {
     static let maxDecisions = 40
     static let maxSteps = 120  // Jev's decisions plus the steps its chains run without a call
     static let maxSeconds = 150.0
-    static let playerSafety = 0.3
-    static let buffAtHealth = 0.6  // in combat, the start's RULE enchant only at this health or more (review of #79)
-    static let healMana = 0.15  // below playerSafety in combat, HEAL alone is offered while mana lasts
+    static let playerSafety = ReflexLimits.combatHealthFloor  // the reflex table's floors are the one home of these (#88)
+    static let buffAtHealth = ReflexLimits.walkHealth  // in combat, the start's RULE enchant only at this health or more (review of #79)
+    static let healMana = ReflexLimits.healMana  // below playerSafety in combat, HEAL alone is offered while mana lasts
     static let startHealth = 0.9
     // ponytail: 1 s at 30 fps capture; WoW's scene always animates, so an older newest frame is a stall.
     static let maxFrameAge = 1.0
@@ -238,13 +238,14 @@ func offset(_ o: Obs) -> Double? {
 /// `kit` (the chain policy's bar) adds the shock while it is in range and its cooldown has run; the legacy
 /// policy passes none and is offered what it always was.
 func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -> [FightAction] {
-    if o.combat && o.player < FightLimits.playerSafety && o.mana >= FightLimits.healMana {
+    // The heal floor is the reflex table's (#88): in combat below it, with mana, HEAL alone; while that cast runs, WAIT.
+    if case .heal? = ReflexTable.first(fightWorld(o, at: now), ReflexContext(now: now, ownerTookFocus: false, maximumVisionAge: .infinity, inFight: true))?.action {
         return o.casting ? [.wait] : [.heal]
     }
     // STOP only out of combat: in combat, standing still is dying (live run 68, 27 Sept: a fight back on the way to safety,
     // attacked from behind, chose STOP at 53% health; the way to safety ended, and the character died where it stood).
+    // The weapon enchant is the start's reflex (buff_before_fight), never Jev's offer (#88; live run 72 never chose it).
     var out: [FightAction] = o.combat ? [.wait] : [.wait, .stop]
-    if !o.buff && kit?.has(.buff) != false { out.append(.buffWeapon) }  // the legacy policy: always, as before
     let alive = Episode.alive(o)
     if !alive && !e.killed { out.append(.selectTarget) }  // a kill must be looted first
     if alive {
@@ -517,6 +518,21 @@ func latencyPercentile(_ values: [Double], _ fraction: Double) -> Double {
     return sorted[i]
 }
 
+/// The fight's observation as the world the reflex table reads (#88): the HUD's health, mana, combat, casting and enchant,
+/// at the frame's time. What the fight never reads (death, the target, the entities) stays unknown, so those entries stay quiet.
+func fightWorld(_ o: Obs, at now: Double) -> WorldState {
+    var w = WorldState()
+    let at = o.stamp?.capturedAt ?? now
+    func read<T: Equatable>(_ value: T) -> Belief<T> { .known(Reading(value: value, confidence: 1, capturedAt: at, source: "pixels:hud")) }
+    w.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: at))
+    w.update(\.character.health, read(o.player))
+    w.update(\.character.mana, read(o.mana))
+    w.update(\.character.inCombat, read(o.combat))
+    w.update(\.character.casting, read(o.casting))
+    w.update(\.character.weaponBuffActive, read(o.buff))
+    return w
+}
+
 /// A missing frame is neither calm nor low health: on 24 Sept, twice, the capture went quiet after the
 /// background loot click and the empty observation read as 0 % health. Wait for a fresh frame; nil if none.
 func freshObservation(_ host: FightHost) async -> Obs? {
@@ -584,20 +600,28 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
     guard var prev = await freshObservation(host) else { return finish("NO_FRESH_FRAME") }
     if prev.player < startHealth { return finish("HOLD_PLAYER_HEALTH") }
     episode.update(prev)
+    /// The reflex table over an observation of this fight (#88): the owner, the start's enchant, the heal floor (through
+    /// admissible) and the stop floor out of combat are its; the frame's freshness is freshObservation's, so the age is not.
+    func reflex(_ o: Obs, aboutToFight: Bool = false) -> (reflex: Reflex, action: ReflexAction)? {
+        ReflexTable.first(fightWorld(o, at: host.now()), ReflexContext(now: host.now(), ownerTookFocus: host.wowFrontmost(),
+                                                                       maximumVisionAge: .infinity, aboutToFight: aboutToFight, inFight: true))
+    }
     // The owner's tactic (23 Sept): buff before every fight; and 27 Sept: buff and heal "are not in the skills chain but they
-    // are needed when needed". A weapon enchant on the bar that is not active is cast first, as a rule, not Jev's choice
-    // (live run 72: BUFF_WEAPON was offered in every decision and never chosen). Once a fight; after it, it stays Jev's offer.
-    // Not while hurt in combat: there healing comes first, and a cast's global cooldown is not spent on the enchant (review of #79).
-    if tactics?.kit.has(.buff) == true, !prev.buff, !prev.casting, !prev.combat || prev.player >= FightLimits.buffAtHealth,
-       !host.wowFrontmost() {
+    // are needed when needed". A weapon enchant on the bar that is not active is cast first, as the table's rule, not Jev's
+    // choice (live run 72: BUFF_WEAPON was offered in every decision and never chosen). Once a fight. Not while hurt in combat:
+    // there healing comes first, and a cast's global cooldown is not spent on the enchant (review of #79).
+    if tactics?.kit.has(.buff) == true, let hit = reflex(prev, aboutToFight: true), case .buffWeapon = hit.action {
         lastResult = await host.perform(.buffWeapon, observation: prev, episode: &episode)
         lastAction = FightAction.buffWeapon.rawValue
-        host.emit("reflex", ["controller": "RULE", "trigger": "weapon enchant not active at the fight's start", "does": lastAction,
-                             "result": lastResult])
+        host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name,
+                             "trigger": "weapon enchant not active at the fight's start", "does": lastAction, "result": lastResult])
     }
 
     loop: while decisions < FightLimits.maxDecisions && steps < FightLimits.maxSteps && host.now() < FightLimits.maxSeconds {
-        if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
+        if let hit = reflex(prev), case .pause = hit.action {  // the owner's takeover, on the last frame seen
+            host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"])
+            outcome = "OWNER_TOOK_FOCUS"; break
+        }
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         lastStamp = o.stamp
         // Our own kill seen on an earlier frame: the dying creature's own last hit is not an attacker, and neither is a corpse
@@ -619,7 +643,10 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
             ranOn = nil
         }
         tally.engage(o, now: host.now())
-        if o.player < FightLimits.playerSafety && !o.combat { outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break }
+        if let hit = reflex(o), case .stopFight = hit.action {  // M3's floor: out of combat below 30 %, the fight ends
+            host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"])
+            outcome = "SAFETY_STOP_PLAYER_BELOW_30"; break
+        }
 
         let ev = events(previous: prev, current: o, errorText: o.errorRed ? host.errorText() : nil)
         let allowed = admissible(o, episode, kit: tactics?.kit, now: host.now())
@@ -710,7 +737,8 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         if action != .castLightningBolt { host.releaseBolt() }
         if invalid { outcome = "JEV_STOP"; break }
         let current = host.observe(plates: true)
-        if current.fresh, current.player < FightLimits.playerSafety, !current.combat {
+        if current.fresh, let hit = reflex(current), case .stopFight = hit.action {  // the floor again, on the frame the step would act on
+            host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"])
             return finish("SAFETY_STOP_PLAYER_BELOW_30")
         }
         if let rejection = executive.rejection(DecisionProposal(context: context, action: action.rawValue),

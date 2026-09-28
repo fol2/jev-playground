@@ -165,8 +165,8 @@ struct FightTests {
     static func admissibility() {
         let none = admissible(Obs(), Episode())
         check(has(none, .selectTarget) && has(none, .wait) && has(none, .stop) && !has(none, .lootCorpse)
-              && !has(none, .castLightningBolt) && has(none, .buffWeapon),
-              "no target: SELECT_TARGET (and BUFF), never CAST or LOOT")
+              && !has(none, .castLightningBolt) && !has(none, .buffWeapon),
+              "no target: SELECT_TARGET, never CAST, LOOT or BUFF (the enchant is the start's reflex, #88)")
 
         let plate = Plate(x0: 1214, x1: 1346, top: 400, bottom: 413)
         let unlooted = Episode(engaged: true, killed: true)
@@ -184,7 +184,7 @@ struct FightTests {
               "unlooted kill: LOOT_CORPSE and no SELECT_TARGET")
 
         check(!has(admissible(Obs(buff: true), Episode()), .buffWeapon), "buff present: no BUFF_WEAPON")
-        check(has(admissible(Obs(buff: false), Episode()), .buffWeapon), "buff absent: BUFF_WEAPON")
+        check(!has(admissible(Obs(buff: false), Episode()), .buffWeapon), "buff absent: still no BUFF_WEAPON offer; the enchant is the start's reflex (#88)")
 
         let out = admissible(Obs(target: 1, rangeRed: true, plate: plate), Episode())
         check(has(out, .approachToRange) && !has(out, .castLightningBolt),
@@ -665,9 +665,9 @@ struct FightTests {
         check(FightKit(bar: slots, dictionary: dictionary, book: book, className: "warrior", level: 6).chains.isEmpty,
               "another class's book rows are not this one's")
         let bare = FightKit(bar: slots.filter { $0.skill.name != "Rockbiter Weapon" }, dictionary: dictionary, book: book, className: "shaman", level: nil)
-        check(!has(admissible(Obs(buff: false), Episode(), kit: bare), .buffWeapon) && has(admissible(Obs(buff: false), Episode(), kit: kit), .buffWeapon)
+        check(!has(admissible(Obs(buff: false), Episode(), kit: bare), .buffWeapon) && !has(admissible(Obs(buff: false), Episode(), kit: kit), .buffWeapon)
               && bare.chains.allSatisfy { !$0.requires.contains("buff") },
-              "with no enchant on the bar, neither BUFF_WEAPON nor a chain that needs it is offered")
+              "BUFF_WEAPON is never Jev's offer (#88); with no enchant on the bar, no chain that needs it is offered either")
         let row = #"{"id":"x","class":"shaman","levels":[1,20],"requires":["bolt"],"steps":[{"do":"bolt","until":"dead"}],"summary":"s","source":"t","status":"accepted"}"#
         check((try? FightChain.book(row))?.count == 1, "a well-formed chain loads")
         for bad in [row + "\n" + row, row.replacingOccurrences(of: #""until":"dead""#, with: #""until":"soon""#),
@@ -840,6 +840,13 @@ struct FightTests {
         _ = await runFight(host: hurt, jev: ReplyJev(choice: "DO:NOT_OFFERED"), startHealth: 0, tactics: tactics)
         check(!hurt.performed.contains(.buffWeapon),
               "review of #79: attacked at 20% health, the fight back spends no cast on the enchant; healing comes first")
+        let backAt80 = world()
+        backAt80.combat = true; backAt80.player = 0.8; backAt80.targetHP = 0.8; backAt80.selected = true
+        var named: [String] = []
+        backAt80.emitHandler = { event, fields in if event == "reflex", let name = fields["reflex"] as? String { named.append(name) } }
+        _ = await runFight(host: backAt80, jev: ReplyJev(choice: "DO:NOT_OFFERED"), startHealth: 0, tactics: tactics)
+        check(backAt80.performed.first == .buffWeapon && named.first == "buff_before_fight",
+              "review of #79, the other half: a fight back at 80% health casts the enchant first, by the table's buff_before_fight")
         let nonsense = world()
         let invalid = await runFight(host: nonsense, jev: ReplyJev(choice: "DO:NOT_OFFERED"), tactics: tactics)
         check(invalid.outcome == "JEV_STOP" && nonsense.performed == [.buffWeapon] && !invalid.holdingKeys,

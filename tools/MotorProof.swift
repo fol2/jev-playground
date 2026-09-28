@@ -6,8 +6,8 @@ import ImageIO
 
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
-let minFightChecks = 236  // the current count: removing a check must lower this on purpose
-let minNavChecks = 509  // the current count: removing a check must lower this on purpose
+let minFightChecks = 237  // the current count: removing a check must lower this on purpose
+let minNavChecks = 512  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -40,11 +40,13 @@ func released(_ rows: [JSON], _ pulses: Int? = nil) throws {
     }
 }
 
-/// A binary with a Fight in it also needs the fight's tactics and the runtime it runs on.
+/// A binary with a Fight in it also needs the fight's tactics, the runtime it runs on, and the engine's world model and reflex
+/// table (#88: the fight's floors and its start's enchant are the table's).
 func buildCommand(_ output: String, _ sources: [String], flags: [String] = []) -> [String] {
     let sources = sources.contains(fightDir + "Fight.swift")
         ? sources + [fightDir + "Tactics.swift", runtimeDir + "Runtime.swift", runtimeDir + "Input.swift",
                      runtimeDir + "DecisionGraph.swift", runtimeDir + "Experience.swift"]
+            + [engineDir + "World.swift", engineDir + "Controller.swift"].filter { !sources.contains($0) }
         : sources
     // -j: the driver's own default ran one compiler job at a time; the jobs, not the output, change.
     return ["swiftc", "-parse-as-library", "-j", String(ProcessInfo.processInfo.activeProcessorCount)] + flags + sources + ["-o", output]
@@ -456,8 +458,8 @@ func motorProof(update: Bool) throws -> String {
     try buildAll([
         Build(output: coreTests, sources: [runtimeDir + "Runtime.swift", runtimeDir + "RuntimeTests.swift"]),
         Build(output: experienceTests, sources: [runtimeDir + "Experience.swift", runtimeDir + "ExperienceTests.swift"]),
-        Build(output: integration, sources: navSources + [runtimeDir + "IntegrationTests.swift"]),
-        Build(output: graphTests, sources: navSources + [runtimeDir + "GraphTests.swift"]),
+        Build(output: integration, sources: navSources + engineCore + [runtimeDir + "IntegrationTests.swift"]),
+        Build(output: graphTests, sources: navSources + engineCore + [runtimeDir + "GraphTests.swift"]),
         Build(output: tests, sources: [motorDir + "Motor.swift", motorDir + "MotorTests.swift"]),
         Build(output: probe, sources: [motorDir + "Motor.swift", motorDir + "Probe.swift"]),
         Build(output: seekTests, sources: [motorDir + "Motor.swift", seekDir + "Seek.swift", seekDir + "Plate.swift", seekDir + "SeekTests.swift"]),
@@ -470,8 +472,8 @@ func motorProof(update: Bool) throws -> String {
                                                          navDir + "Session.swift", navDir + "SessionTests.swift"] + engineCore),
         navBuild,
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
-        Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
-        Build(output: perceive, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "Reader.swift", perceiveDir + "Train.swift",
+        Build(output: perceptionTests, sources: navSources + engineCore + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
+        Build(output: perceive, sources: navSources + engineCore + [perceiveDir + "Marks.swift", perceiveDir + "Reader.swift", perceiveDir + "Train.swift",
                                                          perceiveDir + "RedNames.swift", perceiveDir + "Objects.swift", perceiveDir + "Facing.swift",
                                                          perceiveDir + "PerceiveTool.swift"], flags: ["-O"]),
         // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
@@ -480,7 +482,7 @@ func motorProof(update: Bool) throws -> String {
         Build(output: engineTests, sources: ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift"]
             .map { engineDir + $0 }),
     ])
-    let engineChecks = try suite(engineTests, "engine", 103)
+    let engineChecks = try suite(engineTests, "engine", 111)
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)

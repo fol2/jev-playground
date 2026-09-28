@@ -804,14 +804,15 @@ func aheadThreats(_ px: RGBA, read: (RedName) -> String) -> Int {
     nameplates(px).filter(\.hostile).count + redNames(px).filter { !Creatures.isUnaggressive(read($0)) }.count
 }
 
-/// M4ak (RULE): a lone creature no higher than the character that stopped a walk is fought, not asked about. Jev chose
-/// RETREAT at every such stop (live runs 89-94, 0.77-0.98), from a level 1 Juvenile Vuldren at level 4 too, and the
-/// quests that way stood still. Any other stop is Jev's, as before; the fight's own start health (90%) still holds.
-/// `JEV_BLOCKER_FIGHT=off` turns it off.
-func fightsBlocker(_ ahead: Ahead?, characterLevel: Int?) -> Bool {
-    guard QuestLimits.fightsWeakBlockers, let a = ahead, !Creatures.isUnaggressive(a.name), let level = a.level,
-          let character = characterLevel else { return false }
-    return level <= character && a.others == 0
+/// The world's reading of what stopped the walk, for the reflex table's `walk_past` (M4am) and `blocker_fight` (M4ak)
+/// entries (#88): the creature knowledge (Creatures) is read here, in m4, so the engine judges a belief, not a name. M4ak
+/// (RULE): a lone creature no higher than the character that stopped a walk is fought, not asked about; Jev chose RETREAT at
+/// every such stop (live runs 89-94, 0.77-0.98), from a level 1 Juvenile Vuldren at level 4 too, and the quests that way
+/// stood still. `JEV_BLOCKER_FIGHT=off` turns it off (ReflexLimits.fightsWeakBlockers).
+extension Ahead {
+    var belief: AheadBelief {
+        AheadBelief(nameKey: worldNameKey(name), level: level, company: others, threats: threats, unaggressive: Creatures.isUnaggressive(name))
+    }
 }
 
 /// A creature's level from its unit tooltip ("Scrawny Ursera", "Level 3", "Beast"): the number after "Level"; nil for "??".
@@ -833,7 +834,6 @@ func logObjectives(_ quests: [PlannedQuest]) -> [Objective] {
 
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
-    static let fightsWeakBlockers = ProcessInfo.processInfo.environment["JEV_BLOCKER_FIGHT"] != "off"  // M4ak
     static let passSeconds = 30.0  // M4am: to walk by an unaggressive creature that stopped a walk, up to 6 units off (0.2 a second)
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let huntSlots = 2  // HUNT_1 and HUNT_2
@@ -1124,8 +1124,13 @@ func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCom
                        fightBack: () async -> String, walk: (Double) async -> String) async -> String {
     var walked = 0
     for _ in 0...(2 * walks) {
-        let left = end - now()
-        if await inCombat() {
+        let at = now()  // once a round: a scripted clock in the checks hands out one time per call
+        let left = end - at
+        // The table's combat entry over the reading (#88): in combat, the fight back comes first, as everywhere.
+        var world = WorldState()
+        world.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: at))
+        world.update(\.character.inCombat, .known(Reading(value: await inCombat(), confidence: 1, capturedAt: at, source: "pixels:hud")))
+        if case .fightBack? = ReflexTable.first(world, ReflexContext(now: at, ownerTookFocus: false, maximumVisionAge: .infinity))?.action {
             guard left >= FightLimits.maxSeconds else { return "SAFE_TIME_LIMIT_IN_COMBAT" }
             let fought = await fightBack()
             guard QuestLimits.fightWon.contains(fought) else { return "FIGHT_" + fought }
@@ -1322,11 +1327,37 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     }
     // Jev's steps are counted, not SAFETY's fight backs: run 65 spent its twelve on five walks attacked and their fights
     // back, and ended STEP_LIMIT in combat among hostiles (review of #72).
+    var world = WorldState()  // the run loop's blackboard for the reflex table: the character's level, what stopped a walk
     while r.steps.filter({ $0.quest != "fight back" }).count < QuestLimits.maxSteps {
-        if host.ownerTookFocus() { return finish("OWNER_TOOK_FOCUS") }
+        // The reflex table first (#88). Before the read, the owner's takeover ends a run: the run loop reads no vitals between
+        // steps (its skills do, and their codes end the run below), so no other entry can fire here.
+        if let hit = ReflexTable.first(world, ReflexContext(now: host.now(), ownerTookFocus: host.ownerTookFocus(), maximumVisionAge: .infinity)),
+           case .pause = hit.action {
+            host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"])
+            return finish("OWNER_TOOK_FOCUS")
+        }
         if host.now() >= deadline { return finish("TIME_LIMIT") }
         guard let read = await host.readQuests() else { return finish("POSITION_UNREADABLE") }
         guard read.missing.isEmpty else { return finish("LOG_INCOMPLETE") }  // see quest-log.png
+        if let level = read.level { world.update(\.character.level, .known(Reading(value: level, confidence: 1, capturedAt: host.now(), source: "ocr:log"))) }
+        // After a stop, the table answers it from the Tab reading and the log's level, with no Jev call: M4am walks past, M4ak
+        // fights; anything else is Jev's, as before.
+        var ruleFight: String?
+        if let stopped = danger,
+           let hit = ReflexTable.first(world, ReflexContext(now: host.now(), ownerTookFocus: false, maximumVisionAge: .infinity,
+                                                             stoppedWalk: true, walkedPast: passed.contains(stopped.key))) {
+            host.emit("reflex", ["controller": hit.reflex.controller.rawValue, "reflex": hit.reflex.name, "action": "\(hit.action)"])
+            switch hit.action {
+            case .walkPast(let rule):  // the stopped step is not failed: it is offered again, and its own walk goes past
+                passed.insert(stopped.key)
+                failed.remove(stopped.key)
+                host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": stopped.name, "rule": rule])
+                passing = stopped.key
+                danger = nil; ahead = nil; world.ahead = .never
+            case .fightAhead(let rule): ruleFight = rule
+            default: break
+            }
+        }
         let stopped = danger, stoppedKey = danger?.key
         // M4y: each step's record across runs goes into its criterion.
         let offers = (questOffers(read, failed: failed, stopped: stopped, roads: roads, used: used) + townOffers(read, npcs: town, failed: failed))
@@ -1335,8 +1366,8 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
-        // M4ak: a lone creature no higher than the character that stopped the walk is fought by rule, with no Jev call.
-        let ruled = danger != nil && fightsBlocker(ahead, characterLevel: read.level) ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
+        // M4ak, from the table: the fight ahead by rule when it is offered (a held fight is not offered again: then Jev's).
+        let ruled = ruleFight != nil ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
         let offer: (skill: String, step: QuestStep, criterion: String)
         if let ruled {
             offer = ruled
@@ -1356,7 +1387,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
         if host.now() >= deadline { return finish("TIME_LIMIT") }  // a decision takes up to 20 s: none starts after the deadline
         host.emit("quest_step", ["controller": ruled == nil ? "JEV" : "RULE", "skill": offer.skill, "step": offer.step.name]
-            .merging(ruled == nil ? [:] : ["rule": "a lone creature no higher than the character stopped the walk: fight it"]) { a, _ in a })
+            .merging(ruled == nil ? [:] : ["rule": ruleFight ?? ""]) { a, _ in a })
         if passing == offer.step.key { host.passNext() }  // M4am: only the stopped step's own walk goes past, not another step's
         passing = nil
         let outcome: String
@@ -1382,23 +1413,15 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             ahead = await host.stoppedBy()
             host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0,
                                      "threats": orNull(ahead?.threats), "step": offer.step.name])
-            // M4am: an unaggressive creature alone in the way is walked past, not fled or fought (the owner, 28 Sept), once a step:
-            // no hostile in view that may attack (threats), or, unread, none at all beside it.
-            if let a = ahead, (a.threats ?? a.others) == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
-                passed.insert(offer.step.key)
-                host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
-                                         "rule": "an unaggressive creature stopped the walk: walk past it"])
-                passing = offer.step.key
-                danger = nil
-                ahead = nil
-                continue  // the stopped step is not failed: it is offered again, and its walk goes past
-            }
+            // The table answers the stop on the next tick from this reading: M4am walks past, M4ak fights, else it is Jev's.
+            world.ahead = ahead.map { .known(Reading(value: $0.belief, confidence: 1, capturedAt: host.now(), source: "ocr:tab")) } ?? .never
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
         } else {
             danger = nil
             ahead = nil
+            world.ahead = .never
         }
         // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).
@@ -1597,7 +1620,7 @@ func withEnders(_ quests: [PlannedQuest], _ enders: [QuestEnder]) -> [PlannedQue
 // MARK: Heal before a walk (the owner, 27 Sept: "buff/heal ... are needed when needed")
 
 enum RecoverLimits {
-    static let until = 0.6  // out of combat, a walk starts at 60% health or more: healed first
+    static let until = ReflexLimits.walkHealth  // out of combat, a walk starts at 60% health or more: healed first (the table's floor, #88)
     static let casts = 3
     static let castSeconds = 2.5  // Healing Wave's 1.5 s cast and the rest of the global cooldown
     static let manaFloor = 0.2  // below it no cast is tried (Healing Wave: 25 mana of 148 at level 3)
@@ -1614,8 +1637,13 @@ func recover(read: () async -> Obs?, aim: () async -> Void, cast: () async -> Bo
     var end = "STILL_HURT"
     for n in 0...RecoverLimits.casts {
         guard let o = await read() else { end = "UNREAD"; break }
-        if o.combat { end = "IN_COMBAT"; break }
-        if o.player >= RecoverLimits.until { end = n == 0 ? "NOT_HURT" : "HEALED"; break }
+        // The table says whether a heal is due (#88): in combat it is the fight's; at the floor or above, none.
+        switch ReflexTable.first(fightWorld(o, at: 0), ReflexContext(now: 0, ownerTookFocus: false, maximumVisionAge: .infinity))?.action {
+        case .fightBack?, .heal?: end = "IN_COMBAT"
+        case .recover?: break
+        default: end = n == 0 ? "NOT_HURT" : "HEALED"
+        }
+        if end != "STILL_HURT" { break }
         if o.mana < RecoverLimits.manaFloor { end = "NO_MANA"; break }
         if n == RecoverLimits.casts { break }
         if casts == 0 { await aim() }
