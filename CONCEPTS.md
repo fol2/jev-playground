@@ -49,7 +49,10 @@ Evidence from a live run is labelled live; simulated or replayed results never s
 ### Run envelope
 The owner's standing grant for live runs: which machine and account, which actions are allowed, the time, call and loss budgets, the stop and takeover conditions, the privacy scope and an expiry.
 
-Inside an active envelope the engine may play and recover without asking each time; anything outside it, or any new kind of risk, goes back to the owner. An envelope is usable only where every session and reviewer can read it, so a grant made in conversation is written down before another session relies on it.
+Inside an active envelope the engine may play and recover without asking each time; anything outside it, or any new kind of risk, goes back to the owner. An envelope is usable only where every session and reviewer can read it, so a grant made in conversation is written down before another session relies on it. Engine limits may mirror an envelope's budgets as defaults; widening them is the owner's decision in the envelope, not a code change.
+
+### Session loop
+A way of playing a Live run in which a failed step or an unread frame is an outcome the engine records and plans around, so that only the Run envelope's budgets or the owner's takeover end it; distinct from a quest run that ends on its first failed step.
 
 ### Operator
 Whoever prepares the machine, starts live runs and tends them between runs, normally an agent session; distinct from the owner, who grants the envelope and may take over.
