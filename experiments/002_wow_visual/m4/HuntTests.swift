@@ -234,8 +234,8 @@ extension NavTests {
         let here = NavObs(x: 40, y: 30, facing: 0)
         let wind = HuntObs(objectives: objectives, target: "Roiling Wind", targetAlive: true, facing: 0, here: here)
         let compassAll = HuntAction.compass
-        check(huntAdmissible(wind) == [.fight, .nextTarget, .lookAround] + compassAll,
-              "a living quest creature at full health may be fought; looks and all eight headings are open; no rest at full")
+        check(huntAdmissible(wind) == [.fight, .nextTarget] + compassAll,
+              "a living quest creature at full health may be fought; all eight headings are open, and no look round out of combat (M4ad: the owner, \"don't stuck and 360 screen\"); no rest at full")
         var hurt = wind
         hurt.player = 0.8
         check(!huntAdmissible(hurt).contains(.fight) && huntAdmissible(hurt).contains(.rest),
@@ -349,8 +349,11 @@ extension NavTests {
         ridge.world.facing = 0
         var walks = NavEpisode()
         let bumped = await walkOn(ridge, heading: 0, episode: &walks)
-        check(bumped.hasPrefix("blocked on heading 0°") && walks.attempts.last?.blocked == true && !ridge.keys.holding,
-              "a walk into the ridge ends blocked, with W lifted")
+        let bump = walks.attempts.first { $0.blocked }
+        check(bump != nil && !ridge.keys.holding && walks.attempts.contains { $0.blocked && abs(angleError($0.heading, 0)) < 30 },
+              "a walk into the ridge bumps it heading north, with W lifted after (M4ad: \(bumped))")
+        // The bump is kept where it happened: back there, the way to the area through the ridge is not offered again.
+        if let b = bump { ridge.world.x = b.to.x; ridge.world.y = b.to.y; ridge.world.facing = 0 }
         let blocked = walks.blockedHeadings(near: ridge.look()!)
         check(!huntAdmissible(ridge.survey()!, steps: [], blocked: blocked).contains(.toArea),
               "the way to the area, through the ridge, is not offered again from where it was blocked")
@@ -401,9 +404,11 @@ extension NavTests {
         check(behind.world.combat && behind.selected == nil, "an attacker behind: in combat with nothing selected")
         let look = await lookAround(behind)
         check(behind.selected == 0 && look.result.contains("Roiling Winds"), "LOOK_AROUND in combat turns and Tabs until it selects the attacker")
-        let hunt = await runHunt(host: plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)]), jev: huntScripted([.fight, .lookAround]))
-        check(hunt.fights.count >= 1 && hunt.steps.first?.action == .lookAround && hunt.outcome != "DEAD",
-              "a hunt attacked from behind finds the attacker and fights it (\(hunt.outcome))")
+        // M4ad: no look round out of combat; once attacked, LOOK_AROUND is offered and turns to the attacker, then the fight.
+        let hunt = await runHunt(host: plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 30.2)]), jev: huntScripted([.lookAround, .fight]))
+        let looked = hunt.steps.firstIndex { $0.action == .lookAround }, fought = hunt.steps.firstIndex { $0.action == .fight }
+        check(hunt.fights.count >= 1 && looked != nil && fought.map { $0 > looked! } == true && hunt.outcome != "DEAD",
+              "a hunt attacked from behind looks round for the attacker, then fights it (\(hunt.outcome))")
         // Live run 24: the plate of a creature that counts is not read on every frame. Seen at the decision, it is still
         // there when the action is revalidated on a frame that missed it (surveys: the start, the decision, the check).
         let flicker = plain([SimHunt.Mob(name: "Roiling Winds", x: 40, y: 29.5)])

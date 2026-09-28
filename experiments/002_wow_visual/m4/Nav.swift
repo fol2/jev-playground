@@ -671,8 +671,10 @@ func pathLeft(_ path: [MapPoint], from here: MapPoint, index: Int) -> Double {
 /// keep a block (W down blockedWindow with less than blockedMoved of movement) as a heading to leave near there; aim by pursuit
 /// and the view's depth (steerAim); turn by a Q/E pulse with W held, an aim past stopToTurn stopping W first. No model call.
 /// Outcomes as runNav's; `decisions` counts ticks.
+/// `keepKeys` (M4ad): the walk ends with W, Q and E lifted and its key set kept for the caller's next move (the hunt's steps
+/// walk on one set; releaseAll retires a set for good, and the hunt's second walk pressed nothing in the sim).
 func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
-              known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> NavResult {
+              known: [(at: MapPoint, heading: Double, side: Double)] = [], keepKeys: Bool = false) async -> NavResult {
     var result = NavResult()
     var executive = RuntimeExecutive(goal: d.label)
     executive.begin("navigation")
@@ -687,7 +689,11 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
     var blocksSeen = 0
 
     func finish(_ outcome: String) -> NavResult {
-        body.keys.releaseAll()
+        if keepKeys {
+            for code in [forward, FightLimits.turnLeft, FightLimits.turnRight] { body.keys.lift(code) }
+        } else {
+            body.keys.releaseAll()
+        }
         result.outcome = outcome
         result.holding = body.keys.holding
         result.codesPosted = body.keys.codesPosted

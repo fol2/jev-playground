@@ -127,8 +127,10 @@ final class GraphReplies: JevClient {
         do { _ = try await graph.next(state: state, skills: all, jev: fails, now: { 0 }, deadline: 10); check(false, "provider failure") }
         catch { check(graph.calls == 1 && graph.lastTrace[0]["error"] != nil, "failed attempts counted without a rules fallback") }
 
-        // Actual Hunt integration: a model-selected LOOK_AROUND is the existing compound skill (four turns + Tab).
+        // Actual Hunt integration: a model-selected LOOK_AROUND is the existing compound skill (four turns + Tab). It is offered
+        // in combat only (M4ad: no look round on the spot out of combat), so the field starts in combat.
         let world = SimHunt.field(clock: FightClock())
+        world.world.combat = true
         graph = try load()
         let steps = GraphReplies(["READ:recent", "ENTER:search", "DO:LOOK_AROUND"])
         let memory = try ExperienceStore(scope: graph.graph.id)
@@ -137,6 +139,7 @@ final class GraphReplies: JevClient {
         check(memory.cases.count == 1 && memory.cases[0].action == "LOOK_AROUND", "actual Hunt records an executed episode")
         check(result.experienceRecords.count == 1, "recorded experience is exposed in run evidence")
         let repeatWorld = SimHunt.field(clock: FightClock())
+        repeatWorld.world.combat = true  // comparable: in combat as the first
         graph = try load()
         let repeatProvider = GraphReplies(["READ:experience", "ENTER:search", "DO:LOOK_AROUND"])
         _ = await runHunt(host: repeatWorld, jev: repeatProvider, graph: graph,
@@ -153,6 +156,7 @@ final class GraphReplies: JevClient {
         check(result.memory?.goal == "complete the initial unfinished objectives", "task survives graph tool calls")
         check(result.graphID == "skyborne-hunt-tools-v3", "actual policy identity in result")
         let frozenWorld = SimHunt.field(clock: FightClock())
+        frozenWorld.world.combat = true  // LOOK_AROUND is offered in combat only (M4ad)
         graph = try load()
         let freeze = GraphReplies(["ENTER:search", "DO:LOOK_AROUND"])
         freeze.after = { frozenWorld.frozen = true }
@@ -162,6 +166,7 @@ final class GraphReplies: JevClient {
 
         // Jev can call the learning branch while hunting; it labels evidence, then returns to normal tools.
         let reviewWorld = SimHunt.field(clock: FightClock())
+        reviewWorld.world.combat = true  // LOOK_AROUND is offered in combat only (M4ad)
         let reviewMemory = try ExperienceStore(scope: "skyborne-hunt-tools-v3")
         let reviewFrame = huntExperienceFrame(reviewWorld.survey()!, blocked: [])!
         try reviewMemory.record(ExperienceCase(id: "seed", run: "prior", action: "GO_N", before: reviewFrame,

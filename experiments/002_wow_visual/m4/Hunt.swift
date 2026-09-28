@@ -7,10 +7,12 @@ import Foundation
 enum HuntLimits {
     static let maxDecisions = 40
     static let maxSeconds = 900.0
+    static let stepLength = 1.5  // M4ad: y units a walking move steers on for, at most stepSeconds
+    static let stepSeconds = 10.0
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
     static let searchLimit = 12  // hunt decisions in a row without a fight
-    static let maxMoves = 24  // walks per hunt, about 3 s each
+    static let maxMoves = 24  // walks per hunt, each a steering walk of stepLength, stepSeconds at most (M4ad)
     static let repeatCap = 4  // the same compass walk at most this many times in a row
     static let restSeconds = 20.0
     static let lookSeconds = 90 / NavLimits.turnRate  // about 90°; live turns run up to 15 % further
@@ -550,7 +552,8 @@ func huntAdmissible(_ o: HuntObs, steps: [HuntStep] = [], blocked: [Double] = []
         out.append(.fight)
     }
     if !(last.map { $0.isWalk || $0 == .lookAround || $0 == .nextTarget } ?? false) { out.append(.nextTarget) }
-    if last != .lookAround { out.append(.lookAround) }
+    // Out of combat the hunt finds creatures by walking on (Tab and the plates see what is ahead), not by turning round on the
+    // spot (the owner, 27 Sept: "don't stuck and 360 screen"); LOOK_AROUND is for an attacker behind, in combat, above.
     // An object on the ground in view while a collect objective is open (M5): the pointer rests on it, and it is right-clicked
     // only if its tooltip names that objective. Not after two that picked nothing up since the last walk: a Tab or a look
     // around does not make a false object worth hovering again (review of #59).
@@ -661,13 +664,15 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         "blocked_headings_near_here": blocked.map { Int($0.rounded()) },
         "recent_actions": recent.suffix(HuntLimits.recent).map(\.json),
         "fights_so_far": fights,
-        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks cover about 0.6 y units; headings are compass degrees, 0 north, 90 east; an object's screen percent is 0 at the top left, and the character's feet are near x 50, y 60",
+        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks steer on up to 1.5 y units (10 s at most), round what they bump; headings are compass degrees, 0 north, 90 east; an object's screen percent is 0 at the top left, and the character's feet are near x 50, y 60",
     ]
 }
 
 /// What a hunt needs from the world: SimHunt offline, the WoW window live. A hunt walks as M4a does, so
 /// its host is a NavBody: `look` reads position and facing for the walk skill.
 protocol HuntHost: NavBody {
+    func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)]  // M4ad: the steering walks' bump memory (none in a sim)
+    func remember(bumps: [(at: MapPoint, heading: Double, side: Double)])
     func survey() -> HuntObs?  // everything, OCR included; nil when the tracker is unreadable
     func vitals() -> HuntObs?  // pixels only (no OCR), for polling; nil without a fresh frame
     func fight(jev: JevClient, inCombat: Bool) async -> FightResult
@@ -679,6 +684,8 @@ protocol HuntHost: NavBody {
 
 extension HuntHost {
     var facingState: FacingState? { nil }
+    func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)] { [] }
+    func remember(bumps: [(at: MapPoint, heading: Double, side: Double)]) {}
 }
 
 extension HuntHost {
@@ -736,9 +743,28 @@ func walkOn(_ host: HuntHost, heading: Double, episode: inout NavEpisode) async 
     guard let start = host.look() else { return "position unreadable; did not walk" }
     let heading = (heading + 360).truncatingRemainder(dividingBy: 360)
     let h = heading * .pi / 180
-    let far = NavDestination(label: "heading \(Int(heading))", x: start.x + 10 * sin(h) / mapAspect, y: start.y - 10 * cos(h))
-    let attempt = await walk(host, .goToward, from: start, to: far)
+    // M4ad (the owner, 27 Sept: "you are climbing cliffs... rethink the entire pathfinding"): a short steering walk that way
+    // (runSteer: the view's depth, a walled view turned from, the bumps remembered), not a blind 3 s run (live run 84: the
+    // hunt's own moves climbed the rock slopes west of Thendal Village). The hunt's body reads no red names (as before): what
+    // attacks on the way is fought by the hunt (review of #98).
+    let to = NavDestination(label: "heading \(Int(heading))", x: start.x + HuntLimits.stepLength * sin(h) / mapAspect,
+                            y: start.y - HuntLimits.stepLength * cos(h), arrive: 0.3, seconds: HuntLimits.stepSeconds)
+    let walked = await runSteer(body: host, path: [], destination: to, known: host.knownBumps(), keepKeys: true)
     host.keys.lift(FightLimits.forward)
+    host.remember(bumps: walked.bumps)
+    for b in walked.bumps {  // each bump where it happened, so the hunt keeps off that heading there (blockedHeadings)
+        var bump = NavAttempt(action: .goToward, from: start, to: NavObs(x: b.at.x, y: b.at.y, facing: b.heading), heading: b.heading,
+                              before: HuntLimits.stepLength, after: HuntLimits.stepLength)
+        bump.blocked = true
+        episode.record(bump)
+    }
+    var attempt = NavAttempt(action: .goToward, from: start, to: walked.end ?? start, heading: heading,
+                             before: HuntLimits.stepLength, after: distance((walked.end ?? start).point, to.point))
+    // Blocked where it ended only when it could not get on at all; each bump is its own blocked attempt, where it happened
+    // (review of #98: marking the end blocked on the first heading kept a way off at a place it was never blocked).
+    attempt.blocked = walked.outcome == "NO_PROGRESS"
+    attempt.warned = walked.outcome == "DANGER_AHEAD"
+    attempt.arrived = walked.outcome == "ARRIVED"
     episode.record(attempt)
     let how = attempt.blocked ? "blocked on heading \(Int(heading.rounded()))° after moving \(roundTo(attempt.moved))"
         : "moved \(roundTo(attempt.moved)) on heading \(Int(heading.rounded()))°"
