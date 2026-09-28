@@ -342,6 +342,7 @@ struct NavDestination: Equatable {
     // (reviews of #72). Combat still stops it, and is fought back.
     var toSafety = false
     var seconds = NavLimits.maxSeconds  // a walk to safety gets what is left of the run envelope
+    var passUntil: Double? = nil  // M4am: no stop for a red name ahead before this time, walking past an unaggressive creature
     var point: MapPoint { (x, y) }
 }
 
@@ -798,7 +799,8 @@ func runSteer(body: NavBody, path: [MapPoint], destination d: NavDestination,
         let aim = steerAim(want: want, columns: columns, blocked: blocked, side: side?.sign, along: side.map { angleError($0.heading, o.facing) })
         if abs(aim - want) > 10 { going = aim - want }
         let heading = (o.facing + aim + 720).truncatingRemainder(dividingBy: 360)
-        if !d.toSafety, o.warnings.contains(where: { abs(angleError($0, heading)) <= NavLimits.warnCone }) { return finish("DANGER_AHEAD") }
+        let passing = d.passUntil.map { now < $0 } ?? false
+        if !d.toSafety, !passing, o.warnings.contains(where: { abs(angleError($0, heading)) <= NavLimits.warnCone }) { return finish("DANGER_AHEAD") }
         result.decisions += 1
         if now - lastLog >= SteerLimits.logEvery {  // about once a second: what the walk saw and chose, for the live evaluation
             var row: [String: Any] = ["at": [o.x, o.y], "facing": Int(o.facing.rounded()), "want": Int(want.rounded()), "aim": Int(aim.rounded()),
