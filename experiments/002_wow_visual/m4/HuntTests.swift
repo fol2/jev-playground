@@ -1423,6 +1423,9 @@ extension NavTests {
         check(wayLost == "FIGHT_PLAYER_DEAD" && wayStuck == "WALK_NO_PROGRESS" && wayEndless == "SAFE_ROUNDS"
               && wayEndlessSteps.filter { $0.hasPrefix("walk") }.count == QuestLimits.safeWalks && wayEndlessSteps.last == "fight",
               "review of #72: the way to safety ends on a lost fight, a walk's other end or its walks; the last walk's combat is fought too")
+        let (wayLong, wayLongSteps) = await wayRounds([false, false], [], ["TIME_LIMIT", "ARRIVED"])
+        check(wayLong == "SAFE" && wayLongSteps == ["walk 180", "walk 180"],
+              "M4ag: a walk to safety that ran out of time is walked on from where it stopped")
         let (wayLateFight, wayLateFightSteps) = await wayRounds([true], ["KILLED_AND_LOOTED"], [], left: [FightLimits.maxSeconds - 1])
         let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
         check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
@@ -1503,8 +1506,8 @@ extension NavTests {
               && !leavesDanger("DEATH_AFTER_RELEASE_SPIRIT"),
               "M4s: a ghost with no gossip, a button that never takes, a failed click or a gossip back after Accept stops it where it stands")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
-              && same(safePlace(from: (44, 40)), 43.4, 44.8),
-              "the nearest village within one walk; none when already there or too far")
+              && same(safePlace(from: (44, 40)), 43.4, 44.8) && same(safePlace(from: (36.7, 33.5)), 43.2, 24.0),
+              "the nearest village within reach; none when already there or too far; live run 86's end, 13.6 away, walks home")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])

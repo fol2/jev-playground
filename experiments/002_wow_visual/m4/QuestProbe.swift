@@ -1346,8 +1346,9 @@ final class LiveQuestHost: QuestHost {
         try? JSONSerialization.data(withJSONObject: stuck.map { [$0.x, $0.y] }).write(to: QuestHUD.stuckMemory)
     }
 
-    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks' moves are a
-    /// fixed preference (straight, then detours), with no model call, so a run that ended on a failed Jev call walks too.
+    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks are steered
+    /// (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that ended on a failed Jev
+    /// call walks too.
     /// It ends inside the run envelope's 30 minutes (the run stops new steps at 20). No fresh HUD counts as combat.
     func leaveDanger(after outcome: String) async {
         guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),

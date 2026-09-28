@@ -1023,7 +1023,7 @@ Between live runs 56 and 57 the character stood idle among level 2-3 hostiles by
 killed. The owner, 27 Sept: "error exit should still try best to leave danger zone".
 
 - **`leaveDanger`** (LiveQuestHost). Before a quest run exits, the character walks to the nearest safe place within
-  one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
+  25 units (`safePlace`, `QuestLimits.safeReach`; 12 until M4ag), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
   Shen'dar, Valanaar), by their NPCs' places in the town research.
 - **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
   - the owner's takeover, whatever step it stopped;
@@ -1034,14 +1034,14 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - In combat, SAFETY fights back first (one M3 fight, as in M4i). No fresh HUD counts as combat.
   - Out of combat, it walks. A walk that meets combat is fought, then walked again, for at most four walks. The last
     walk's combat is fought too.
-  - A lost fight, or any other walk end, stops it.
+  - A walk that ran out of its time is walked on too (M4ag). A lost fight, or any other walk end, stops it.
 - **Time.** Everything ends inside the envelope's 30 minutes from the run's start. A fight starts only with its whole
   150 s left. A walk gets what is left, at most 180 s, and none starts with less than 20 s left.
   - So that a fight is always left for it, the run starts no step after 20 minutes, not 25. The last step's walk and
     its fight back end by 25:30.
 - **The walk.**
-  - Its moves are a fixed preference: straight, then the detours. It makes no model call, so a run that ended on a
-    failed Jev call still walks.
+  - It makes no model call, so a run that ended on a failed Jev call still walks. Its moves were a fixed preference
+    (straight, then the detours); since M4ac it is the steering walk, by the roads where they lead there.
   - It walks on past a red name ahead, and at low health out of combat (`toSafety`): stopping among hostiles is what
     it leaves. Live run 65 met combat at once, ended, and the character died where it stood.
 - **Steps.** SAFETY's fights back no longer use Jev's twelve steps. Run 65 spent them on five attacked walks and their
@@ -1426,6 +1426,23 @@ text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run 
 - **Also:** the count before the click is read from a frame taken just before it, not from the survey. The owner's
   takeover ends the wait with no key pressed, and `hunt_limits` records `pick_up_s`. Jev's PICK_UP_OBJECT facts
   say the new wait (15 s at most), not "a few seconds".
+
+## M4ag — a run's end walks home from farther (28 Sept)
+
+Live run 86 ended at (36.7, 33.5), where its Foul Matriarch walk had stopped for danger and its retreat had come back
+to. Thendal Village was 13.6 units away, beyond `safeReach` (12). So `safePlace` found none, and the run exited with no
+`leave_danger`. The character stood there for the seven minutes before run 87, and run 87 began with it as a ghost by
+the Spirit Healer: killed while idle, then released by the game.
+
+- **The limit:** `QuestLimits.safeReach` is now 25 units. The way home is steered (M4ac), by the learned roads where they
+  lead there, else straight at the village. It stays inside the run envelope's reserve, as before.
+- **A longer way:** a walk to safety that ran out of its time (`TIME_LIMIT`, one walk at most 180 s) is now walked on
+  from where it stopped, as one that met combat is. It is still at most four walks (`safeWalks`), all by the envelope's
+  end.
+- **Evidence:**
+  - Sim: `HuntTests` checks that run 86's end point walks to Thendal Village, and that a point 42 units from any village
+    still walks nowhere. It also checks that a timed-out walk is walked on to arrival.
+  - Live: the next run that ends away from a village.
 
 ## Limits
 

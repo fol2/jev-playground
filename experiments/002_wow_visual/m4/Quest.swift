@@ -783,7 +783,9 @@ enum QuestLimits {
     static let safePlaces: [(name: String, at: MapPoint)] = [("Thendal Village", (43.2, 24.0)), ("Shen'dar Village", (43.4, 44.8)),
                                                             ("Valanaar", (58.2, 78.4))]
     static let safeArrive = 1.0
-    static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
+    // The farthest a run's end walks to a village. It was 12, "a run of its own" beyond: live run 86 ended 13.6 from Thendal
+    // Village, walked nowhere, and the character died standing there before the next run. Roads carry a long walk (M4ac).
+    static let safeReach = 25.0
     static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
     static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
     static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
@@ -1053,6 +1055,8 @@ func revive(_ first: DeathClick?, clicks: Int, click: (DeathClick) async -> Bool
 /// and its outcome, a walk's other end with "WALK_" and its. Everything ends by `end`: a fight starts only with its
 /// whole `FightLimits.maxSeconds` left, and a walk gets what is left, at most `NavLimits.maxSeconds` (reviews of #72).
 /// Live run 65 (27 Sept): the walk to safety met combat at once and ended, the character stood among hostiles, and died.
+/// A walk that ran out of its time is walked on from where it stopped, as one that met combat is (M4ag: a village up to 25
+/// units away can take more than one walk's time).
 func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCombat: () async -> Bool,
                        fightBack: () async -> String, walk: (Double) async -> String) async -> String {
     var walked = 0
@@ -1069,12 +1073,12 @@ func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCom
         walked += 1
         let outcome = await walk(min(NavLimits.maxSeconds, left))
         if outcome == "ARRIVED" { return "SAFE" }
-        if outcome != "COMBAT" { return "WALK_" + outcome }
+        if outcome != "COMBAT" && outcome != "TIME_LIMIT" { return "WALK_" + outcome }
     }
     return "SAFE_ROUNDS"
 }
 
-/// The nearest safe place within one walk of `at`, unless the character is already at one.
+/// The nearest safe place within `QuestLimits.safeReach` of `at`, unless the character is already at one.
 func safePlace(from at: MapPoint) -> MapPoint? {
     if QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) { return nil }
     return QuestLimits.safePlaces.map(\.at).filter { distance(at, $0) <= QuestLimits.safeReach }.min { distance(at, $0) < distance(at, $1) }
