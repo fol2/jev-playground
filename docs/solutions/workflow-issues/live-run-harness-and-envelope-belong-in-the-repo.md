@@ -50,13 +50,13 @@ What the tree holds today:
     - there is not exactly one WoW process;
     - WoW is in front;
     - there is not exactly one game window. The window is found afresh at each start: owned by the WoW process, layer 0, titled "World of Warcraft", both sides over 300 px.
-  - Every frame must come from that window at the session's bounds, 2560x1320 (`experiments/002_wow_visual/m3/FightProbe.swift:98-100`). A quest run with no 2560-wide first frame within `Limits.firstFrameWait` = 2.0 s stops "no 2560-wide frame" (`experiments/002_wow_visual/m4/QuestProbe.swift:1579-1581`, `experiments/002_wow_visual/m0/Motor.swift:51`).
-- **The run's end walks to safety.** After #72 and #101, `leaveDanger` walks the character to the nearest Zephras village within `safeReach` = 25 units, errors included (`experiments/002_wow_visual/m4/Quest.swift:843-852`, `:1144-1148`; `experiments/002_wow_visual/m4/QuestProbe.swift:1414-1420`, called at `:1635`). The walks go in rounds that fight back in between (`experiments/002_wow_visual/m4/Quest.swift:1116-1142`). #73 resurrects at the Spirit Healer at the run's start and end (`experiments/002_wow_visual/m4/QuestProbe.swift:1630`, `:1636`, `experiments/002_wow_visual/m4/Quest.swift:1042-1044`).
+  - Every frame must come from that window at the session's bounds, 2560x1320 (`experiments/002_wow_visual/m3/FightProbe.swift:98-100`). A quest run with no 2560-wide first frame within `Limits.firstFrameWait` = 2.0 s stops "no 2560-wide frame" (`experiments/002_wow_visual/m4/QuestProbe.swift:1621-1623`, `experiments/002_wow_visual/m0/Motor.swift:51`).
+- **The run's end walks to safety.** After #72 and #101, `leaveDanger` walks the character to the nearest Zephras village within `safeReach` = 25 units, errors included (`experiments/002_wow_visual/m4/Quest.swift:843-852`, `:1144-1148`; `experiments/002_wow_visual/m4/QuestProbe.swift:1414-1429`, called at `:1693`). The walks go in rounds that fight back in between (`experiments/002_wow_visual/m4/Quest.swift:1116-1142`). #73 resurrects at the Spirit Healer at the run's start and end (`experiments/002_wow_visual/m4/QuestProbe.swift:1672`, `:1694`, `experiments/002_wow_visual/m4/Quest.swift:1042-1044`). Since #96, the opt-in `--quests --session` loop also walks to safety whenever it has nothing to do (`experiments/002_wow_visual/m4/Session.swift:245-250`), and at its end on the same outcomes as a run's end (`:136-138`). An end at the death limit revives and does not walk (`:134-135`). That loop has not yet run live.
 - **Typed chat is gone.** #80 removed the typed `/equip NAME` and its chat box (`experiments/002_wow_visual/m4/QuestProbe.swift:1005-1006`, `experiments/002_wow_visual/m4/README.md:1230-1233`). The only Enter left is at the character select screen, and only when the world's minimap does not read and the "Enter World" button does (`experiments/002_wow_visual/m4/QuestProbe.swift:348-357`). The M4c section keeps the typed path as its step 4, now marked as replaced by M4x (`experiments/002_wow_visual/m4/README.md:402-405`).
 - **Nothing on the operator's side.**
   - Nothing in the tree checks the screen lock or wakes the displays. `caffeinate` appears only in experiment 001, and nothing anywhere in the repo checks whether the screen is locked.
-  - No live-run script or recording harness is in the repo. The m4 README says only that runs were "recorded (the screen, beside the engine, by ffmpeg)" and that recordings "are private and kept off the repository" (`experiments/002_wow_visual/m4/README.md:745-746`). Its live prerequisites are two sentences: the key, the owner's authority, and WoW running but not in front (`:1638-1640`).
-  - `docs/agents/ai-sdlc.md:183-189` defines what an envelope must contain, but holds no envelope. The m4 README cites parts of one in passing: Zephras Isle at `experiments/002_wow_visual/m4/README.md:724`, 30 minutes at `:1038`.
+  - No live-run script or recording harness is in the repo. The m4 README says only that runs were "recorded (the screen, beside the engine, by ffmpeg)" and that recordings "are private and kept off the repository" (`experiments/002_wow_visual/m4/README.md:745-746`). Its live prerequisites are two sentences: the key, the owner's authority, and WoW running but not in front (`:1678-1680`).
+  - `docs/agents/ai-sdlc.md:183-189` defines what an envelope must contain, but holds no envelope. The m4 README cites parts of one in passing: Zephras Isle at `experiments/002_wow_visual/m4/README.md:724`, 30 minutes at `:1038`. Some budgets are code defaults that match the standing envelope: the 30 minutes (`experiments/002_wow_visual/m4/Quest.swift:853`) and, since #96, for the session loop one death, 120 graph calls and the second stuck walk (`experiments/002_wow_visual/m4/Session.swift:39-45`, tested at `experiments/002_wow_visual/m4/SessionTests.swift:235-237`). There is still no envelope instance that a harness could read. The area appears only in passing, stop and recovery exist as engine behaviour, and the allowed actions and the expiry are only in private memory.
 
 Experiment 001 did this differently. Its playbook (`experiments/001_wow_fishing/playbook.md`) has "Starting conditions", "Build and run" and "Stop and review" sections. It says "`caffeinate -di`. Run only one controller and do not edit/rebuild it during a trial" (`:52-53`), and its pre-go "stops if the local setup receipt is missing" (`:11-13`). Experiment 002 has no such playbook, and it relearnt these lessons.
 
@@ -75,7 +75,7 @@ Sources for the table: the outcomes of runs 50, 57, 77 and 95 come from the priv
 | The open chat box took the map's key and the walk's (77: `LOG_INCOMPLETE`, `WALK_NO_PROGRESS`) | The typed `/equip NAME` left the box open with letters in it | Engine: typed chat removed (#80). "Esc, never Enter": private memory | Repo preflight and playbook |
 | A run with WoW in front reads as the owner taking over | Entering the world leaves WoW in front unless another app is brought forward (auto memory [claude]) | Engine: refuses to start, stops `OWNER_TOOK_FOCUS`. Finder brought forward: scratchpad harness | Repo harness |
 | A stale window id after a relaunch | WoW's window id changes on relaunch | Engine: finds the window by process at each start. The agent's own captures: private memory | Repo harness helper |
-| #96's session loop needed the standing envelope | The owner granted it in conversation | Private memory only; #96 took it from a review note | A repo envelope that the harness reads (area, actions, budgets, expiry) |
+| #96's session loop needed the standing envelope | The owner granted it in conversation | #96 (merged) took it from a review note. Its budgets are now `SessionLimits` defaults with a test; the allowed actions and expiry are private memory only | A repo envelope that the harness reads (area, actions, budgets, expiry) |
 
 ## Guidance
 
@@ -112,11 +112,11 @@ Working rules:
 - **Accurate outcomes.** Run 50's `WALK_HUD_UNREADABLE` reads like a perception failure, but the cause was a compiler beside the run. The engine-capability learning asks for an accurate log, and a log is only accurate if the machine's state is recorded beside it.
 - **Recurrence.** The no-rebuild rule was already in experiment 001's playbook (`experiments/001_wow_fishing/playbook.md:53`), and experiment 002 learnt it again at run 50. After the memory note was written, a build still ran beside run 95. Run 75 repeated run 49's wrong display. A note works only when a session thinks to look for it. A check runs every time.
 - **Other sessions.** PR #96's description says its session loop took its defaults from the owner's standing envelope through a review note (commit 6). A parallel session or a worktree has no other way to know the envelope, and cannot run the scratchpad harness at all. On 28 September the session taking over #96 found the harness only by listing other sessions' scratchpad folders, copied `liverun2.sh` into its own scratchpad and adapted it. A worktree also has neither `runs/` nor `.env`, so it linked the main checkout's `runs/` in by hand (session history). A repo harness should take the evidence and environment paths as parameters.
-- **Drift nobody reviews.** The only envelope instance, in private memory, has already drifted from the code (auto memory [claude]):
+- **Drift nobody reviews.** When this note was written, the only envelope instance, in private memory, had drifted from the code (auto memory [claude]):
   - it still allows the chat box for "`/equip`-type slash commands", which #80 removed;
   - it keeps walks within 12 units, while a run's end now walks up to 25 (#101).
 
-  A repo file changes in a PR, where a reviewer can compare it with the code.
+  The note was then corrected by hand. A repo file changes in a PR, where a reviewer can compare it with the code.
 - **Privacy.** Runs 49 and 75 recorded a display with other work on it. Only the probe for the 2560-wide device prevents that, and today it is in a script that the next session will not have.
 
 ## When to Apply
@@ -158,9 +158,9 @@ Exception: the owner's stop and the engine's safety stops act at once. Add the h
 - `docs/agents/ai-sdlc.md:181-189`: what a run envelope contains, and "Consent to source changes is not a live envelope".
 - `experiments/001_wow_fishing/playbook.md`: the earlier experiment's operating rules, kept in the repo.
 - `experiments/README.md:25-34`: raw recordings stay local and are not committed.
-- PR #96 (open): its session loop's envelope defaults came from a review note (commit 6).
+- PR #96 (merged 28 September): its session loop's envelope defaults came from a review note (commit 6), and are now `SessionLimits` in `experiments/002_wow_visual/m4/Session.swift`.
 - PRs #72, #73, #80 and #101: the engine-side fixes named above.
 - Issues:
-  - #87 (the session loop): its idle-safe mode parks the character in a village when the session has nothing to do. Between separate runs the harness still has to check.
+  - #87 (the session loop, opt-in since #96 and not yet run live): its idle-safe mode walks the character to safety when the session has nothing to do. Between separate runs the harness still has to check.
   - #88 (the reflex table): owner-focus checks belong there. The harness brings another app to the front but does not detect the takeover itself.
   - #93 (run reports): a natural place for the harness's operator events, such as a build during a run, a locked screen or a wrong display.
