@@ -342,6 +342,19 @@ before it saw the death.
     attacker selected, killed and looted (`KILLED_AND_LOOTED`).
   - Live: not yet run.
 
+### M3c's corpse at the start (28 Sept)
+
+Live run 93: the fight began with a corpse in view (`oldCorpse`, counted as killed so it can be looted), and the kill's
+clock started then. The creature being fought died more than 8 s later, with the combat ring still on, and that read
+as "hit again after the kill". Its own kill was set aside. Then 30 SELECT_TARGETs out of combat found nothing, and the
+fight, the hunt and the run ended DECISION_LIMIT.
+
+- Only our own kill counts: a corpse seen at the start neither starts the clock nor makes a kill "before".
+- `SimFight` now ends combat 3 s after its last creature dies (it lingered forever), and bolts can take time
+  (`boltSeconds`).
+- Sim: a fight that starts on a corpse, with a live target and 1.5 s bolts, is killed and looted with nothing set aside.
+  Without the fix it ends DECISION_LIMIT, as run 93 did.
+
 ## Reproduce
 
 ```sh
