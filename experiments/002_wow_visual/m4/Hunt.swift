@@ -422,7 +422,8 @@ func merged(_ older: [Seen], _ newer: [Seen]) -> [Seen] {
 /// 4-letter runs suffice ("Rolling WWinds" is a Roiling Wind). For a kill objective each word of four letters or more in
 /// its creature name must share one too: "Pesky Cirrusfly" shares "Cirrusfly" with "Cirrusfly Queen slain" but not "Queen"
 /// (live run 48, 27 Sept: the Queen's hunt read every Pesky Cirrusfly as counting and walked toward them). A collect
-/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60).
+/// objective names an item its creature drops ("Scrawny Ursera Claw"), so its words are not all on the plate (review of #60);
+/// a whole word of the plate must be one of its words instead (M4ae: shared letters made Roiling Winds count for Windstones).
 func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
     let plate = nameKey(creature.name)
     return objectives.first { o in
