@@ -37,15 +37,21 @@ Each entry is keyed by what it was read from and is dropped by the events that c
 ## Playing live
 
 ### Live run
-One supervised session of the engine playing the real game inside a Run envelope, as opposed to a simulation or a replay of saved frames.
+One session of the engine playing the real game inside a Run envelope, as opposed to a simulation or a replay of saved frames.
 
-Evidence from a live run is labelled live; simulated or replayed results never stand in for it. A live run ends inside its envelope's limits.
+Evidence from a live run is labelled live; simulated or replayed results never stand in for it. A live run is supervised or unattended as its envelope says, is reported as such, and ends inside its envelope's limits.
 
 ### Run envelope
 The owner's standing grant for live runs: which machine and account, which actions are allowed, the time, call and loss budgets, the stop and takeover conditions, the privacy scope and an expiry.
 
-Inside an active envelope the engine may play and recover without asking each time; anything outside it, or any new kind of risk, goes back to the owner.
+Inside an active envelope the engine may play and recover without asking each time; anything outside it, or any new kind of risk, goes back to the owner. An envelope is usable only where every session and reviewer can read it, so a grant made in conversation is written down before another session relies on it.
+
+### Operator
+Whoever prepares the machine, starts live runs and tends them between runs, normally an agent session; distinct from the owner, who grants the envelope and may take over.
+
+The operator's actions (builds, what else runs on the machine, the screen's state, what is recorded, where the character is left between runs) are outside the engine's view, so the engine cannot guard against them; they need checks in the harness that starts the run, not notes.
 
 ## Flagged ambiguities
 
+- The operator (who runs and tends live runs) is distinct from the Owner controller (the human taking over during a run).
 - "Owner rules" (the owner's written instructions that Jev can read) are distinct from a Rule controller (code that decides in Jev's place).
