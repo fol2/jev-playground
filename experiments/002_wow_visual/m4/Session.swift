@@ -71,6 +71,16 @@ func endsSession(_ code: String) -> Bool {
     code.hasSuffix("KEYS_HELD") || code.contains("HANDOFF")
 }
 
+/// The wait after the way to safety at idle (review of #96): the idle wait only once safe; a settle when the next tick's
+/// reflexes have the answer (a fight not won, still in combat, dead, the owner's focus); the backoff for any other end (no
+/// safe place within reach, the rounds or the time spent, a stuck or unread walk), so the loop neither sleeps two minutes
+/// on a wrong "safe" nor spins.
+func idleWait(after safety: String) -> Double {
+    if safety == "SAFE" { return SessionLimits.idleSeconds }
+    let reflexes = safety.hasPrefix("FIGHT_") || safety.contains("COMBAT") || safety.contains("DEAD") || safety.contains("OWNER")
+    return reflexes ? SessionLimits.settle : SessionLimits.backoff
+}
+
 func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: RoadGraph? = nil, town: [TownNPC] = [],
                 budget: EnvelopeBudget = EnvelopeBudget(seconds: QuestLimits.envelopeSeconds, deaths: SessionLimits.deaths,
                                                         judgeCalls: SessionLimits.judgeCalls,
@@ -233,9 +243,11 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             // Idle-safe: nothing within reach. Stand in safety, forget this session's failures (a later read may show change;
             // the envelope's no-progress limit bounds a step that fails every time), and read again later.
             loop.begin(task: "idle", mode: .idleSafe, at: host.now())
-            note("idle", .safety, await host.toSafety())
+            let safety = await host.toSafety()
+            note("idle", .safety, safety)
+            if endsSession(safety) { return await finish(safety) }  // keys held on the way: no input after (review of #96)
             failed = []; danger = nil; ahead = nil; passing = nil
-            await host.wait(SessionLimits.idleSeconds)
+            await host.wait(idleWait(after: safety))
             continue
         }
 

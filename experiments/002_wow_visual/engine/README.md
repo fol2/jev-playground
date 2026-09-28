@@ -2,8 +2,10 @@
 
 The types and checks that [docs/architecture.md](../../../docs/architecture.md) names, so that the
 programme in [the epic](https://github.com/fol2/jev-playground/issues/85) builds on one set of
-contracts rather than on prose. Pure Foundation, compiled on Linux and macOS. **Nothing here is on
-a live path yet**: no probe imports it, no key is pressed, no provider is called.
+contracts rather than on prose. Pure Foundation, compiled on Linux and macOS. `World.swift` and
+`Controller.swift` are on one opt-in live path, `--quests --session` (#87, `m4/Session.swift`), which has
+not run live yet; `Planner.swift`, `Judge.swift` and `Report.swift` have no consumer, so no key is pressed
+and no provider is called through them.
 
 | File | What it fixes | Replaces, when wired |
 | --- | --- | --- |
@@ -12,7 +14,7 @@ a live path yet**: no probe imports it, no key is pressed, no provider is called
 | `Planner.swift` | `GoalPlanner.rank`: a utility ranking with the owner's rules as named terms; `tieBreak` gives the judge at most three | `questOffers` + `townOffers` + `withHistory` and the seventeen-skill quest graph |
 | `Judge.swift` | `JudgeQuestion` (choice, score, noul as TypeSafe defines them), `JudgeRequest` (one call, several independent questions, a small flat state), `parseJudgeAnswers`, `Judge` (cache, receipts), `QuestionLibrary` v1 | one `choice` per tick; READ/ENTER/BACK; `fuzzyNameMatch`, `sameTitle`, `townNameHit`, `questKind` |
 | `Report.swift` | `RunReport` from `events.jsonl`: decisions by controller, calls, latency, tokens, unread frames, deaths, quests, failures by kind, `FailureRecord` for the analyst | the manifest's partial counts; reading a run by hand |
-| `EngineTests.swift` | counted checks, floor 60 | |
+| `EngineTests.swift` | counted checks, floor 103 (the count; a dropped check lowers it on purpose) | |
 
 ## Build and check
 

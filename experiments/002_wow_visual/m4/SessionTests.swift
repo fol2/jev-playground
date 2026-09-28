@@ -249,6 +249,48 @@ extension NavTests {
         let twelve = await runSession(host: freed, jev: CannedGraph(["DO:HAND_IN_1", "DO:HUNT_1"]), graph: graph(), budget: budget(400))
         check(twelve.outcome == "TIME_LIMIT" && onceStuck.handed == ["Agitators", "HUNT Foul Matriarch"], "one stuck walk is a failed step, not an end")
 
+        // 15. The way to safety at idle reports its real end (review of #96): keys held end the session at once; a fight not
+        // won, combat or death on the way is the next tick's reflex after a settle; no safe place waits the backoff; SAFE alone
+        // waits the idle time.
+        func idle(_ safety: String, vitals: [SessionVitals?] = []) async -> (SessionResult, FakeSession) {
+            let host = FakeSession(FakeQuests([]), reads: [read([])])
+            host.safetyOutcomes = [safety]
+            host.vitalsScript = vitals
+            return (await runSession(host: host, jev: CannedGraph([]), graph: graph(), budget: budget(400)), host)
+        }
+        let (heldIdle, heldHost) = await idle("WALK_KEYS_HELD")
+        check(heldIdle.outcome == "WALK_KEYS_HELD" && heldHost.safetyRuns == 1 && heldHost.reviveCalls == 0 && heldHost.waited.isEmpty
+              && heldHost.failures() == ["WALK_KEYS_HELD"] && !heldIdle.records.contains { $0.outcome == .succeeded("SAFE") },
+              "keys held on the way to safety end the session at once: no wait, no click, no SAFE recorded")
+        let (lostIdle, lostHost) = await idle("FIGHT_SAFETY_STOP_PLAYER_BELOW_30", vitals: [FakeSession.healthy(), FakeSession.dead, FakeSession.healthy()])
+        check(lostHost.waited.first == SessionLimits.settle && lostHost.reviveCalls >= 1 && lostIdle.usage.deaths == 1
+              && lostHost.failures("safety").first == "FIGHT_SAFETY_STOP_PLAYER_BELOW_30"
+              && lostHost.events.contains { $0.name == "reflex" && $0.fields["action"] as? String == "releaseSpirit" }
+              && !lostIdle.records.prefix(2).contains { $0.outcome == .succeeded("SAFE") },
+              "a fight lost on the way to safety is recorded as it ended, and the death is the next tick's reflex, not after an idle wait")
+        let (_, foughtHost) = await idle("SAFE_TIME_LIMIT_IN_COMBAT", vitals: [FakeSession.healthy(), FakeSession.combat, FakeSession.healthy()])
+        check(foughtHost.waited.first == SessionLimits.settle && foughtHost.failures().first == "SAFE_TIME_LIMIT_IN_COMBAT"
+              && foughtHost.events.contains { $0.name == "reflex" && $0.fields["action"] as? String == "fightBack" },
+              "still in combat after the way to safety: the next tick fights back, after a settle, with no idle wait")
+        let (_, nowhereHost) = await idle("NO_SAFE_PLACE")
+        check(nowhereHost.waited.first == SessionLimits.backoff && nowhereHost.failures().first == "NO_SAFE_PLACE"
+              && nowhereHost.waited.contains(SessionLimits.idleSeconds),
+              "no safe place within reach waits the backoff, not the idle time; the idle time follows a SAFE")
+
+        // 16. questsExecute (macOS only, so a source check): a start revive that is not REVIVED is tried once more before the
+        // summary, in both modes, as main's run loop did (review of #96); the plain run's end keeps its walk to safety and
+        // revive; the live toSafety reports leaveDanger's real end, and its walk checks for held keys as walk() does.
+        let probe = (try? String(contentsOfFile: "experiments/002_wow_visual/m4/QuestProbe.swift", encoding: .utf8)) ?? ""
+        let execute = probe.components(separatedBy: "func questsExecute(").dropFirst().first?.components(separatedBy: "func zoomExecute(").first ?? ""
+        let startDeath = execute.components(separatedBy: "revivedFirst != \"REVIVED\" {").dropFirst().first?
+            .components(separatedBy: "} else if sessionLoop {").first ?? ""
+        let plainEnd = execute.components(separatedBy: "} else {").last ?? ""
+        check(startDeath.contains("revived = await host.reviveIfDead()") && plainEnd.contains("await host.leaveDanger(after: result.outcome)")
+              && plainEnd.contains("revived = await host.reviveIfDead()") && execute.components(separatedBy: "reviveIfDead()").count == 4
+              && probe.contains("func toSafety() async -> String { await leaveDanger(after: \"IDLE\") ?? \"SAFE\" }")
+              && probe.contains("guard !legs.holding else { return \"KEYS_HELD\" }"),
+              "a failed start revive is tried once more before the summary in both modes; the plain run still walks to safety and revives; toSafety reports the real end")
+
         // 14. The command line: --session is a flag of --quests only.
         check((try? parseNav(["--quests", "--graph", "g.json", "--keys", "wqe", "--session"]))?.session == true
               && (try? parseNav(["--quests", "--graph", "g.json", "--keys", "wqe"]))?.session == false

@@ -1411,13 +1411,22 @@ final class LiveQuestHost: QuestHost {
         try? JSONSerialization.data(withJSONObject: stuck.map { [$0.x, $0.y] }).write(to: QuestHUD.stuckMemory)
     }
 
-    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks are steered
-    /// (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that ended on a failed Jev
-    /// call walks too.
+    /// At a run's end and at the session's idle, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's:
+    /// its walks are steered (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that
+    /// ended on a failed Jev call walks too.
     /// It ends inside the run envelope's 30 minutes (the run stops new steps at 20). No fresh HUD counts as combat.
-    func leaveDanger(after outcome: String) async {
-        guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),
-              let safe = safePlace(from: at) else { return }
+    /// Its end is the real one (review of #96): nil when `outcome` calls for no walk (death, the owner, keys held, a failed
+    /// handoff); "SAFE" on arrival or already at a safe place; else leaveDangerRounds' end, or why no walk started: keys
+    /// held (`WALK_KEYS_HELD`, which ends a session), the owner's focus, an unread position, no safe place within reach.
+    @discardableResult
+    func leaveDanger(after outcome: String) async -> String? {
+        guard leavesDanger(outcome) else { return nil }
+        guard !holding else { return "WALK_KEYS_HELD" }
+        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard let at = await quester.position(turn: false) else { return "WALK_HUD_UNREADABLE" }
+        guard let safe = safePlace(from: at) else {
+            return QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) ? "SAFE" : "NO_SAFE_PLACE"
+        }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
 
@@ -1443,9 +1452,11 @@ final class LiveQuestHost: QuestHost {
             let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination, known: loadBumps())
                                        : await runNav(body: legs, jev: ScriptedJev(preference: preference), destination: destination)
             saveBumps(walked.bumps)
+            guard !legs.holding else { return "KEYS_HELD" }  // as walk(): a release unconfirmed ends the way, and the session
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])
+        return end
     }
 
     /// M4s: resurrect at the Spirit Healer when the screen shows death (SAFETY's; nil when it does not). Each read is on a
@@ -1582,11 +1593,9 @@ extension LiveQuestHost: SessionHost {
         return o.player >= RecoverLimits.until ? "RECOVERED" : "STILL_HURT"
     }
 
-    /// M4r's way to the nearest village, at idle and at the session's end alike.
-    func toSafety() async -> String {
-        await leaveDanger(after: "IDLE")
-        return "SAFE"
-    }
+    /// M4r's way to the nearest village, at idle and at the session's end alike, reporting its real end (review of #96): the
+    /// loop ends on keys held, and its next tick answers a fight not won, combat or death before any idle wait.
+    func toSafety() async -> String { await leaveDanger(after: "IDLE") ?? "SAFE" }
 
     func revive() async -> String? { await reviveIfDead() }
 
@@ -1665,6 +1674,7 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     var revived: String?
     if let revivedFirst, revivedFirst != "REVIVED" {
         result.outcome = revivedFirst
+        revived = await host.reviveIfDead()  // one more try before the summary, in both modes, as main's run loop (review of #96)
     } else if sessionLoop {
         // #87: the steps' window is the run's (no step after runDeadline); the session's end, inside the reserve, walks to safety
         // and checks for death itself (runSession's finish), so neither is repeated below.

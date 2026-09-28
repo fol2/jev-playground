@@ -1381,6 +1381,9 @@ session has run.
   is revived (M4s) and counted; combat is fought back (M4i, SAFETY); low health out of combat is recovered (M4w, RULE), or rested.
 - **Modes** (`session_mode`): dead, recovering, idle-safe, in town, questing, paused. With nothing within reach the loop is
   idle-safe: it walks to the nearest village (M4r), forgets this session's failed steps, and reads again two minutes later.
+  The walk's real end is recorded (review of #96): keys held on the way end the session; a fight not won, combat or death
+  on the way is the next tick's reflex after a settle, not after the two minutes; no safe place within reach, or a stuck
+  walk, is read again after the backoff.
 - **Only the envelope ends it** (`EnvelopeBudget`, defaults in `SessionLimits`): its time; a death (after the revive), as a
   run's; 120 graph calls, a run's budget; the second walk that makes no progress (`NO_PROGRESS_TWICE`), as a run's; or eight
   planned steps failed in a row with no success between (a fight back won or a walk to safety is not progress). The defaults
@@ -1392,7 +1395,7 @@ session has run.
 - **The run loop's danger-stop rules, kept in step** (28 Sept): what stopped the walk (`stopped_by`, M4ah, M4ai) goes into
   Jev's state, a lone creature no higher than the character is fought by RULE (M4ak), and an unaggressive one with no
   threat in view is walked past (M4am), as in `runQuests`.
-- **Evidence.** Sim only: `SessionTests.swift` (26 checks) on scripted reads, vitals and outcomes: the holds, the recorded
+- **Evidence.** Sim only: `SessionTests.swift` (31 checks) on scripted reads, vitals and outcomes: the holds, the recorded
   failures, the reflexes' order and controllers, death and recovery as modes, the owner's pause and its limit, a failed call, the
   call, death and stuck-walk limits, keys held, a danger stop's retreat and fight ahead, M4ak's and M4am's rules, and `--session`. Live: not yet run; the first
   announced session is its qualification, and its `events.jsonl` (`task_failed`, `reflex`, `session_mode`, `session_end`) the
