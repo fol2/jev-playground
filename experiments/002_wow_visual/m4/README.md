@@ -1023,7 +1023,7 @@ Between live runs 56 and 57 the character stood idle among level 2-3 hostiles by
 killed. The owner, 27 Sept: "error exit should still try best to leave danger zone".
 
 - **`leaveDanger`** (LiveQuestHost). Before a quest run exits, the character walks to the nearest safe place within
-  one walk (`safePlace`), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
+  25 units (`safePlace`, `QuestLimits.safeReach`; 12 until M4ag), logged `leave_danger` as SAFETY's. The safe places are the Zephras villages (Thendal,
   Shen'dar, Valanaar), by their NPCs' places in the town research.
 - **When.** Every end walks, errors included (`HUD_UNREADABLE`, `JEV_FAILED`), except:
   - the owner's takeover, whatever step it stopped;
@@ -1426,6 +1426,20 @@ text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run 
 - **Also:** the count before the click is read from a frame taken just before it, not from the survey. The owner's
   takeover ends the wait with no key pressed, and `hunt_limits` records `pick_up_s`. Jev's PICK_UP_OBJECT facts
   say the new wait (15 s at most), not "a few seconds".
+
+## M4ag — a run's end walks home from farther (28 Sept)
+
+Live run 86 ended at (36.7, 33.5), where its Foul Matriarch walk had stopped for danger and its retreat had come back
+to. Thendal Village was 13.6 units away, beyond `safeReach` (12). So `safePlace` found none, and the run exited with no
+`leave_danger`. The character stood there for the seven minutes before run 87, and run 87 began with it as a ghost by
+the Spirit Healer: killed while idle, then released by the game.
+
+- **The limit:** `QuestLimits.safeReach` is now 25 units. The way home goes by the learned roads, steered (M4ac), inside the
+  run envelope's reserve, as before.
+- **Evidence:**
+  - Sim: `HuntTests` checks that run 86's end point walks to Thendal Village, and that a point 42 units from any village
+    still walks nowhere.
+  - Live: the next run that ends away from a village.
 
 ## Limits
 

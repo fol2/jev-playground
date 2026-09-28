@@ -1503,8 +1503,8 @@ extension NavTests {
               && !leavesDanger("DEATH_AFTER_RELEASE_SPIRIT"),
               "M4s: a ghost with no gossip, a button that never takes, a failed click or a gossip back after Accept stops it where it stands")
         check(same(safePlace(from: (47.5, 21.7)), 43.2, 24.0) && safePlace(from: (43.4, 24.2)) == nil && safePlace(from: (70, 10)) == nil
-              && same(safePlace(from: (44, 40)), 43.4, 44.8),
-              "the nearest village within one walk; none when already there or too far")
+              && same(safePlace(from: (44, 40)), 43.4, 44.8) && same(safePlace(from: (36.7, 33.5)), 43.2, 24.0),
+              "the nearest village within reach; none when already there or too far; live run 86's end, 13.6 away, walks home")
         let convergence = FakeQuests([QuestRead(quests: [skysight], player: (42.6, 23.9), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [skysight], player: (47.0, 20.6), missing: [], abilities: ["Skysight"]),
                                       QuestRead(quests: [], player: (47.0, 20.6), missing: [])])

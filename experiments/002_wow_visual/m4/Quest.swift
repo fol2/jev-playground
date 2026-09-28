@@ -783,7 +783,9 @@ enum QuestLimits {
     static let safePlaces: [(name: String, at: MapPoint)] = [("Thendal Village", (43.2, 24.0)), ("Shen'dar Village", (43.4, 44.8)),
                                                             ("Valanaar", (58.2, 78.4))]
     static let safeArrive = 1.0
-    static let safeReach = 12.0  // one walk: a safe place farther than this is a run of its own
+    // The farthest a run's end walks to a village. It was 12, "a run of its own" beyond: live run 86 ended 13.6 from Thendal
+    // Village, walked nowhere, and the character died standing there before the next run. Roads carry a long walk (M4ac).
+    static let safeReach = 25.0
     static let safeWalks = 4  // walks on the way to safety, and a fight back after each that meets combat
     static let envelopeSeconds = 1800.0  // the owner's run envelope: 30 minutes from the start, the way to safety included
     static let safeWalkSeconds = 20.0  // a shorter walk to safety is not started
