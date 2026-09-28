@@ -32,7 +32,7 @@ tags: [engine-capability, per-run-patching, entity-resolution, ui-localisation, 
 
 ## Context
 
-The engine's live record is runs 1-100, from the first supervised `--quests` run on 25 September 2026 to the last on 28 September. Between #38 (the fixes from run 1) and #109, 60 PRs merged to main. 34 name the live run they fixed in the title, and most of the others name one in the first lines of the body. The working rhythm was "live run N failed → a PR that fixes run N".
+The engine's live record is runs 1-100, from the first supervised `--quests` run on 25 September 2026 to the last on 28 September. Between #38 (the fixes from run 1) and #109, 60 PRs merged to main. 34 name the live run they fixed in the title, and #38-#44 were the fixes from runs 1-7. The working rhythm was "live run N failed → a PR that fixes run N".
 
 That rhythm is older than the goal. The owner set the goal on the evening of 26 September: level from 1 to 20 "just like human do" (`experiments/002_wow_visual/m4/README.md:1126`). By then runs 1-13 (25-26 September) had already produced one-run patches: #38-#44 and #47. For example, #42 lets a dialogue title match with one letter in eight misread, and #43 makes a near "?" join its dot. The goal sped the rhythm up (from that evening, #52-#109: 46 PRs in about 33 hours) and made "does it level?" the only check, but it did not start it. Before the goal, six of the fourteen PRs were capability work (#45, #46, #48-#51). After it, capability work was the exception (#52, #55, #59, #63, #84, #86 among the 46; the classification is this note's). Over runs 85-100 (28 September), eleven PRs (#99-#109) moved the character from level 4 to level 5, per the session record, and the owner stopped the goal:
 
@@ -55,7 +55,7 @@ The owner pointed at the capability again and again, and each time the lesson wa
 - **24 Sept (survival):** "those reactions should be written in jev engine" (`experiments/002_wow_visual/m4/README.md:576`). The answer was a SAFETY fight-back for walks (#30).
 - **25 Sept (geometry):** "hardcode distance is dangerous. relative?" (#39 body). The answer was the same fixed 50 px search, now scaled to max(50 px, 2.5 mark heights).
 - **25 Sept (working memory):** "remember what was read, to cut rescans" (`experiments/002_wow_visual/m4/README.md:438`). It was built (#45, #46).
-- **26 Sept (perception):** after a day of mark-rule patches the owner asked "is it a good way to do so?". The answer: world objects move to a learned detector, "and fixed HUD boxes to anchors" (`experiments/002_wow_visual/m4/README.md:627-628`). Only the first half was done.
+- **26 Sept (perception):** after a day of mark-rule patches the owner asked "whether patching the rules frame by frame is the right way" (the README's wording). The answer: world objects move to a learned detector, "and fixed HUD boxes to anchors" (`experiments/002_wow_visual/m4/README.md:627-628`). Only the first half was done.
 - **27 Sept (drift checks):** "visual we agreed not using machine/pixel decode instead of ml" (`experiments/002_wow_visual/m5/README.md:371-372`). The Jev-driven line turned #58's scripted cast into a Jev option (#58 body). "Rethink the entire pathfinding" produced #86 (its title).
 - **28 Sept:** the goal was stopped.
 
@@ -74,7 +74,7 @@ What the tree holds today:
 - **Coordinate caches called learning.** After the owner asked "can the engine self-improve?" (#81 body), the answers were step records in `character.json` (`experiments/002_wow_visual/m4/QuestProbe.swift:46`, #81), stuck points in `stuck.json` (`:48`, #83) and pick-up places in `places.json` (`experiments/002_wow_visual/m4/HuntProbe.swift:27`, #105). #86 added `bumps.json` beside its walker (`experiments/002_wow_visual/m4/NavProbe.swift:75`). The owner: "sounds like the self-improvment is hard-coded memory? i don't disagree that but i expect more intelligent".
 - **An outcome log that needs the video to be believed.** #100 turned a pick-up logged as failed into a success by matching on the objective's text (`pickedUp`). Five loot and kill-attribution PRs (#68, #71, #74, #103, #106) have not made loot work. The last corpse looted was in run 93. Every kill in runs 94-99 ended `KILLED_NO_CORPSE`, on Ursera and Vuldren, which do leave corpses (private run logs, counts only). The owner: "that means our log is not accurate. yes it's truth but doesn't mean we always rely on video".
 
-The owner's six corrections to the 28 September lessons still stand. They, and the owner's quotes above, were given to the session on 28 September and are recorded here:
+The owner's six corrections to the 28 September lessons still stand. They, and the undated owner quotes in "What the tree holds today" above, were given to the session on 28 September and are recorded here:
 
 1. Jev was not at fault for retreating. Nobody had told it which creatures are aggressive.
 2. The engine's own log must be accurate.
@@ -90,7 +90,7 @@ The owner's six corrections to the 28 September lessons still stand. They, and t
 **Stop patching and name the capability as soon as any of these happens:**
 
 - A second PR is about to land in a failure class that already has one. Use the table's classes. Loot's second PR (#71) came two hours after the first (#68), and three more followed.
-- The owner asks "is it a good way?", "relative?", or to "rethink" something, or points at hard-coding. Treat that as a rule for every class, not only the one named. Then check the other rows of the table for the same smell that day.
+- The owner asks whether the method is "the right way", asks "relative?", asks to "rethink" something, or points at hard-coding. Treat that as a rule for every class, not only the one named. Then check the other rows of the table for the same smell that day.
 - The obvious fix is a constant, a threshold, a fixed box, a name list, a coordinate file or a RULE.
 
 At that point, write the capability into the PR and the capsule. Then either build it, or ship the patch labelled as a stopgap and linked to the capability's issue. Write the lesson down as the general rule, here in `docs/solutions/`, not as a note about one domain.
@@ -125,12 +125,12 @@ The two classes that got their capability stopped producing patches. The five th
 - **Walking.** Five walk patches (#56, #57, #67, #69, #83) each handled one boulder, turn or detour. The owner had already named obstacles and cliffs on 27 September, and that got a patch too (#69). Only "rethink the entire pathfinding" produced #86: roads plus a depth model, with no model call per move.
   - Live walk 3 still ended `NO_PROGRESS` among the standing stones. Walks 4 and 5 then arrived, with one bump and then none (`experiments/002_wow_visual/m4/README.md:1354-1364`). The hunt reused the walker in #98 without a new patch.
   - The tents that still stop walks (runs 88 and 100, per the private run recordings) are a gap in that capability, not a new class.
-- **Perception.** The pixel mark rules needed a patch every few runs (#38-#47). The learned readers (#48-#51, #55, #59) moved new cases into labelled data and held-out scores.
+- **Perception.** The pixel mark rules needed a patch every few runs (#38, #39, #43, #47). The learned readers (#48-#51, #55, #59) moved new cases into labelled data and held-out scores.
 - **Working memory.** #45 cut the skill bar's rescans: reading all twelve tooltips had taken about 8 s a run (`experiments/002_wow_visual/m3/README.md:71`). #46's log memory held only once #84 tied its invalidation to events, as noted above.
 - **Names.** Five PRs, and a sixth rule came in with #109.
 - **Outcomes.** Six PRs, and loot still misses.
 
-Patches in one consumer let the same class back in through a sibling. `unitLevel` checks names with `fuzzyNameMatch` (`experiments/002_wow_visual/m4/Quest.swift:820-821`). The hunt's `counts` has rules of its own, and #109's list matches with `mostlyIn`. Rules that live in one control flow also drift from the others: when #96's session loop (`runSession`) was brought up to date with main, the rules added to `runQuests` after it was copied (M4ah, M4ai, M4ak) were missing and had to be ported by hand (session history).
+Patches in one consumer let the same class back in through a sibling. `unitLevel` checks names with `fuzzyNameMatch` (`experiments/002_wow_visual/m4/Quest.swift:820-821`). The hunt's `counts` has rules of its own, and #109's list matches with `mostlyIn`. Rules that live in one control flow also drift from the others: when #96's session loop (`runSession`) was brought up to date with main, the rules added to `runQuests` after it was copied (M4ah, M4ai, M4ak) were missing and had to be ported by hand (PR #96's description, commits 7-11).
 
 The costliest part is how the lessons were stored. Each redirect from the owner was stored as a lesson about its own domain, so it had to be learnt again in the next domain. That costs the owner's attention each time, and it is the opposite of the mission in AGENTS.md, an engine "that learns how to play". Capability fixes compound across zones and classes, whereas every new zone inherits the patches as debt.
 
@@ -138,7 +138,7 @@ The costliest part is how the lessons were stored. Each redirect from the owner 
 
 - A live run has just failed and the fix would name that run in its title.
 - A second PR is about to land in a class from the table: UI position or timing, name matching, outcome logging, creature behaviour, walking, or "self-improvement".
-- The owner questions the method ("is it a good way?", "relative?", "rethink", "hard-coded"). Apply the answer to every class, not only the one in front of you.
+- The owner questions the method ("the right way", "relative?", "rethink", "hard-coded"). Apply the answer to every class, not only the one in front of you.
 - Jev keeps making the "wrong" choice. Check what its state was missing before constraining it.
 - A new memory file would store coordinates or names without provenance, confidence or invalidation.
 
@@ -182,7 +182,7 @@ Exception: a safety stop or held-input release acts at once. Do the capability w
 - The decision-architecture review and the architecture document on PR #96's branch (open) diagnose the same patching pattern from runs 1-84. This note adds the per-run rhythm as the cause (the goal only amplified it), the failure-class table, the owner's repeated redirects, grey-plate tap state and multi-signal verification.
 - Issues:
   - epic #85;
-  - #88 (reflex table: aggression knowledge should feed its "hostile ahead" entry);
+  - #88 (the reflex table, which has a "hostile ahead" entry; in this note's reading, learned aggression should feed it);
   - #89 (world model);
   - #92 (perception with uncertainty, including the anchored HUD);
   - #93 (offline learning loop).
