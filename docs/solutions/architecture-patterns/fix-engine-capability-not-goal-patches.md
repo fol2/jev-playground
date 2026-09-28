@@ -114,7 +114,7 @@ At that point, write the capability into the PR and the capsule. Then either bui
 - The per-run rhythm is the risk, with or without a goal. One run is one sample of a failure class. Read the class across runs before choosing the fix.
 - A RULE that overrides the model usually means the model lacked a fact. Find the fact first. Keep RULEs for what AGENTS.md gives to scripts: admissibility, watchdogs, budgets and emergency stops.
 - A capability still has to earn its place on held-out data. The learned facing reader (#63) was "confidently wrong" live and was demoted to filling the rule's gaps (#70).
-- A memory beside a capability is fine when it has provenance and invalidation, but it is not learning. #46's log memory was keyed by OCR text that changed with the subzone, so it rescanned anyway until #84 (`experiments/002_wow_visual/m4/README.md:1297-1300`).
+- A memory beside a capability is fine when it has provenance and invalidation, but it is not learning. #46's log memory was keyed by OCR text that changed with the subzone, so it rescanned anyway until #84 (`experiments/002_wow_visual/m4/README.md:1301-1304`).
 - "Gameplay failures feed bounded learning; … add a regression" (AGENTS.md) still applies. The regression should test the capability, such as the resolver against the misread fixtures, not just one frame.
 - Align with the open engine-level programme: epic #85, world model #89, perception with uncertainty #92 and offline learning loop #93.
 
@@ -123,7 +123,7 @@ At that point, write the capability into the PR and the capsule. Then either bui
 The two classes that got their capability stopped producing patches. The five that did not kept producing them until the goal was stopped:
 
 - **Walking.** Five walk patches (#56, #57, #67, #69, #83) each handled one boulder, turn or detour. The owner had already named obstacles and cliffs on 27 September, and that got a patch too (#69). Only "rethink the entire pathfinding" produced #86: roads plus a depth model, with no model call per move.
-  - Live walk 3 still ended `NO_PROGRESS` among the standing stones. Walks 4 and 5 then arrived, with one bump and then none (`experiments/002_wow_visual/m4/README.md:1354-1364`). The hunt reused the walker in #98 without a new patch.
+  - Live walk 3 still ended `NO_PROGRESS` among the standing stones. Walks 4 and 5 then arrived, with one bump and then none (`experiments/002_wow_visual/m4/README.md:1358-1368`). The hunt reused the walker in #98 without a new patch.
   - The tents that still stop walks (runs 88 and 100, per the private run recordings) are a gap in that capability, not a new class.
 - **Perception.** The pixel mark rules needed a patch every few runs (#38, #39, #43, #47). The learned readers (#48-#51, #55, #59) moved new cases into labelled data and held-out scores.
 - **Working memory.** #45 cut the skill bar's rescans: reading all twelve tooltips had taken about 8 s a run (`experiments/002_wow_visual/m3/README.md:71`). #46's log memory held only once #84 tied its invalidation to events, as noted above.
