@@ -69,12 +69,12 @@ What the tree holds today:
   - in `experiments/002_wow_visual/m3/Fight.swift`: `fuzzyNameMatch` (`:397`, two shared four-letter runs);
   - in `experiments/002_wow_visual/m4/Quest.swift`: `sameUnit` (`:425`, containment within two letters), `likeName` (`:444`, 60% of the shorter name's letters in order), `sameTitle` (`:476`, one edit in eight letters), `townNameHit` (`:1511`, #82's length bound of three letters) and `Creatures.isUnaggressive` (`:789`, via `mostlyIn`).
 
-  All of them sit on `nameKey` (`experiments/002_wow_visual/m4/Hunt.swift:102`, which maps i to l). The tree never gives Vision the known vocabulary: `customWords` appears nowhere in it.
+  Ten of them build on `nameKey` (`experiments/002_wow_visual/m4/Hunt.swift:102`, which maps i to l), directly or through `mostlyIn`. `fuzzyNameMatch` does not: it only lowercases and keeps the letters, so one matcher forgives an i read as l and another does not. The tree never gives Vision the known vocabulary: `customWords` appears nowhere in it.
 - **RULEs that override Jev.** #107 added `fightsBlocker` (`experiments/002_wow_visual/m4/Quest.swift:811`, applied at `:1339`) because Jev chose RETREAT with confidence 0.77-0.98 at every walk stop. #109 adds a hand-written unaggressive list (`experiments/002_wow_visual/learning/knowledge/zephras-creatures.json`, loaded at `experiments/002_wow_visual/m4/Quest.swift:783-789`) and a second RULE, WALK_PAST (`:1387-1390`). The owner: "we didn't mentione which are agreesive which are not, that's on us. but when it's agreesive, we will understand what we should do".
 - **Coordinate caches called learning.** After the owner asked "can the engine self-improve?" (#81 body), the answers were step records in `character.json` (`experiments/002_wow_visual/m4/QuestProbe.swift:46`, #81), stuck points in `stuck.json` (`:48`, #83) and pick-up places in `places.json` (`experiments/002_wow_visual/m4/HuntProbe.swift:27`, #105). #86 added `bumps.json` beside its walker (`experiments/002_wow_visual/m4/NavProbe.swift:75`). The owner: "sounds like the self-improvment is hard-coded memory? i don't disagree that but i expect more intelligent".
 - **An outcome log that needs the video to be believed.** #100 turned a pick-up logged as failed into a success by matching on the objective's text (`pickedUp`). Five loot and kill-attribution PRs (#68, #71, #74, #103, #106) have not made loot work. The last corpse looted was in run 93. Every kill in runs 94-99 ended `KILLED_NO_CORPSE`, on Ursera and Vuldren, which do leave corpses (private run logs, counts only). The owner: "that means our log is not accurate. yes it's truth but doesn't mean we always rely on video".
 
-The owner's six corrections to the 28 September lessons still stand:
+The owner's six corrections to the 28 September lessons still stand. They, and the owner's quotes above, were given to the session on 28 September and are recorded here:
 
 1. Jev was not at fault for retreating. Nobody had told it which creatures are aggressive.
 2. The engine's own log must be accurate.
@@ -124,9 +124,9 @@ The two classes that got their capability stopped producing patches. The five th
 
 - **Walking.** Five walk patches (#56, #57, #67, #69, #83) each handled one boulder, turn or detour. The owner had already named obstacles and cliffs on 27 September, and that got a patch too (#69). Only "rethink the entire pathfinding" produced #86: roads plus a depth model, with no model call per move.
   - Live walk 3 still ended `NO_PROGRESS` among the standing stones. Walks 4 and 5 then arrived, with one bump and then none (`experiments/002_wow_visual/m4/README.md:1354-1364`). The hunt reused the walker in #98 without a new patch.
-  - The tents that still stop walks (runs 88 and 100) are a gap in that capability, not a new class.
+  - The tents that still stop walks (runs 88 and 100, per the private run recordings) are a gap in that capability, not a new class.
 - **Perception.** The pixel mark rules needed a patch every few runs (#38-#47). The learned readers (#48-#51, #55, #59) moved new cases into labelled data and held-out scores.
-- **Working memory.** #45 and #46 removed rescans for every later run. The skill bar alone had cost about 8 s a run (twelve hovers, live run 4).
+- **Working memory.** #45 cut the skill bar's rescans: reading all twelve tooltips had taken about 8 s a run (`experiments/002_wow_visual/m3/README.md:71`). #46's log memory held only once #84 tied its invalidation to events, as noted above.
 - **Names.** Five PRs, and a sixth rule came in with #109.
 - **Outcomes.** Six PRs, and loot still misses.
 
