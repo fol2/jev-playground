@@ -54,7 +54,7 @@ The operator's actions (builds, what else runs on the machine, the screen's stat
 ## Delivering changes
 
 ### Exact-head review
-An independent review's verdict bound to the full commit a pull request points at; a merge proceeds only on a trusted pass for that exact commit.
+A pull-request review verdict bound to the full commit the pull request points at; a merge proceeds only on a trusted pass for that exact commit.
 
 The verdict is posted as a review, not a comment, in fixed lines that give the verdict, the reviewer's independence and the head it covers; a line that differs in any way, even by trailing spaces, is not read as a verdict. Any new commit invalidates it, so a fix is reviewed again before the merge.
 

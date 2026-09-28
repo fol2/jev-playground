@@ -45,7 +45,7 @@ tags: [ai-sdlc, merge, review-verdict, exit-status, cleanup, github]
   - 00:55:23: the same review was posted again with clean lines.
 - 01:02:13: the PR merged.
 
-The sequence of commands comes from the agent's private memory notes (auto memory [claude]). The review bodies and all the times above are on GitHub (`gh api repos/<owner>/<repo>/issues/99/events` and `…/pulls/99/reviews`).
+The sequence of commands comes from the agent's private memory notes (auto memory [claude]). The review bodies and all the times above are on GitHub: for #99 in `gh api repos/<owner>/<repo>/issues/99/events` and `…/pulls/99/reviews`, and for #53 in `…/issues/53/comments`, `…/pulls/53/reviews` and `…/issues/53/events`.
 
 ## Guidance
 
@@ -55,9 +55,13 @@ Treat the merge tool's exit status and readback as the only signal. Printed text
 
    ```sh
    sed -E 's/[[:space:]]+$//' review.txt > review.clean.txt
-   grep -cxE "AI-SDLC review: PASS|Independence: fresh-context|Head: $SHA" review.clean.txt   # expect 3
+   grep -cxF "AI-SDLC review: PASS" review.clean.txt                                        # expect 1
+   grep -cxE "Independence: (fresh-context|author-review|deterministic)" review.clean.txt   # expect 1, and the true one
+   grep -cxF "Head: $SHA" review.clean.txt                                                   # expect 1
    gh pr review "$PR" --comment --body-file review.clean.txt
    ```
+
+   Count each line on its own: one pattern with alternatives would also count three PASS lines as three. The Independence line states how the review was made; it is never changed to pass the check.
 
 2. **Run the read-only check first, then `--execute` on its own, with nothing piped after it.** Send the output to a file if it needs reading later. If a pipe is unavoidable, use `set -o pipefail`.
 
