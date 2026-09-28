@@ -82,6 +82,8 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
     var failed: Set<String> = [], used: Set<String> = []
     var danger: QuestStep?  // the step a hostile stopped, while that stop stands (M4h, M4o, M4p)
     var ahead: Ahead?  // what it stopped for, by Tab's target (M4ah, M4ai)
+    var passed: Set<String> = []  // steps walked past an unaggressive creature this session, once each (M4am)
+    var passing: String?  // the step whose next walk goes past, until another step is taken (M4am)
     var unread = 0, stuck = 0, wasDead = false
     var deadSince: Double?, pausedSince: Double?
     var lastMode = loop.mode
@@ -232,7 +234,7 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             // the envelope's no-progress limit bounds a step that fails every time), and read again later.
             loop.begin(task: "idle", mode: .idleSafe, at: host.now())
             note("idle", .safety, await host.toSafety())
-            failed = []; danger = nil; ahead = nil
+            failed = []; danger = nil; ahead = nil; passing = nil
             await host.wait(SessionLimits.idleSeconds)
             continue
         }
@@ -270,6 +272,8 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
         loop.begin(task: offer.step.name, mode: mode, at: host.now())
         modeChanged()
         let until = min(host.now() + HuntLimits.maxSeconds, stepsEnd)  // a hunt or a road: what the envelope leaves, at most a hunt's own
+        if passing == offer.step.key { host.passNext() }  // M4am: only the stopped step's own walk goes past, not another step's
+        passing = nil
         let outcome: String
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
@@ -293,7 +297,18 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
             ahead = await host.stoppedBy()
-            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0, "step": offer.step.name])
+            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0,
+                                     "threats": orNull(ahead?.threats), "step": offer.step.name])
+            // M4am, as in runQuests: an unaggressive creature with no threat in view is walked past, not fled or fought, once a step.
+            if let a = ahead, (a.threats ?? a.others) == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
+                passed.insert(offer.step.key)
+                host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
+                                         "rule": "an unaggressive creature stopped the walk: walk past it"])
+                passing = offer.step.key
+                danger = nil
+                ahead = nil
+                continue  // the stopped step is not failed: it is offered again, and its walk goes past
+            }
             failed.remove(QuestStep.fightAhead.key)
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)

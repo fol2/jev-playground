@@ -43,6 +43,7 @@ extension NavTests {
         func fightAhead() async -> String { await quests.fightAhead() }
         func fightBack() async -> String { await quests.fightBack() }
         func stoppedBy() async -> Ahead? { await quests.stoppedBy() }
+        func passNext() { quests.passNext() }
         func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String { await quests.hunt(quest, until: deadline) }
         func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
             await quests.walkRoad(to: quest, by: legs, until: deadline)
@@ -221,6 +222,15 @@ extension NavTests {
               && strong.handed.prefix(2) == ["Agitators", "RETREAT"] && strongJev.offered.count == 2
               && (strongJev.sent[1]["stopped_by"] as? [String: Any])?["name"] as? String == "Al'Aketh Brute",
               "M4ak in the session: a weak lone blocker is fought by RULE without Jev; a stronger one is Jev's, named in its state (M4ah)")
+        let meek = FakeQuests([])
+        meek.outcomes["Agitators"] = "WALK_DANGER_AHEAD"
+        meek.ahead = Ahead(name: "Juvenile Vuldren", level: 1, others: 1, threats: 0)
+        let meekHost = FakeSession(meek, reads: [read([ready]), read([ready]), read([ready]), read([])])
+        let meekJev = CannedGraph(["DO:HAND_IN_1", "DO:HAND_IN_1", "DO:RETREAT"])
+        _ = await runSession(host: meekHost, jev: meekJev, graph: graph(), budget: budget(400))
+        check(meek.passes == 1 && meek.handed.prefix(3) == ["Agitators", "Agitators", "RETREAT"] && !meekJev.offered[1].contains("DO:RETREAT")
+              && meekHost.events.contains { $0.name == "quest_step" && $0.fields["skill"] as? String == "WALK_PAST" },
+              "M4am in the session: an unaggressive creature with no threat in view is walked past once, not fled; the second stop is Jev's")
 
         // 13. The defaults are the owner's standing envelope: a death ends the session, 120 calls, the second stuck walk.
         check(SessionLimits.deaths == 1 && SessionLimits.judgeCalls == 120 && SessionLimits.stuckWalks == 2,
