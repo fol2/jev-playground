@@ -34,7 +34,7 @@ tags: [engine-capability, per-run-patching, entity-resolution, ui-localisation, 
 
 The engine's live record is runs 1-100, from the first supervised `--quests` run on 25 September 2026 to the last on 28 September. Between #38 (the fixes from run 1) and #109, 60 PRs merged to main. 34 name the live run they fixed in the title, and most of the others name one in the first lines of the body. The working rhythm was "live run N failed → a PR that fixes run N".
 
-That rhythm is older than the goal. The owner set the goal "robustly able to level from lv1 to lv20, just like human do" on 26 September at about 23:30 (auto memory [claude]). By then runs 1-13 (25-26 September) had already produced one-run patches: #38-#44 and #47. For example, #42 lets a dialogue title match with one letter in eight misread, and #43 makes a near "?" join its dot. The goal sped the rhythm up (#52-#109: 46 PRs in about 33 hours) and made "does it level?" the only check, but it did not start it. Before the goal, six of the fourteen PRs were capability work (#45, #46, #48-#51). After it, capability work was the exception (#52, #55, #59, #63, #84, #86 among the 46; the classification is this note's). Over runs 85-100 (28 September), eleven PRs (#99-#109) moved the character from level 4 to level 5, per the session record, and the owner stopped the goal:
+That rhythm is older than the goal. The owner set the goal on the evening of 26 September: level from 1 to 20 "just like human do" (`experiments/002_wow_visual/m4/README.md:1126`). By then runs 1-13 (25-26 September) had already produced one-run patches: #38-#44 and #47. For example, #42 lets a dialogue title match with one letter in eight misread, and #43 makes a near "?" join its dot. The goal sped the rhythm up (from that evening, #52-#109: 46 PRs in about 33 hours) and made "does it level?" the only check, but it did not start it. Before the goal, six of the fourteen PRs were capability work (#45, #46, #48-#51). After it, capability work was the exception (#52, #55, #59, #63, #84, #86 among the 46; the classification is this note's). Over runs 85-100 (28 September), eleven PRs (#99-#109) moved the character from level 4 to level 5, per the session record, and the owner stopped the goal:
 
 > "all in all i think because of the goal setting, you are more focus on how to level from 1 to lv20. all your patch are serving that but not in the higher thinking to improve the overall engine. that is actually why i stopped the goal."
 
@@ -54,17 +54,16 @@ The owner pointed at the capability again and again, and each time the lesson wa
 
 - **24 Sept (survival):** "those reactions should be written in jev engine" (`experiments/002_wow_visual/m4/README.md:576`). The answer was a SAFETY fight-back for walks (#30).
 - **25 Sept (geometry):** "hardcode distance is dangerous. relative?" (#39 body). The answer was the same fixed 50 px search, now scaled to max(50 px, 2.5 mark heights).
-- **25 Sept (UI):** a working memory and a UI laid out from anchors, starting with the dialogue box and the unit tooltip (auto memory [claude]). The working memory was built (#45, #46). The anchors were not.
+- **25 Sept (working memory):** "remember what was read, to cut rescans" (`experiments/002_wow_visual/m4/README.md:438`). It was built (#45, #46).
 - **26 Sept (perception):** after a day of mark-rule patches the owner asked "is it a good way to do so?". The answer: world objects move to a learned detector, "and fixed HUD boxes to anchors" (`experiments/002_wow_visual/m4/README.md:627-628`). Only the first half was done.
-- **26 Sept (skeleton):** "don't put effort to hardcoding things. this is jev-graph-driven, not script-driven" (auto memory [claude]).
 - **27 Sept (drift checks):** "visual we agreed not using machine/pixel decode instead of ml" (`experiments/002_wow_visual/m5/README.md:371-372`). The Jev-driven line turned #58's scripted cast into a Jev option (#58 body). "Rethink the entire pathfinding" produced #86 (its title).
 - **28 Sept:** the goal was stopped.
 
-Each redirect was recorded as a note about its own domain: perception, the walker, the skeleton, survival (auto memory [claude]). The only other place lessons were written down was the milestone READMEs; `docs/solutions/` was empty until #110. So the next domain started the same habit again. The 26 September plan already says "fixed HUD boxes to anchors", yet #108 patched a fixed tooltip box two days later.
+Each redirect was stored in the agent's private memory as a note about its own domain: perception, the walker, the skeleton, survival (auto memory [claude]). The only other place lessons were written down was the milestone READMEs; `docs/solutions/` was empty until #110. So the next domain started the same habit again. The 26 September plan already says "fixed HUD boxes to anchors", yet #108 patched a fixed tooltip box two days later.
 
 What the tree holds today:
 
-- **Fixed UI boxes.** There are 22 named screen boxes at fixed positions in `experiments/002_wow_visual/m3/FightProbe.swift`, `experiments/002_wow_visual/m4/QuestProbe.swift` and `experiments/002_wow_visual/m4/HuntProbe.swift`. Unit tooltips are read from `unitTooltipBox = CGRect(x: 2200, y: 1000, ...)` (`experiments/002_wow_visual/m3/FightProbe.swift:515`, used as `QuestHUD.unitTip` at `experiments/002_wow_visual/m4/QuestProbe.swift:15`). #108 closes the backpack after a read (`experiments/002_wow_visual/m4/QuestProbe.swift:259-262`) so that the game draws the tooltip back inside that box. The day before, direct observation had already noted that "UI tooltips appear next to the element hovered" (auto memory [claude]). The owner: "we should read tooptip where it located".
+- **Fixed UI boxes.** There are 18 named screen boxes at fixed pixel positions in `experiments/002_wow_visual/m3/FightProbe.swift`, `experiments/002_wow_visual/m4/QuestProbe.swift` and `experiments/002_wow_visual/m4/HuntProbe.swift`. Unit tooltips are read from `unitTooltipBox = CGRect(x: 2200, y: 1000, ...)` (`experiments/002_wow_visual/m3/FightProbe.swift:515`, used as `QuestHUD.unitTip` at `experiments/002_wow_visual/m4/QuestProbe.swift:15`). #108 closes the backpack after a read (`experiments/002_wow_visual/m4/QuestProbe.swift:259-262`) so that the game draws the tooltip back inside that box. The owner: "we should read tooptip where it located".
 - **Name matchers.** Eleven functions decide whether two strings name the same thing, and they use at least seven different rules:
   - in `experiments/002_wow_visual/m4/Hunt.swift`: `objective(for:)` (`:110`, a prefix or `mostlyIn`), `pickedUp` (`:141`, an exact key), `targetCue` (`:151`), `mostlyIn` (`:162`, 60% of four-letter runs) and `counts` (`:436`, whose whole-word rule for collect objectives came in #99 at `:445-446`);
   - in `experiments/002_wow_visual/m3/Fight.swift`: `fuzzyNameMatch` (`:397`, two shared four-letter runs);
@@ -154,7 +153,7 @@ Exception: a safety stop or held-input release acts at once. Do the capability w
 
 **Tooltip position (#108).**
 - *Patch:* close the backpack after each read so that the unit tooltip lands in `unitTooltipBox` again.
-- *Capability:* find the tooltip by its frame wherever it is drawn. The 25 September plan had already put the unit tooltip among the first anchors. With that capability, an open backpack or vendor window no longer affects any tooltip reader.
+- *Capability:* find the tooltip by its frame wherever it is drawn. The 26 September plan had already moved fixed HUD boxes to anchors (`experiments/002_wow_visual/m4/README.md:627-628`). With that capability, an open backpack or vendor window no longer affects any tooltip reader.
 
 **Name matching (#42 → #99).**
 - *Patches:* a title that matches with one letter in eight misread (#42); a bracket misread as "[51" (#44); a plate that counts only with every word, and a cue that ignores OCR tails (#60); a town NPC matched within three letters of its length (#82); a whole-word rule for collect objectives (#99).
@@ -179,12 +178,12 @@ Exception: a safety stop or held-input release acts at once. Do the capability w
 - `AGENTS.md`: the mission ("learns how to play"), the learning loop quoted above, and controller provenance (JEV, RULE, SAFETY, OWNER).
 - `docs/agents/ai-sdlc.md:110-111`: do not "teach" a combat rule "to compensate for an unmeasured HUD". This is the general form of the owner's first correction.
 - `experiments/002_wow_visual/m4/README.md:622-628`: the 26 September decision after runs 10-13 to stop mark patches, with HUD anchors as the unfinished half.
-- `experiments/002_wow_visual/m5/README.md:480-486`: the next step, moving the HUD anchors to the detector.
+- `experiments/002_wow_visual/m5/README.md:486-487`: the next step, moving the HUD anchors to the detector.
 - The decision-architecture review and the architecture document on PR #96's branch (open) diagnose the same patching pattern from runs 1-84. This note adds the per-run rhythm as the cause (the goal only amplified it), the failure-class table, the owner's repeated redirects, grey-plate tap state and multi-signal verification.
 - Issues:
   - epic #85;
   - #88 (reflex table: aggression knowledge should feed its "hostile ahead" entry);
   - #89 (world model);
   - #92 (perception with uncertainty, including the anchored HUD);
-  - #93 (offline learning loop);
-  - #109 (the hand-written creature list, a stopgap for learned aggression).
+  - #93 (offline learning loop).
+- PR #109: the hand-written creature list, a stopgap for learned aggression.
