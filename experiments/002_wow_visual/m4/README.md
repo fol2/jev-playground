@@ -1429,7 +1429,8 @@ every loop asks it each tick, building a `WorldState` from what it already reads
 - **The walks** (`runSteer`, `runNav`, `walk()`): the owner; combat (`COMBAT`); under 30 % out of combat (`LOW_HEALTH`,
   `walk_low_health`, before `hostile_ahead`: the floor wins whatever stands ahead); a red name or hostile plate within 30° of
   the heading (`DANGER_AHEAD`, `hostile_ahead`), never on the way to safety nor during an armed walk past (`walk()` now
-  honours the pass too, as `runSteer` did, and `QuestProbe`'s Jev-walked branch arms it as the steering branch does).
+  honours the pass too, as `runSteer` did, and `QuestProbe`'s Jev-walked branch arms it as the steering branch does; a
+  road-gap path hands the pass to its first leg that walks, and no later leg arms a second one).
 - **Recovery and the way to safety**: `recover()` (M4w) asks the table whether a heal is due; `leaveDanger` asks it about the
   owner and `leaveDangerRounds` about combat.
 - **Evidence.** Sim only: `EngineTests` (the order, each entry, combat over recovery and buffing, the #79 rule, the stop
