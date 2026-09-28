@@ -323,17 +323,24 @@ LOOT_CORPSE, HEAL and WAIT ("a kill must be looted first"). So it spent 30 s hov
 Scrawny Ursera attacked, and the character died ("You died." in chat, 0/98). The run read the quests and walked on
 before it saw the death.
 
-- **`hitAfterKill`** (`runFight`, RULE): after a kill, in combat, with nothing alive selected, a fall in the character's
-  health since the kill means another creature is attacking. The kill is set aside (the episode is no longer "killed"),
-  so SELECT_TARGET is offered again and the attacker is fought; that corpse is looted when it falls. A combat ring that
-  merely lingers after the kill does not trigger it, since the health must fall. Logged `reflex`.
-- **The corpse search** (LiveHost `hoverCorpse`) stops as soon as the character's health falls. It is logged
-  `corpse_hover_hit`, and LOOT_CORPSE answers "not looted: hit while searching for its corpse". That is not "no corpse",
+- **`hitAfterKill`** (`runFight`, RULE): after a kill seen on an earlier frame, in combat, with nothing alive selected,
+  another creature is attacking when either:
+  - the character's health fell since the previous observation; or
+  - combat is still on `FightLimits.combatAfterKill` (8 s) after the kill. The ring lingers only a few seconds after the
+    last attacker dies, and a heal each step can hide every fall, but not the combat an attacker keeps up.
+
+  The kill is set aside, SELECT_TARGET is offered again, and the attacker is fought. That corpse, the attacker's, is looted
+  when it falls; the first is left. The dying creature's own last hit, on the kill frame, does not count. Logged
+  `reflex`.
+- **The corpse search** (LiveHost `hoverCorpse`) and the walk to a still-selected corpse (Interact With Target) both stop
+  as soon as the character's health falls. LOOT_CORPSE then answers "not looted: hit while …". That is not "no corpse",
   which would end the fight with the attacker still on.
 - **Evidence:**
-  - Sim: `FightTests` checks that hitAfterKill is true when hit in combat with nothing alive, and false for a lingering
-    ring, out of combat, with a live target, and once looted.
-  - Live: the next fight with a second attacker.
+  - Sim: `FightTests` checks the predicate: a fall, and combat kept up past the linger, versus a lingering ring, out of
+    combat, a live target, and once looted.
+  - Sim: a whole `runFight` against `SimFight` with a second attacker and a 2.5 s heal: the kill is set aside once, the
+    attacker selected, killed and looted (`KILLED_AND_LOOTED`).
+  - Live: not yet run.
 
 ## Reproduce
 

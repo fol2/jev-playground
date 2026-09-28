@@ -408,11 +408,17 @@ final class LiveHost: FightHost {
             let before = chatLines(image)
             await tap(FightLimits.interact)
             var fresh: [String] = []
+            let health = main.observe(rgba(image), plates: false).player
             for _ in 0..<FightLimits.lootWalkPolls where fresh.isEmpty {
                 await sleep(FightLimits.lootPollSeconds)
                 guard let after = latestImage() else { continue }
                 write(after, to: directory.appendingPathComponent("loot-after.jpg"), type: .jpeg)
                 fresh = chatLines(after).filter { ($0.contains("receive loot") || $0.contains("You loot")) && !before.contains($0) }
+                // Hit on the way to the corpse: another creature attacks, and the fight goes on (M3c; review of #103).
+                if fresh.isEmpty, main.observe(rgba(after), plates: false).player < health - FightLimits.healthDrop {
+                    await tap(FightLimits.forward)
+                    return "not looted: hit while walking to its corpse"
+                }
             }
             if !fresh.isEmpty {
                 episode.looted = true
