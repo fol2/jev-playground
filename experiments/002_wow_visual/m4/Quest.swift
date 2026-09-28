@@ -779,6 +779,16 @@ extension QuestHost {
 struct Ahead: Equatable {
     var name: String
     var level: Int? = nil
+    var others = 0  // other hostile red names or plates in view with it (M4ak)
+}
+
+/// M4ak (RULE): a lone creature no higher than the character that stopped a walk is fought, not asked about. Jev chose
+/// RETREAT at every such stop (live runs 89-94, 0.77-0.98), from a level 1 Juvenile Vuldren at level 4 too, and the
+/// quests that way stood still. Any other stop is Jev's, as before; the fight's own start health (90%) still holds.
+/// `JEV_BLOCKER_FIGHT=off` turns it off.
+func fightsBlocker(_ ahead: Ahead?, characterLevel: Int?) -> Bool {
+    guard QuestLimits.fightsWeakBlockers, let a = ahead, let level = a.level, let character = characterLevel else { return false }
+    return level <= character && a.others == 0
 }
 
 /// A creature's level from its unit tooltip ("Scrawny Ursera", "Level 3", "Beast"): the number after "Level"; nil for "??".
@@ -800,6 +810,7 @@ func logObjectives(_ quests: [PlannedQuest]) -> [Objective] {
 
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
+    static let fightsWeakBlockers = ProcessInfo.processInfo.environment["JEV_BLOCKER_FIGHT"] != "off"  // M4ak
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let huntSlots = 2  // HUNT_1 and HUNT_2
     static let useSlots = 1  // USE_1 (M4m)
@@ -1297,19 +1308,28 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             let deliveries = read.quests.filter { [.handIn, .travel, .kill, .collect].contains(questKind($0)) && !failed.contains(stepKey($0)) }
             return finish(deliveries.isEmpty ? "NOTHING_TO_HAND_IN_OR_TAKE" : "NEXT_ZONE_NEEDS_ROADS")
         }
-        let decision: GraphDecision
-        do {
-            decision = try await graph.next(state: questState(read, steps: r.steps, stoppedBy: danger == nil ? nil : ahead),
-                skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
-                now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
-        } catch {
+        // M4ak: a lone creature no higher than the character that stopped the walk is fought by rule, with no Jev call.
+        let ruled = danger != nil && fightsBlocker(ahead, characterLevel: read.level) ? offers.first(where: { $0.skill == "FIGHT_AHEAD" }) : nil
+        let offer: (skill: String, step: QuestStep, criterion: String)
+        if let ruled {
+            offer = ruled
+        } else {
+            let decision: GraphDecision
+            do {
+                decision = try await graph.next(state: questState(read, steps: r.steps, stoppedBy: danger == nil ? nil : ahead),
+                    skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
+                    now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
+            } catch {
+                for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
+                return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+            }
             for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
-            return finish(error is GraphError ? "GRAPH_\(error)" : "JEV_FAILED")
+            guard let chosen = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
+            offer = chosen
         }
-        for call in graph.lastTrace { r.graphRecords.append(call); host.emit("graph_call", call) }
-        guard let offer = offers.first(where: { $0.skill == decision.action }) else { return finish("INVALID_REPLY") }
         if host.now() >= deadline { return finish("TIME_LIMIT") }  // a decision takes up to 20 s: none starts after the deadline
-        host.emit("quest_step", ["controller": "JEV", "skill": offer.skill, "step": offer.step.name])
+        host.emit("quest_step", ["controller": ruled == nil ? "JEV" : "RULE", "skill": offer.skill, "step": offer.step.name]
+            .merging(ruled == nil ? [:] : ["rule": "a lone creature no higher than the character stopped the walk: fight it"]) { a, _ in a })
         let outcome: String
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
@@ -1331,7 +1351,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
             ahead = await host.stoppedBy()
-            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "step": offer.step.name])
+            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0, "step": offer.step.name])
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)

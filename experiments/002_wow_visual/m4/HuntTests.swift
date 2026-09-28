@@ -1401,7 +1401,7 @@ extension NavTests {
             let host = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: [], level: 4),
                                    QuestRead(quests: [infest, winds], player: (42, 24), missing: [])])
             host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Agitators": "WALK_DANGER_AHEAD"]
-            host.ahead = name.map { Ahead(name: $0, level: level) }
+            host.ahead = name.map { Ahead(name: $0, level: level, others: 1) }  // company: Jev's, not M4ak's rule
             let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT"])
             _ = await runQuests(host: host, jev: jev, graph: graph()!)
             return jev
@@ -1419,6 +1419,26 @@ extension NavTests {
               && logObjectives([PlannedQuest(title: "Foul Matriarch", level: 5, ready: false, objective: "0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah")])
                   .map(\.text) == ["Ursera Scavenger slain", "Head of Urs'anah"],
               "M4ah: after a red name stops a walk, Jev's state names it and the objective it counts for; none unread, none before a stop or after the retreat")
+        // M4ak (live runs 89-94: Jev retreated from every stop, a level 1 Vuldren at level 4 too): a lone creature no higher
+        // than the character is fought by rule, with no Jev call; a higher one, or one with company, is Jev's.
+        func blockerRun(_ ahead: Ahead) async -> (FakeQuests, CannedGraph) {
+            let host = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 4),
+                                   QuestRead(quests: [infest], player: (43, 25), missing: [], level: 4)])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "FIGHT_AHEAD": "KILLED_AND_LOOTED"]
+            host.ahead = ahead
+            let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT", "DO:HUNT_1"])
+            _ = await runQuests(host: host, jev: jev, graph: graph()!)
+            return (host, jev)
+        }
+        let (weak, weakJev) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1))
+        let (strong, _) = await blockerRun(Ahead(name: "Al'Aketh Brute", level: 5))
+        let (crowd, _) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1, others: 1))
+        let (unlevelled, _) = await blockerRun(Ahead(name: "Juvenile Vuldren"))
+        check(weak.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && weakJev.offered.count == 2 && weakJev.offered[1].contains("DO:HUNT_1")
+              && strong.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"] && crowd.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
+              && unlevelled.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
+              && !fightsBlocker(Ahead(name: "x", level: 3), characterLevel: nil) && fightsBlocker(Ahead(name: "x", level: 4), characterLevel: 4),
+              "M4ak: a lone creature at or below the character's level is fought by rule and the stopped hunt offered again; a higher one, company or an unread level is Jev's")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),

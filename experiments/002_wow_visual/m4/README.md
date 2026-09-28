@@ -1511,6 +1511,26 @@ So every hunt searched by compass (run 87 wandered south and east among Vuldren 
     It ended SAFE, with no death.
 - **Also:** the places of every open collect objective are pooled, so with two such quests the nearest of either leads.
 
+## M4ak — a lone creature no higher than the character is fought, not asked about (28 Sept)
+
+Live runs 89–94: Jev chose RETREAT at every red-name stop (0.77–0.98). With `stopped_by` it knew what stood there and
+at what level (M4ah, M4ai), and it still retreated, from a level 1 Juvenile Vuldren at level 4 too (run 94). The
+walks to Foul Matriarch, Skysight and the Windstones' grove stood still, and so did the levelling.
+
+- **The rule** (`fightsBlocker`, RULE, in `runQuests`): after a stop, a creature whose level reads no higher than the
+  character's, with no other hostile red name or plate in view (`Ahead.others`), is fought: FIGHT_AHEAD, with no Jev
+  call. It is logged `quest_step` with `controller: RULE` and the rule's words.
+- **Everything else stays Jev's:** a higher level, company, an unread level or an unread character level.
+- **Unchanged:** the fight is M3's, with its own start health (90%) and safety. A kill offers the stopped step again
+  (M4p).
+- **Counting company** (live): after Tab, the larger of the red names and the hostile plates in view, less the target's
+  own. With no frame it counts as company, so the rule never assumes the creature is alone.
+- **Off switch:** `JEV_BLOCKER_FIGHT=off`.
+- **Evidence:**
+  - Sim: `HuntTests` checks that a lone level 1 at level 4 is fought by rule and the stopped hunt offered again. A level
+    5, company and an unread level go to Jev (RETREAT in the script).
+  - Live: the next stop.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

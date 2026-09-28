@@ -1118,16 +1118,19 @@ final class LiveQuestHost: QuestHost {
         await clear()
         await press(FightLimits.tab)
         guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
+        // M4ak: the other hostiles in view beside it, by red names or hostile plates (the more of the two, less the target's
+        // own); none read counts as some, so the rule's lone creature is never assumed.
+        let others = latest().map { img -> Int in let px = rgba(img); return max(0, max(redNames(px).count, nameplates(px).filter(\.hostile).count) - 1) } ?? 1
         // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
         // The pointer moves only while the game is the engine's and out of combat (review of #104).
-        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name) }
+        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name, others: others) }
         quester.hover(QuestHUD.targetPortrait.x, QuestHUD.targetPortrait.y)
         let hovered = hostNow()
         await quester.sleep(0.4)
         let tip = quester.lines(QuestHUD.unitTip, await quester.frame(after: hovered + 0.3)).map(\.text)
         if !ownerTookFocus() { quester.hover(1280, 60) }
         await clear()
-        return Ahead(name: name, level: unitLevel(tip, named: name))
+        return Ahead(name: name, level: unitLevel(tip, named: name), others: others)
     }
 
     /// The HUD on a frame no older than the fight's age limit; nil without one.
