@@ -179,7 +179,7 @@ Exception: a safety stop or held-input release acts at once. Do the capability w
 - `docs/agents/ai-sdlc.md:110-111`: do not "teach" a combat rule "to compensate for an unmeasured HUD". This is the general form of the owner's first correction.
 - `experiments/002_wow_visual/m4/README.md:622-628`: the 26 September decision after runs 10-13 to stop mark patches, with HUD anchors as the unfinished half.
 - `experiments/002_wow_visual/m5/README.md:486-487`: the next step, moving the HUD anchors to the detector.
-- The decision-architecture review (`docs/changes/2026-09-27-decision-architecture-review.md`) and the architecture document (`docs/architecture.md`), merged with PR #96, diagnose the same patching pattern from runs 1-84. This note adds the per-run rhythm as the cause (the goal only amplified it), the failure-class table, the owner's repeated redirects, grey-plate tap state and multi-signal verification.
+- The decision-architecture review (`docs/changes/2026-09-27-decision-architecture-review.md`), merged with PR #96 beside the standing architecture (`docs/architecture.md`), diagnoses the same patching pattern from runs 1-84. This note adds the per-run rhythm as the cause (the goal only amplified it), the failure-class table, the owner's repeated redirects, grey-plate tap state and multi-signal verification.
 - Issues:
   - epic #85;
   - #88 (the reflex table, which has a "hostile ahead" entry; in this note's reading, learned aggression should feed it);
