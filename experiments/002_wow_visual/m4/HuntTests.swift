@@ -160,8 +160,10 @@ extension NavTests {
               "a bar narrower than a plate is not one")
         let white: (UInt8, UInt8, UInt8) = (230, 230, 230)
         check(aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: white), (x: 1500, y: 240, rgb: (95, 30, 25), outline: dark)])) >= 1
-              && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark), (x: 1500, y: 240, rgb: (95, 30, 25), outline: dark)])) >= 2,
-              "review of #107: after Tab, an untargeted hostile plate beside the white-outlined target is company; two untargeted are two")
+              && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: dark), (x: 1500, y: 240, rgb: (95, 30, 25), outline: dark)])) >= 2
+              && aheadCompany(bars([(x: 800, y: 220, rgb: (95, 30, 25), outline: white)])) == 0
+              && redNames(redText((200, 40, 30), at: 1200, y0: 300)).count == 1 && aheadCompany(redText((200, 40, 30), at: 1200, y0: 300)) == 1,
+              "reviews of #107: after Tab, an untargeted hostile plate beside the white-outlined target is company, two are two, the target alone none; a red name always counts")
     }
 
     /// A name drawn as real ones measure (24 Sept): 3 px strokes, 11 px tall, on the dark forest floor.
