@@ -782,8 +782,11 @@ struct Ahead: Equatable {
 }
 
 /// A creature's level from its unit tooltip ("Scrawny Ursera", "Level 3", "Beast"): the number after "Level"; nil for "??".
-func unitLevel(_ lines: [String]) -> Int? {
-    for line in lines {
+/// Only a tooltip whose first line names `name` counts, as a leftover or another unit's would give another level (review of
+/// #104); an item's "Requires Level" and a player's line are not a creature's.
+func unitLevel(_ lines: [String], named name: String) -> Int? {
+    guard let first = lines.first, fuzzyNameMatch(first, [name]) || fuzzyNameMatch(name, [first]) else { return nil }
+    for line in lines.dropFirst() where !line.lowercased().contains("requires") && !line.lowercased().contains("player") {
         let words = line.split(separator: " ")
         if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
     }

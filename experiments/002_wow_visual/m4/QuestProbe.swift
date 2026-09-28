@@ -1111,6 +1111,7 @@ final class LiveQuestHost: QuestHost {
             await quester.sleep(HuntLimits.settle)
         }
         func clear() async {
+            guard combatNow() == false else { return }  // attacked meanwhile: the target stays for the fight back
             if named() != nil { await press(QuestHUD.escape) }
             if menu() { await press(QuestHUD.escape) }
         }
@@ -1118,13 +1119,15 @@ final class LiveQuestHost: QuestHost {
         await press(FightLimits.tab)
         guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
         // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
+        // The pointer moves only while the game is the engine's and out of combat (review of #104).
+        guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name) }
         quester.hover(QuestHUD.targetPortrait.x, QuestHUD.targetPortrait.y)
         let hovered = hostNow()
         await quester.sleep(0.4)
         let tip = quester.lines(QuestHUD.unitTip, await quester.frame(after: hovered + 0.3)).map(\.text)
-        quester.hover(1280, 60)
+        if !ownerTookFocus() { quester.hover(1280, 60) }
         await clear()
-        return Ahead(name: name, level: unitLevel(tip))
+        return Ahead(name: name, level: unitLevel(tip, named: name))
     }
 
     /// The HUD on a frame no older than the fight's age limit; nil without one.

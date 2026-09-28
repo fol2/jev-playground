@@ -1461,7 +1461,7 @@ state said nothing of what stood ahead, and the owner's rules say a red name is 
   its own. Selecting starts no fight. It runs only out of combat, and never while the owner has the game; logged
   `stopped_by`.
 - **Jev's state:** while the stop stands (RETREAT or FIGHT_AHEAD on offer), the quest state has
-  `"stopped_by": {"name", "counts_for_objective"}`. The objective is matched against the log's objectives
+  `"stopped_by": {"name", "counts_for_objective"}`. M4ai adds `level` and `character_level`. The objective is matched against the log's objectives
   (`logObjectives`, `objective(for:)`), or "none". Nothing is added when the name did not read. No criterion or graph
   changed: the choice stays Jev's.
 - **Evidence:**
@@ -1476,14 +1476,18 @@ RETREAT. A level 4 character retreated from a creature of level 3 or 4, a fight 
 
 - **`stoppedBy`** now returns an `Ahead` (a name and a level). After Tab reads the name, the pointer rests on the target
   frame's portrait (`QuestHUD.targetPortrait`, the mirror of the character's own). The level comes from its unit tooltip
-  (`unitLevel`: "Level 3"; nil for "??").
+  (`unitLevel`: "Level 3"; nil for "??"). It counts only when the tooltip's first line names the Tab target; a
+  "Requires Level" line and a player's line are ignored. The pointer moves only while the game is the engine's and out
+  of combat. Once attacked, the target is not dropped, so the fight back has it.
 - **Jev's state:** `stopped_by` has `level` and `character_level` beside the name and the objective. No criterion changed.
 - **Evidence:**
   - Sim: `HuntTests` checks the level in the state, and `unitLevel` on run 90's tooltip ("Scrawny Ursera", "Level 3",
     "Beast") and on an elite's "??".
   - The portrait's place was checked on run 91's fight frame: the portrait is centred at (1795, 993), with the level
     badge below it.
-  - Live: the next stop.
+  - Live, run 92: `stopped_by` read "Scrawny Ursera", level 3, at character level 4. Jev still chose RETREAT, but
+    FIGHT_AHEAD rose from 0.02–0.13 (run 89) to 0.19. The information is Jev's; whether to fight such a blocker is a
+    policy question for the reflex table (#88).
 
 ## Limits
 
