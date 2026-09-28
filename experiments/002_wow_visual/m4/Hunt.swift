@@ -430,11 +430,10 @@ func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
         var words = o.text.split(separator: " ").map { Array(nameKey(String($0))) }
         guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else {
             // Something to collect counts a creature that drops it: a whole word of its name is a word of the objective
-            // ("Scrawny Ursera" for "Scrawny Ursera Claw"), or its whole name is in it (Urs'anah for "Head of Urs anah").
-            // Four shared letters are not a drop: live run 85 fought four Roiling Winds for "Windstone Cluster".
-            let named = Set(words.map { String($0) })
-            return nameKey(o.text).contains(plate)
-                || creature.name.split(separator: " ").contains { let w = nameKey(String($0)); return w.count >= 4 && named.contains(w) }
+            // ("Scrawny Ursera" for "Scrawny Ursera Claw"), or two of its words read apart ("Urs'anah" for "Head of Urs anah").
+            // Shared letters are not a drop: live run 85 fought four Roiling Winds for "Windstone Cluster".
+            let named = Set(words.map { String($0) } + zip(words, words.dropFirst()).map { String($0 + $1) })
+            return creature.name.split(separator: " ").contains { let w = nameKey(String($0)); return w.count >= 4 && named.contains(w) }
         }
         words.removeLast()
         return words.filter { $0.count >= 4 }.allSatisfy { w in (0...(w.count - 4)).contains { plate.contains(String(w[$0..<$0 + 4])) } }
@@ -491,7 +490,7 @@ enum HuntAction: String, JevAction {
 
     var facts: String {
         let walk = "then selects the nearest enemy in front. Stops early if blocked or attacked."
-        let steps = "Walks up to \(HuntLimits.stepLength) map units (\(Int(HuntLimits.stepSeconds)) s at most), steering round what it meets,"
+        let steps = "Walks up to \(HuntLimits.stepLength) y units (\(Int(HuntLimits.stepSeconds)) s at most), steering round what it meets,"
         if let heading = compassHeading { return "\(steps) on compass heading \(Int(heading))° (0 north, 90 east), \(walk)" }
         switch self {
         case .fight:

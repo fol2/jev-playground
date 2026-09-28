@@ -214,9 +214,12 @@ extension NavTests {
               && counts(plate("Scrawny Ursera"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
               "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren, a Pesky Cirrusfly for its own kills, \"AI' Aketh\" for Al'Aketh, and a creature for the item it drops (review of #60)")
         let stones = [Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster")]
-        check(counts(plate("Roiling Winds"), stones) == nil && counts(plate("Rolling WWinds"), stones) == nil
-              && counts(plate("Urs'anah"), [Objective(quest: "Foul Matriarch", done: 0, need: 1, text: "Head of Urs anah")]) != nil,
-              "live run 85: a Roiling Wind shares only \"wind\" with a Windstone Cluster and does not count for it; Urs'anah counts for her head")
+        let head = [Objective(quest: "Foul Matriarch", done: 0, need: 1, text: "Head of Urs anah")]
+        check(["Roiling Winds", "Rolling WWinds", "Winds", "Wind"].allSatisfy { counts(plate($0), stones) == nil }
+              && questCreature(HuntObs(objectives: stones, seen: [Seen(name: "Roiling Winds", hostile: true, bearing: 342, near: true)])) == nil
+              && counts(plate("Urs'anah"), head) != nil && counts(plate("Urs'anah ЛОРAУ"), head) != nil
+              && counts(plate("Scrawny Ursera ЛОРAУ"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
+              "live run 85: a Roiling Wind, however much of its name reads, shares only letters with a Windstone Cluster and is no quest creature for it; Urs'anah counts for her head, a junk tail or not")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]
