@@ -504,7 +504,7 @@ struct M4Nav {
             case .zoom: exit(try await zoomExecute(command.zoomIn))
             case .bags: exit(try await bagsExecute())
             case .quests: exit(try await questsExecute(graph: try GraphSession.load(URL(fileURLWithPath: command.graph!)),
-                                                       fightGraph: command.fightGraph, huntGraph: command.huntGraph))
+                                                       fightGraph: command.fightGraph, huntGraph: command.huntGraph, session: command.session))
             }
         } catch {
             fputs("HOLD: \(error)\n", stderr)
