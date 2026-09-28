@@ -46,6 +46,11 @@ One session of the engine playing the real game inside a Run envelope, as oppose
 
 Evidence from a live run is labelled live; simulated or replayed results never stand in for it. A live run is supervised or unattended as its envelope says, is reported as such, and ends inside its envelope's limits.
 
+### Replay
+Running current perception or decision logic over the frames and decision states that earlier live runs saved, with no game input; distinct from a simulation, which invents the world the logic acts in.
+
+A replay shows what the changed logic would have read, offered or decided on real saved inputs, not what the game would have done after a different action. It counts only when its cases include ones near the decision it guards, so that a wrong change can make it fail, and its results are labelled offline, never live.
+
 ### Run envelope
 The owner's standing grant for live runs: which machine and account, which actions are allowed, the time, call and loss budgets, the stop and takeover conditions, the privacy scope and an expiry.
 
