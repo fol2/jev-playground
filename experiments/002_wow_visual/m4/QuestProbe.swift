@@ -1157,7 +1157,7 @@ final class LiveQuestHost: QuestHost {
     /// bar's heal is cast on it, and Esc drops the selection after, only while a target shows (Esc with none is the Game Menu).
     func healBeforeWalking() async {
         guard !ownerTookFocus() else { return }
-        let outcome = await recover(read: { self.vitalsNow() }, aim: {
+        let outcome = await main.recover(read: { self.vitalsNow() }, aim: {
             await self.quester.tap(QuestHUD.targetSelf)
             await self.quester.sleep(0.3)
         }, cast: {
@@ -1411,13 +1411,22 @@ final class LiveQuestHost: QuestHost {
         try? JSONSerialization.data(withJSONObject: stuck.map { [$0.x, $0.y] }).write(to: QuestHUD.stuckMemory)
     }
 
-    /// At a run's end, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's: its walks are steered
-    /// (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that ended on a failed Jev
-    /// call walks too.
+    /// At a run's end and at the session's idle, the way to the nearest safe place (safePlace, leaveDangerRounds), SAFETY's:
+    /// its walks are steered (M4ac; the old walker's fixed preference with JEV_WALKER), with no model call, so a run that
+    /// ended on a failed Jev call walks too.
     /// It ends inside the run envelope's 30 minutes (the run stops new steps at 20). No fresh HUD counts as combat.
-    func leaveDanger(after outcome: String) async {
-        guard leavesDanger(outcome), walker?.holding != true, !ownerTookFocus(), let at = await quester.position(turn: false),
-              let safe = safePlace(from: at) else { return }
+    /// Its end is the real one (review of #96): nil when `outcome` calls for no walk (death, the owner, keys held, a failed
+    /// handoff); "SAFE" on arrival or already at a safe place; else leaveDangerRounds' end, or why no walk started: keys
+    /// held (`WALK_KEYS_HELD`, which ends a session), the owner's focus, an unread position, no safe place within reach.
+    @discardableResult
+    func leaveDanger(after outcome: String) async -> String? {
+        guard leavesDanger(outcome) else { return nil }
+        guard !holding else { return "WALK_KEYS_HELD" }
+        guard !ownerTookFocus() else { return "OWNER_TOOK_FOCUS" }
+        guard let at = await quester.position(turn: false) else { return "WALK_HUD_UNREADABLE" }
+        guard let safe = safePlace(from: at) else {
+            return QuestLimits.safePlaces.contains(where: { distance(at, $0.at) <= QuestLimits.safeArrive }) ? "SAFE" : "NO_SAFE_PLACE"
+        }
         emit("leave_danger", ["controller": "SAFETY", "after": outcome, "from": [at.x, at.y], "to": [safe.x, safe.y]])
         let preference: [NavAction] = [.goToward, .detourRight45, .detourLeft45, .detourRight90, .detourLeft90, .backTrack]
 
@@ -1443,9 +1452,11 @@ final class LiveQuestHost: QuestHost {
             let walked = self.steering ? await runSteer(body: legs, path: safePath, destination: destination, known: loadBumps())
                                        : await runNav(body: legs, jev: ScriptedJev(preference: preference), destination: destination)
             saveBumps(walked.bumps)
+            guard !legs.holding else { return "KEYS_HELD" }  // as walk(): a release unconfirmed ends the way, and the session
             return walked.outcome
         }
         emit("leave_danger_end", ["controller": "SAFETY", "outcome": end])
+        return end
     }
 
     /// M4s: resurrect at the Spirit Healer when the screen shows death (SAFETY's; nil when it does not). Each read is on a
@@ -1466,7 +1477,7 @@ final class LiveQuestHost: QuestHost {
         // No click while any of the run's keys is held (review of #73: a hunt that ended with keys held).
         guard !ownerTookFocus(), !holding, let first = shown(await quester.frame(after: hostNow()), nil) else { return nil }
         emit("death", ["controller": "SAFETY", "shown": first.step.rawValue])
-        let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { c in
+        let end = await main.revive(first, clicks: QuestLimits.reviveClicks, click: { c in
             guard !self.ownerTookFocus() else { return false }
             self.emit("revive_click", ["controller": "SAFETY", "step": c.step.rawValue, "at": [Int(c.x), Int(c.y)]])
             return c.step == .talk ? self.quester.click(c.x, c.y, right: true) : self.quester.click(c.x, c.y)
@@ -1562,10 +1573,41 @@ final class LiveQuestHost: QuestHost {
     func emit(_ event: String, _ fields: [String: Any]) { quester.body.emit(event, fields) }
 }
 
+// MARK: #87 — the session loop's host (`--quests --session`)
+
+extension LiveQuestHost: SessionHost {
+    /// The HUD on a frame no older than the fight's age limit. Dead is an empty bar out of combat (runHunt's DEAD); the
+    /// death screen itself is read by revive(), so a misread bar costs a look, never a click.
+    func vitals() -> SessionVitals? {
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+        let o = observe(rgba(frame.image), plates: false)
+        return SessionVitals(health: o.player, mana: o.mana, inCombat: o.combat, dead: o.player < 0.01 && !o.combat,
+                             capturedAt: frame.stamp.capturedAt)
+    }
+
+    /// M4w's heal, then the bar again: RECOVERED at the walking health, STILL_HURT below it (the loop then rests).
+    func recover() async -> String {
+        await healBeforeWalking()
+        guard let o = vitalsNow() else { return "HUD_UNREADABLE" }
+        return o.player >= RecoverLimits.until ? "RECOVERED" : "STILL_HURT"
+    }
+
+    /// M4r's way to the nearest village, at idle and at the session's end alike, reporting its real end (review of #96): the
+    /// loop ends on keys held, and its next tick answers a fight not won, combat or death before any idle wait.
+    func toSafety() async -> String { await leaveDanger(after: "IDLE") ?? "SAFE" }
+
+    func revive() async -> String? { await reviveIfDead() }
+
+    func wait(_ seconds: Double) async { await quester.sleep(seconds) }
+}
+
 /// `--quests --graph PATH --keys wqe`: Jev chooses each quest step through the quest graph; local code
-/// offers only hand-ins within one walk and stops on the run envelope's limits (M4f).
+/// offers only hand-ins within one walk and stops on the run envelope's limits (M4f). With `--session` the
+/// session loop (#87, m4/Session.swift) runs in place of the run loop: a failure is recorded and planned round,
+/// an unread frame holds, and only the envelope or the owner ends it.
 @MainActor
-func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil, session sessionLoop: Bool = false) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -1625,15 +1667,32 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
-    body.emit("start", ["run_id": run.id, "mode": "quests", "decision_graph": graph.graph.id])
+    body.emit("start", ["run_id": run.id, "mode": sessionLoop ? "session" : "quests", "decision_graph": graph.graph.id])
     // Dead at the start (live, 27 Sept: it died between runs 56 and 57): resurrected first, or the run does not start.
     let revivedFirst = await host.reviveIfDead()
     var result = QuestResult()
-    if let revivedFirst, revivedFirst != "REVIVED" { result.outcome = revivedFirst }
-    else { result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
-                                    seconds: host.runDeadline - hostNow(), town: host.town) }  // what setup and a revive left of the window
-    await host.leaveDanger(after: result.outcome)
-    let revived = await host.reviveIfDead()  // died in the run or on the way to safety
+    var revived: String?
+    if let revivedFirst, revivedFirst != "REVIVED" {
+        result.outcome = revivedFirst
+        revived = await host.reviveIfDead()  // one more try before the summary, in both modes, as main's run loop (review of #96)
+    } else if sessionLoop {
+        // #87: the steps' window is the run's (no step after runDeadline); the session's end, inside the reserve, walks to safety
+        // and checks for death itself (runSession's finish), so neither is repeated below.
+        let played = await runSession(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph,
+                                      roads: roads, town: host.town,
+                                      budget: EnvelopeBudget(seconds: host.runDeadline - hostNow() + SessionLimits.endReserve,
+                                                             deaths: SessionLimits.deaths, judgeCalls: SessionLimits.judgeCalls,
+                                                             consecutiveFailures: SessionLimits.consecutiveFailures))
+        result.outcome = played.outcome; result.steps = played.steps; result.graphRecords = played.graphRecords
+        body.emit("session_summary", ["outcome": played.outcome, "modes": played.modes, "deaths": played.usage.deaths,
+                                      "judge_calls": played.usage.judgeCalls, "failures": played.records.filter {
+                                          if case .failed = $0.outcome { return true }; return false }.count])
+    } else {
+        result = await runQuests(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph, roads: roads,
+                                 seconds: host.runDeadline - hostNow(), town: host.town)  // what setup and a revive left of the window
+        await host.leaveDanger(after: result.outcome)
+        revived = await host.reviveIfDead()  // died in the run or on the way to safety
+    }
     try? await stream.stopCapture()
     withExtendedLifetime(signals) {}
     body.emit("summary", ["outcome": result.outcome, "steps": result.steps.map { ["quest": $0.quest, "outcome": $0.outcome] },

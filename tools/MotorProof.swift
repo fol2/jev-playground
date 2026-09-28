@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 236  // the current count: removing a check must lower this on purpose
-let minNavChecks = 478  // the current count: removing a check must lower this on purpose
+let minNavChecks = 509  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -437,14 +437,17 @@ func motorProof(update: Bool) throws -> String {
     let navTests = out("nav-tests"), nav = out("m4-nav"), memory = out("hunt-experience.json")
     let seekTests = out("seek-tests"), seek = out("m1-seek")
     let perceptionTests = out("perception-tests"), perceive = out("m5-perceive"), teach = out("m5-teach")
+    let engineTests = out("engine-tests")  // the decision architecture v2 skeleton: pure Foundation, no live path yet
     let fightSources = [motorDir + "Motor.swift", seekDir + "Plate.swift", fightDir + "Fight.swift"]
     let navSources = fightSources + [navDir + "Nav.swift", navDir + "Hunt.swift", navDir + "Quest.swift", navDir + "Roads.swift"]
     let seekShell = [motorDir + "Motor.swift", motorDir + "Probe.swift", seekDir + "Seek.swift", seekDir + "Plate.swift", seekDir + "SeekProbe.swift"]
     let clicks = [clickDir + "Adapter.swift", clickDir + "NativeWindowServerPreparation.swift", clickDir + "NativeBackgroundClickTransport.swift"]
+    let engineCore = [engineDir + "World.swift", engineDir + "Controller.swift"]  // the session loop's world model and PlayLoop (#87)
     let navBuild = Build(output: nav, sources: seekShell + [fightDir + "Fight.swift", fightDir + "FightProbe.swift", navDir + "Nav.swift",
                                                             navDir + "NavProbe.swift", navDir + "Hunt.swift", navDir + "HuntProbe.swift",
                                                             navDir + "Quest.swift", navDir + "QuestProbe.swift", navDir + "Roads.swift",
-                                                            perceiveDir + "Marks.swift", perceiveDir + "Reader.swift"] + clicks,  // M5 in shadow
+                                                            navDir + "Session.swift",
+                                                            perceiveDir + "Marks.swift", perceiveDir + "Reader.swift"] + engineCore + clicks,  // M5 in shadow
                          flags: ["-O", "-D", "SEEK", "-D", "FIGHT", "-D", "NAV"])
     if update {
         try buildAll([navBuild])
@@ -463,7 +466,8 @@ func motorProof(update: Bool) throws -> String {
         Build(output: fight, sources: seekShell + [fightDir + "Fight.swift", fightDir + "FightProbe.swift"] + clicks,
               flags: ["-O", "-D", "SEEK", "-D", "FIGHT"]),
         Build(output: navTests, sources: fightSources + [navDir + "Nav.swift", navDir + "NavTests.swift", navDir + "Hunt.swift",
-                                                         navDir + "HuntTests.swift", navDir + "Quest.swift", navDir + "Roads.swift"]),
+                                                         navDir + "HuntTests.swift", navDir + "Quest.swift", navDir + "Roads.swift",
+                                                         navDir + "Session.swift", navDir + "SessionTests.swift"] + engineCore),
         navBuild,
         Build(output: tabletop, sources: [navDir + "Tabletop.swift", sharedJSON]),
         Build(output: perceptionTests, sources: navSources + [perceiveDir + "Marks.swift", perceiveDir + "MarksTests.swift"]),
@@ -473,7 +477,10 @@ func motorProof(update: Bool) throws -> String {
         // Built, never run: its model is live (on-device, but a model call); without Swift 6.4 it is a stub that holds.
         Build(output: teach, sources: [perceiveDir + "Teacher.swift"]),
         Build(output: video, sources: [learnDir + "VideoJev.swift", sharedJSON]),
+        Build(output: engineTests, sources: ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift"]
+            .map { engineDir + $0 }),
     ])
+    let engineChecks = try suite(engineTests, "engine", 103)
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)
@@ -566,7 +573,7 @@ func motorProof(update: Bool) throws -> String {
     let seen = try perception(nav, tmp)  // last: it loads every core, and the dry-runs above time their key-ups
     func show(_ value: JSON?) -> String { value?.text() ?? "None" }
     let slowest = (late.number ?? 0) >= (seekLate.number ?? 0) ? late : seekLate
-    return "Experience: \(experienceChecks) checks. Decision graph: \(graphChecks) checks and native tool/skill/recall dry-run passed. "
+    return "Engine skeleton: \(engineChecks) checks. Experience: \(experienceChecks) checks. Decision graph: \(graphChecks) checks and native tool/skill/recall dry-run passed. "
         + "M0/M1/M3/M4 motor proof passed: \(checks) + \(seekChecks) + \(fightChecks) + \(navChecks) fake-time checks, argument refusal, "
         + "release under a 400 ms observer stall (max \(slowest.text()) ms late), SIGINT release, the simulated "
         + "M1 loop (\(pulses.text()) pulses), the simulated M3 fight (\(show(fightSummary["decisions"])) "

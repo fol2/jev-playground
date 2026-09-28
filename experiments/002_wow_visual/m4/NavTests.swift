@@ -32,6 +32,7 @@ struct NavTests {
         await roadLegs()
         await hunts()
         quests()
+        await session()
         print("nav checks passed: \(checks)")
     }
 
