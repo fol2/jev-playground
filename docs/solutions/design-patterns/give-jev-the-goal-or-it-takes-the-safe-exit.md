@@ -79,7 +79,7 @@ The sources, row by row:
 
 **The offline evaluation of framings that exists:**
 
-- **Walk rehearsals.** `--sim-jev` runs the real Jev against simulated walks: open, wall, pocket (`experiments/002_wow_visual/m4/README.md:217-224`, `Nav.swift:1269`). It caught STOP before any live walk.
+- **Walk rehearsals.** `--sim-jev` runs the real Jev against simulated walks: open, wall, pocket (`experiments/002_wow_visual/m4/README.md:217-224`, `Nav.swift:1275`). It caught STOP before any live walk.
 - **Hunt rehearsals.** `--hunt-sim-jev` does the same for hunts (`experiments/002_wow_visual/m4/HuntProbe.swift:5`).
 - **The tabletop.** `experiments/002_wow_visual/m4/Tabletop.swift` holds 13 situations from the owner's demo play. Its goal is the owner's: "level up … like a skilled human … and never die" (`:12-14`). Its exits (FLEE, AVOID_ALL, IGNORE) are plain alternatives. Live Jev agreed with the owner 13/13 (`experiments/002_wow_visual/m4/README.md:278-279`). The set was tuned until it agreed ("a first run missed two situations until it did", `Tabletop.swift:5`), so it is not a held-out test.
 - **Video replay.** `experiments/002_wow_visual/learning/VideoJev.swift` replays 236 video decisions. Its totals are historical (`experiments/002_wow_visual/learning/README.md:28-38`), and the held-out relabel is still "Next" (`:130`).
