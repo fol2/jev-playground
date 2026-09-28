@@ -271,7 +271,7 @@ final class LiveHuntHost: HuntHost {
             keys.grant(FightLimits.forward, seconds: HuntLimits.tap + NavLimits.forwardWatchdog)  // lifted if this stalls
             await tap(self, FightLimits.forward)  // a movement key ends Click-to-Move
         }
-        while hostNow() - clicked < 8 {
+        while hostNow() - clicked < HuntLimits.pickUpSeconds {
             await sleep(0.5)
             if vitals()?.combat == true {
                 await stopWalking()
@@ -279,14 +279,14 @@ final class LiveHuntHost: HuntHost {
             }
             guard let seen = freshImage() else { continue }
             let tracker = parseTracker(upscaledText(seen, HuntHUD.tracker))
-            if let now = tracker.first(where: { $0.quest == counted.quest && $0.text == counted.text }), now.done > counted.done {
+            if let now = pickedUp(counted, in: tracker) {
                 return "picked up \(counted.text): \(now.done)/\(now.need)"
             }
             // the last one: the quest's lines give way to "Ready for turn-in"
             if tracker.contains(where: { $0.quest == counted.quest && $0.text == Objective.ready }) { return "picked up \(counted.text): quest ready" }
         }
         await stopWalking()
-        return "right-clicked \(counted.text); its count did not rise within 8 s"
+        return "right-clicked \(counted.text); its count did not rise within \(Int(HuntLimits.pickUpSeconds)) s"
     }
 
     /// One M3 episode on a child input capability: its clock and budgets start fresh, and its frames go

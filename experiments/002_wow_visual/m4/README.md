@@ -1401,6 +1401,27 @@ PICK_UP_OBJECT, while the detector held a cluster at the character's feet.
   is no quest creature for it; it also checks Urs'anah, with a tail or without, against her head. The live
   proof is the next Windstones hunt.
 
+## M4af — a pick-up that worked is counted (28 Sept)
+
+Live run 86, after M4ae: the Windstones hunt chose PICK_UP_OBJECT twice. Both hovers read "Raw Windstone / Harvesting
+Windstones / 3/15 Windstone Cluster".
+- The first right-click walked the character to a far cluster by Click-to-Move, which took about 8.5 s.
+- The second started the gathering cast in reach. The chat said "You receive loot: [Windstone Cluster]x2", and the tracker
+  showed 5/15.
+
+Both were still recorded as "its count did not rise within 8 s". As the tracker changed, OCR missed the quest's title, so
+"5/15 Windstone Cluster" was read under the quest above it (Foul Matriarch). The check needed the same quest and the same
+text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run walked on and fought instead.
+
+- **The count check (`pickedUp`):** a pick-up's count is found by the objective's own text; the quest title is not needed.
+  The "Ready for turn-in" check still goes by quest, since that line has no text of its own.
+- **The wait:** a pick-up now waits up to 15 s (`HuntLimits.pickUpSeconds`) for the walk, the cast and the count. It was
+  8 s, and it still ends at once on success or an attack.
+- **Evidence:**
+  - Sim: `HuntTests` parses run 86's tracker with the title unread and finds the rise; an unchanged count finds none.
+  - Live: run 86's recording (frames 121–143 s: the walk, the cast bar, the loot line and 5/15) shows that the pick-ups
+    worked. The next Windstones hunt is the proof that they are counted.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.
