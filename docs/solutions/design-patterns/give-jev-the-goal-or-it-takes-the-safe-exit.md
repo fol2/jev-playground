@@ -75,7 +75,7 @@ The sources, row by row:
   - "A hostile creature's red name is danger" (`:9`);
   - since #109, "Tell aggressive creatures from unaggressive ones. Juvenile Vuldren are unaggressive." (`:15`).
 
-  In runs 85-99 Jev read only `recent` before a choice at a stop, never `owner_rules` (private run logs, counts only). So the aggression fact has been available to Jev but has never reached it at a stop. The one creature it names is now walked past by RULE before Jev is asked (`Quest.swift:1387`). `experiments/002_wow_visual/m4/README.md:561-562` already called Juvenile Vuldren "a neutral red-brown creature" on 24 September, and `:888-892` did again on 27 September. Both times it was a pixel rule, never a fact in Jev's state.
+  In runs 85-99 Jev never chose `READ:owner_rules` at a stop; it chose `READ:recent` six times. In 10 of the 23 stop decisions the rules were already loaded from an earlier read in the same run (private run logs, counts only). Either way, the aggression rule was not there to read: it entered `owner-rules.md` with #109, merged after run 99. So in those runs Jev was never told which creatures attack. Since #109, the one creature the rule names is walked past by RULE before Jev is asked (`Quest.swift:1387`), so that fact still does not reach Jev at a stop. `experiments/002_wow_visual/m4/README.md:561-562` already called Juvenile Vuldren "a neutral red-brown creature" on 24 September, and `:888-892` did again on 27 September. Both times it was a pixel rule, never a fact in Jev's state.
 
 **The offline evaluation of framings that exists:**
 
@@ -118,7 +118,7 @@ This note is the prompt and state side of [Fix the engine capability behind a li
   - In runs 85-99, 22 retreats each dropped a quest step for the rest of its run. The walks to Foul Matriarch, Skysight and the Windstones' grove "stood still, and so did the levelling" (`experiments/002_wow_visual/m4/README.md:1526`).
 - **The responses moved decisions out of Jev** against the owner's direction. From 24 September: "the engine's skeleton is Jev-driven" (`experiments/002_wow_visual/m4/README.md:496`). From 27 September: "a script does not make gameplay choices" (`:956`). Two RULEs now decide creature stops. Each has its own matcher and its own failure modes:
   - M4al found the level unread at most stops, so `fightsBlocker` "seldom fired" (`:1554`);
-  - #109's review found the far creature's own red name counted as company.
+  - PR #109's description notes that the far creature's own red name counted as company.
 - **The same mistake cost less once the fix was the question.**
   - STOP was removed on the grounds that local stops cover it, and walks and hunts have not needed it since.
   - Quest acceptance became policy, and has not been asked about since.
