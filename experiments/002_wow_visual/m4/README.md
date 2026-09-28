@@ -1034,7 +1034,7 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - In combat, SAFETY fights back first (one M3 fight, as in M4i). No fresh HUD counts as combat.
   - Out of combat, it walks. A walk that meets combat is fought, then walked again, for at most four walks. The last
     walk's combat is fought too.
-  - A lost fight, or any other walk end, stops it.
+  - A walk that ran out of its time is walked on too (M4ag). A lost fight, or any other walk end, stops it.
 - **Time.** Everything ends inside the envelope's 30 minutes from the run's start. A fight starts only with its whole
   150 s left. A walk gets what is left, at most 180 s, and none starts with less than 20 s left.
   - So that a fight is always left for it, the run starts no step after 20 minutes, not 25. The last step's walk and
