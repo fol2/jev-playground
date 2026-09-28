@@ -350,7 +350,8 @@ extension NavTests {
         var walks = NavEpisode()
         let bumped = await walkOn(ridge, heading: 0, episode: &walks)
         let bump = walks.attempts.first { $0.blocked }
-        check(bump != nil && !ridge.keys.holding, "a walk into the ridge bumps it, with W lifted after (M4ad: \(bumped))")
+        check(bump != nil && !ridge.keys.holding && walks.attempts.contains { $0.blocked && abs(angleError($0.heading, 0)) < 30 },
+              "a walk into the ridge bumps it heading north, with W lifted after (M4ad: \(bumped))")
         // The bump is kept where it happened: back there, the way to the area through the ridge is not offered again.
         if let b = bump { ridge.world.x = b.to.x; ridge.world.y = b.to.y; ridge.world.facing = 0 }
         let blocked = walks.blockedHeadings(near: ridge.look()!)

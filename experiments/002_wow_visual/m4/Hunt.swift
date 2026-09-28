@@ -12,7 +12,7 @@ enum HuntLimits {
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
     static let searchLimit = 12  // hunt decisions in a row without a fight
-    static let maxMoves = 24  // walks per hunt, about 3 s each
+    static let maxMoves = 24  // walks per hunt, each a steering walk of stepLength, stepSeconds at most (M4ad)
     static let repeatCap = 4  // the same compass walk at most this many times in a row
     static let restSeconds = 20.0
     static let lookSeconds = 90 / NavLimits.turnRate  // about 90°; live turns run up to 15 % further
@@ -664,7 +664,7 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         "blocked_headings_near_here": blocked.map { Int($0.rounded()) },
         "recent_actions": recent.suffix(HuntLimits.recent).map(\.json),
         "fights_so_far": fights,
-        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks cover about 0.6 y units; headings are compass degrees, 0 north, 90 east; an object's screen percent is 0 at the top left, and the character's feet are near x 50, y 60",
+        "units": "positions are zone-map percent (one x unit is 1.5 y units); walks steer on up to 1.5 y units (10 s at most), round what they bump; headings are compass degrees, 0 north, 90 east; an object's screen percent is 0 at the top left, and the character's feet are near x 50, y 60",
     ]
 }
 
@@ -745,7 +745,8 @@ func walkOn(_ host: HuntHost, heading: Double, episode: inout NavEpisode) async 
     let h = heading * .pi / 180
     // M4ad (the owner, 27 Sept: "you are climbing cliffs... rethink the entire pathfinding"): a short steering walk that way
     // (runSteer: the view's depth, a walled view turned from, the bumps remembered), not a blind 3 s run (live run 84: the
-    // hunt's own moves climbed the rock slopes west of Thendal Village). A red name on the way still stops it, for the hunt.
+    // hunt's own moves climbed the rock slopes west of Thendal Village). The hunt's body reads no red names (as before): what
+    // attacks on the way is fought by the hunt (review of #98).
     let to = NavDestination(label: "heading \(Int(heading))", x: start.x + HuntLimits.stepLength * sin(h) / mapAspect,
                             y: start.y - HuntLimits.stepLength * cos(h), arrive: 0.3, seconds: HuntLimits.stepSeconds)
     let walked = await runSteer(body: host, path: [], destination: to, known: host.knownBumps(), keepKeys: true)
@@ -759,7 +760,9 @@ func walkOn(_ host: HuntHost, heading: Double, episode: inout NavEpisode) async 
     }
     var attempt = NavAttempt(action: .goToward, from: start, to: walked.end ?? start, heading: heading,
                              before: HuntLimits.stepLength, after: distance((walked.end ?? start).point, to.point))
-    attempt.blocked = walked.outcome == "NO_PROGRESS" || (!walked.bumps.isEmpty && walked.outcome != "ARRIVED")
+    // Blocked where it ended only when it could not get on at all; each bump is its own blocked attempt, where it happened
+    // (review of #98: marking the end blocked on the first heading kept a way off at a place it was never blocked).
+    attempt.blocked = walked.outcome == "NO_PROGRESS"
     attempt.warned = walked.outcome == "DANGER_AHEAD"
     attempt.arrived = walked.outcome == "ARRIVED"
     episode.record(attempt)

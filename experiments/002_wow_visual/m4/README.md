@@ -1370,14 +1370,17 @@ the Windstones hunt's own moves (GO_TO_QUEST_AREA, the compass moves, detours), 
 the rock slopes west of Thendal Village; and LOOK_AROUND, offered out of combat, turned the character round on the spot.
 
 - `walkOn`, every walking move of the hunt, is a short steering walk that way (runSteer: 1.5 units, 10 s at most), with the
-  view's depth, a walled view turned from, and the bumps remembered (the live hunt host reads the depth and the bump memory);
-  a red name on the way still stops it, for the hunt. Each bump is kept where it happened, so the hunt does not offer that
-  heading there again. The steps share one key set: runSteer's `keepKeys` lifts W, Q and E at its end instead of retiring
+  view's depth, a walled view turned from, and the bumps remembered (the live hunt host reads the depth and the bump memory).
+  The hunt's body reads no red names, as before: what attacks on the way is fought by the hunt. Each bump is kept where it
+  happened, so the hunt does not offer that heading there again; a walk that could not get on at all is blocked where it
+  ended. The steps share one key set: runSteer's `keepKeys` lifts W, Q and E at its end instead of retiring
   the set (in the sim the second walk pressed nothing).
 - LOOK_AROUND is offered only in combat (an attacker behind): out of combat the hunt finds creatures by walking on, as Tab and
   the plates see what is ahead.
 - Evidence: sim (`HuntTests`: the field hunt round its ridge to a fight; attacked from behind, a look round then the fight;
-  no look round out of combat; the ridge's bump kept where it happened). Live: the next run.
+  no look round out of combat; the ridge's bump kept where it happened). Live run 85: the Windstones hunt fought and killed
+  four creatures (its fight limit) on the grove's flat ground among the trees, none of its frames on a rock slope; the run
+  retreated three times from danger ahead and fought one creature back (killed and looted); no death.
 
 ## Limits
 
