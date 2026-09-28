@@ -16,7 +16,7 @@ applies_when:
   - "A reader works offline and fails live, or the other way round"
   - "Training and test frames are being chosen for a learned reader"
 symptoms:
-  - "On 25 Sept PIL counted 2-3 red pixels on the bolt's range digit where the Swift reader counted 7-9 on the same saved JPEGs, and a false known limit (the reader missed a red digit) went into PR #33 until it was withdrawn"
+  - "On 25 Sept PIL counted 2-3 red pixels on the bolt's range digit where the Swift reader counted 7-9 on the same saved JPEGs, and a false known limit (the reader missed a red digit) went into PR #33 until it was withdrawn (auto memory [claude] for the decoder and the 2-3)"
   - "The same saved frame decoded two ways differed by up to 69 per channel inside the facing arrow's box, and one of 16 labelled JPEG frames read 56 degrees off"
   - "A screenshot showed the minimap quest mark in a different colour from the live capture"
 related_components:
@@ -54,7 +54,7 @@ The pixel readers in this repo are Swift. `hudCount` counts the pixels in a box 
   - `m4-nav --zoom` writes `zoom.png` (`experiments/002_wow_visual/m4/QuestProbe.swift:1729`).
 - *What that leaves:* fights, walks and hunts save no PNG. The fight HUD's states, such as a red range digit, a cast bar or error text, exist on disk only as JPEG.
 
-**The offline decode.** `--replay` and `--pixels` open a saved file with ImageIO and then call the same `rgba()` (`experiments/002_wow_visual/m4/NavProbe.swift:297-327`, `:353-372`). So does M5's `loadImage` (`experiments/002_wow_visual/m5/PerceiveTool.swift:38-40`). On a saved JPEG, the Swift replay runs the runtime's reader code on pixels that compression has already changed. PIL, or any other decoder, adds a second difference: a different JPEG decoder on top of the compression.
+**The offline decode.** `--replay` and `--pixels` open a saved file with ImageIO and then call the same `rgba()` (`experiments/002_wow_visual/m4/NavProbe.swift:297-327`, `:353-372`). M5's `loadImage` also opens files with ImageIO (`experiments/002_wow_visual/m5/PerceiveTool.swift:38-40`), then draws them into 8-bit RGB with its own `pixels()` (`:43-52`), not `rgba()`. On a saved JPEG, the Swift replay runs the runtime's reader code on pixels that compression has already changed. PIL, or any other decoder, adds a second difference: a different JPEG decoder on top of the compression.
 
 **What happened on 25 September (#33, #34).**
 
@@ -170,6 +170,6 @@ Exception: looking needs no rule. Crops and contact sheets from any tool are fin
 - [Keep the live-run harness and envelope in the repo](../workflow-issues/live-run-harness-and-envelope-belong-in-the-repo.md): no build beside a live run, which covers the stopgap build too.
 - `AGENTS.md`: "Name and test the actual runtime consumer before claiming transfer".
 - `docs/agents/ai-sdlc.md:96` (the decoder version as part of an extraction's identity) and `:101-103` ("A visual-capable analyst checks actual frames for claims about pixels").
-- `CONCEPTS.md:31-35`: learned readers, with pixel rules kept "for anything but fixed interface bars". The range digits are such bars.
+- `CONCEPTS.md`: *Pixel rule*, kept for fixed interface bars such as the range digits, and *Learned reader*, the trained alternative.
 - `experiments/002_wow_visual/m4/README.md:129-133`, `:178-213`, `:292`, `:536`, `:559-572`; `experiments/002_wow_visual/m3/README.md:282-292`, `:310-317`; `experiments/002_wow_visual/m5/README.md:286-287`, `:441-476`.
 - PRs: #17 (facing, PNG), #26 (screenshot against capture), #28 (JPEG calibration frames), #32 (the perception set), #33 and #34 (the digits), #37 (the gate in Swift).
