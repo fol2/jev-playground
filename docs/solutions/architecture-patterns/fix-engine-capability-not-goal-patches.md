@@ -31,7 +31,7 @@ tags: [engine-capability, goal-driven-patches, entity-resolution, ui-localisatio
 
 ## Context
 
-On 26 September 2026 the owner set the goal "robustly able to level from lv1 to lv20, just like human do". Over live runs 85-100 (27-28 September) every failure got its own local fix: ten merged PRs (#99-#108) and one pending (#109). Per the session record the character went from level 4 to 5, and the owner stopped the goal:
+On 26 September 2026 the owner set the goal "robustly able to level from lv1 to lv20, just like human do". Over live runs 85-100 (27-28 September) every failure got its own local fix: eleven PRs (#99-#109), the last merged just after the stop. Per the session record the character went from level 4 to 5, and the owner stopped the goal:
 
 > "all in all i think because of the goal setting, you are more focus on how to level from 1 to lv20. all your patch are serving that but not in the higher thinking to improve the overall engine. that is actually why i stopped the goal."
 
@@ -39,7 +39,7 @@ Each patch was locally correct and tested, but together they added special cases
 
 - **Fixed UI boxes.** Unit tooltips are read from a hard-coded `unitTooltipBox = CGRect(x: 2200, y: 1000, ...)` (`experiments/002_wow_visual/m3/FightProbe.swift:515`). #108 closes the backpack after a read (`experiments/002_wow_visual/m4/QuestProbe.swift:259-262`) so that the game draws the tooltip back inside that box. The owner: "we should read tooptip where it located".
 - **Scattered name matchers.** At least six ad hoc matchers use different rules: `nameKey` (`experiments/002_wow_visual/m4/Hunt.swift:102`, maps i to l), `objective(for:)` (`:110`), `targetCue` (`:151`), `mostlyIn` (`:162`, 60% of four-letter runs), `counts` (`:436`) and `fuzzyNameMatch` (`experiments/002_wow_visual/m3/Fight.swift:397`, two shared runs). `sameTitle` (`experiments/002_wow_visual/m4/Quest.swift:476`) is a seventh. #99 added one more whole-word rule inside `counts` (`experiments/002_wow_visual/m4/Hunt.swift:445-448`). The tree never gives Vision the known vocabulary: no `customWords` appears anywhere in it.
-- **RULEs that override Jev.** #107 added `fightsBlocker` (`experiments/002_wow_visual/m4/Quest.swift:789`, applied at `:1313`) because Jev chose RETREAT with confidence 0.77-0.98 at every walk stop. The owner: "we didn't mentione which are agreesive which are not, that's on us. but when it's agreesive, we will understand what we should do". #109 (pending) adds a hand-written list of unaggressive creatures and another RULE.
+- **RULEs that override Jev.** #107 added `fightsBlocker` (`experiments/002_wow_visual/m4/Quest.swift:811`, applied at `:1339`) because Jev chose RETREAT with confidence 0.77-0.98 at every walk stop. The owner: "we didn't mentione which are agreesive which are not, that's on us. but when it's agreesive, we will understand what we should do". #109 (merged after the stop) adds a hand-written list of unaggressive creatures and another RULE.
 - **Coordinate caches called learning.** `places.json` (`experiments/002_wow_visual/m4/HuntProbe.swift:27`), `bumps.json` (`experiments/002_wow_visual/m4/NavProbe.swift:75`), `stuck.json` (`experiments/002_wow_visual/m4/QuestProbe.swift:48`). The owner: "sounds like the self-improvment is hard-coded memory? i don't disagree that but i expect more intelligent".
 - **An outcome log that needs video to be believed.** #100 turned a pick-up logged as failed into a success by matching on the objective text (`pickedUp`, `experiments/002_wow_visual/m4/Hunt.swift:141`). On treating recordings as ground truth, the owner said: "that means our log is not accurate. yes it's truth but doesn't mean we always rely on video".
 
@@ -62,7 +62,7 @@ Working rules:
 
 ## Why This Matters
 
-Ten merged PRs bought one level. Each patch put a narrow condition into a single consumer, so the next failure of the same class came in through a sibling. For example, `unitLevel` checks names with `fuzzyNameMatch` (`experiments/002_wow_visual/m4/Quest.swift:797-798`), while the hunt uses `counts` with rules of its own. Rules that live in one control flow also drift from the others. When #96's session loop (`runSession`) was brought up to date with main, the rules added to `runQuests` after it was copied (M4ah, M4ai, M4ak) were missing and had to be ported by hand (session history). The special cases also pile up: #107's RULE and #109's list both override Jev on creature encounters, and the list is hand-written knowledge with no provenance or evaluation. That is the opposite of the mission in AGENTS.md, an engine "that learns how to play". Capability fixes compound across zones and classes, whereas every new zone inherits the patches as debt.
+The ten PRs merged before the stop bought one level. Each patch put a narrow condition into a single consumer, so the next failure of the same class came in through a sibling. For example, `unitLevel` checks names with `fuzzyNameMatch` (`experiments/002_wow_visual/m4/Quest.swift:820-821`), while the hunt uses `counts` with rules of its own. Rules that live in one control flow also drift from the others. When #96's session loop (`runSession`) was brought up to date with main, the rules added to `runQuests` after it was copied (M4ah, M4ai, M4ak) were missing and had to be ported by hand (session history). The special cases also pile up: #107's RULE and #109's list both override Jev on creature encounters, and the list is hand-written knowledge with no provenance or evaluation. That is the opposite of the mission in AGENTS.md, an engine "that learns how to play". Capability fixes compound across zones and classes, whereas every new zone inherits the patches as debt.
 
 ## When to Apply
 
@@ -79,14 +79,14 @@ Exception: a safety stop or held-input release acts at once. Do the capability w
 
 **Name matching (#99).** *Patch:* a whole-word rule for collect objectives inside `counts`, alongside the four-letter-run rules in `mostlyIn` and `fuzzyNameMatch`. *Capability:* the plate resolves to the known creature "Roiling Wind". Whether it counts for "Windstone Cluster" then becomes a lookup of what it drops, not a comparison of shared letters.
 
-**Creature behaviour (#107, #109 pending).** *Patch:* a RULE that fights a lone creature no higher than the character, plus a hand-written unaggressive list with a second RULE. *Capability:* creature knowledge learned from what happened on approach (did it attack, and at what range?), with provenance and confidence, added to Jev's state. Then Jev makes the decision.
+**Creature behaviour (#107, #109).** *Patch:* a RULE that fights a lone creature no higher than the character, plus a hand-written unaggressive list with a second RULE. *Capability:* creature knowledge learned from what happened on approach (did it attack, and at what range?), with provenance and confidence, added to Jev's state. Then Jev makes the decision.
 
 **Outcome logging (#100).** *Patch:* match the pick-up by objective text and wait 15 s. *Capability:* a verifier that claims a pick-up only when at least two signals agree (the tracker count rises, the item appears in the bags, the object leaves the view) and stores the frames. An offline audit then treats any disagreement between the log and a recording as a verifier defect.
 
 ## Related
 
-- `docs/agents/ai-sdlc.md`: the learning loop and the rule "do not teach a combat rule to compensate for an unmeasured HUD", the general form of the owner's first point.
+- `docs/agents/ai-sdlc.md`: the learning loop and the rule "do not "teach" a combat rule to compensate for an unmeasured HUD", the general form of the owner's first point.
 - `AGENTS.md`: the mission ("learns how to play"), the learning loop quoted above, and controller provenance (JEV, RULE, SAFETY, OWNER).
-- `experiments/002_wow_visual/m5/README.md`: the owner's 26 September decision for a learned detector over pixel-rule patches, and HUD anchors moving to the detector.
+- `experiments/002_wow_visual/m5/README.md`: the owner's 26 September decision for a learned detector over hand-tuned mark rules; moving the HUD anchors to that detector is listed there as a later step.
 - The decision-architecture review and the architecture document on PR #96's branch (unmerged at the time of writing) diagnose the same patching pattern from runs 1-84. This note adds the goal-setting cause, the failure-to-capability map, grey-plate tap state and multi-signal verification.
-- Issues: epic #85; #88 (reflex table: aggression knowledge should feed its "hostile ahead" entry); #89 (world model); #92 (perception with uncertainty); #93 (offline learning loop); #109 (the pending creature list, a stopgap for learned aggression).
+- Issues: epic #85; #88 (reflex table: aggression knowledge should feed its "hostile ahead" entry); #89 (world model); #92 (perception with uncertainty); #93 (offline learning loop); #109 (the hand-written creature list, a stopgap for learned aggression).
