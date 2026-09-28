@@ -399,7 +399,7 @@ Every step is a script (controller RULE); there is no Jev call.
    line drawn red (such as "Mail" for a Shaman) makes the item unusable.
 3. The owner's rule (24 Sept): "choose if it benefit (eg armor better than now, take and equip). or
    take the highest value (take and sell)." Click that reward, then Complete Quest.
-4. For an upgrade, `/equip NAME` in chat, then open the character pane (C), rest the pointer on the
+4. (Until M4x, #80, which wears an upgrade by right-click.) For an upgrade, `/equip NAME` in chat, then open the character pane (C), rest the pointer on the
    slot and read the item's name, as a human checks. Letters are only typed once the chat box shows
    "Say:" (read after a x3 upscale): outside it they are game keys. The engine uses no `/run`: it
    raises the client's "Allow custom scripts?" prompt, which is the owner's security choice.
@@ -1249,6 +1249,8 @@ character's, and Sell All Junk had sold such grey gear before.
 
 ## M4y — each step's record across runs (27 Sept)
 
+**Since 28 Sept:** a store like this is working memory, not learning. Learning needs provenance and evaluation (the learning loop, #93; the world model, #89); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
+
 The owner, 27 Sept: "Btw can the engine self-improve? Eg path finding, hunt, etc…". Live runs 77 and 78 each chose the
 Harvesting Windstones hunt first, and each ended `HUNT_NO_TARGET_FOUND` (Windstones are objects to pick up, not creatures):
 the in-run `failed` set is forgotten when a run ends.
@@ -1274,6 +1276,8 @@ the in-run `failed` set is forgotten when a run ends.
   once … WALK_NO_PROGRESS at level 4"), and Jev chose another step first.
 
 ## M4z — where walks stopped, remembered (27 Sept)
+
+**Since 28 Sept:** a store like this is working memory, not learning. Learning needs provenance and evaluation (the learning loop, #93; the world model, #89); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
 
 The owner, 27 Sept: "can the engine self-improve? Eg path finding". Live runs 78 and 79 each walked west from Thendal
 Village towards Foul Matriarch's pin (39.6, 23.9) and each stopped `NO_PROGRESS` against the same boulder on a steep slope
@@ -1491,6 +1495,8 @@ RETREAT. A level 4 character retreated from a creature of level 3 or 4, a fight 
 
 ## M4aj — the hunt remembers where it picked things up (28 Sept)
 
+**Since 28 Sept:** a store like this is working memory, not learning. Learning needs provenance and evaluation (the learning loop, #93; the world model, #89); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
+
 Live runs 85–89: the Windstones' clusters were found round Thendal Grove, but the minimap shows no ring for that quest.
 So every hunt searched by compass (run 87 wandered south and east among Vuldren and Cirrusflies, and found none).
 
@@ -1512,6 +1518,8 @@ So every hunt searched by compass (run 87 wandered south and east among Vuldren 
 - **Also:** the places of every open collect objective are pooled, so with two such quests the nearest of either leads.
 
 ## M4ak — a lone creature no higher than the character is fought, not asked about (28 Sept)
+
+**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89), which the reflex table's hostile-ahead entry would use (#88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
 
 Live runs 89–94: Jev chose RETREAT at every red-name stop (0.77–0.98). With `stopped_by` it knew what stood there and
 at what level (M4ah, M4ai), and it still retreated, from a level 1 Juvenile Vuldren at level 4 too (run 94). The
@@ -1553,6 +1561,8 @@ read "nothing" four times in run 98.
 
 ## M4am — an unaggressive creature in the way is walked past (28 Sept)
 
+**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89), which the reflex table's hostile-ahead entry would use (#88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
+
 The owner, 28 Sept: "Juvenile Vuldren is unagreesive. Need to separate aggressive or non aggressive". Their names are red,
 like any hostile's (run 99's frame), so the walks stopped for them, Jev retreated, and M4ak's rule fought them. Only
 knowledge tells them apart.
@@ -1578,7 +1588,7 @@ knowledge tells them apart.
   - Sim: `NavTests` checks that a steering walk with a red name ahead stops, and does not while it walks past.
   - Live: the next Vuldren stop.
 
-## Limits
+## Limits of the first walks (M4a)
 
 - Three supervised walks in one village. These are trials, not a success rate.
 - The pocket rehearsal shows that Jev does not leave a dead end by moving away from the goal.
