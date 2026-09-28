@@ -941,7 +941,12 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         }
         // Nothing to offer without a position after LOOK_AROUND (no walk, no second look): read again, as a survey that did
         // not read (live run 31, 27 Sept: the empty request ended the hunt as HUD_UNREADABLE on one unread position).
-        if o.here == nil && huntAdmissible(o, steps: r.steps).isEmpty {
+        // Death first (review of #117): an empty health bar out of combat with the place unread is the table's death below,
+        // not a survey that did not read, and no turn is posted for it.
+        let at = host.now()
+        let reflex = ReflexTable.first(huntWorld(o, at: at), ReflexContext(now: at, ownerTookFocus: false, maximumVisionAge: .infinity))
+        let dead = reflex?.action == .releaseSpirit
+        if o.here == nil && !dead && huntAdmissible(o, steps: r.steps).isEmpty {
             misses += 1
             if misses >= HuntLimits.unreadableLimit { return finish("HUD_UNREADABLE") }
             // live run 55 (27 Sept): the facing unread on every survey at the Windstones' area ended the hunt so
@@ -960,8 +965,7 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
         }
         let blocked = o.here.map { r.walks.blockedHeadings(near: $0) } ?? []
         persistPending(after: o, blocked: blocked)
-        if let hit = ReflexTable.first(huntWorld(o, at: host.now()), ReflexContext(now: host.now(), ownerTookFocus: false, maximumVisionAge: .infinity)),
-           case .releaseSpirit = hit.action {  // an empty health bar out of combat: the table's death, the loop's revive (M4s)
+        if dead, let hit = reflex {  // an empty health bar out of combat: the table's death, the loop's revive (M4s)
             host.emit("reflex", reflexEvent(hit))
             return finish("DEAD")
         }

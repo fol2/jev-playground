@@ -57,12 +57,12 @@ decision lives here and the qualified behaviour is unchanged.
 | `combat_low_health` | SAFETY | in combat, health under 30 %, mana for a heal | `heal`: the fight's `admissible` offers HEAL alone (WAIT while it casts) |
 | `buff_before_fight` | RULE | a fight is starting, the enchant is down, no cast; attacked, only at 60 % health or more (review of #79) | `buffWeapon`: the fight casts it first, once |
 | `combat` | SAFETY | in combat | `fightBack`: the session and the run loop fight back; the walks end `COMBAT`; the hunt offers FIGHT alone |
+| `walk_low_health` | SAFETY | in a walk, out of combat, under 30 %; not on the way to safety | `stopWalk(.lowHealth)`: the walk ends `LOW_HEALTH`; before `hostile_ahead`, so `walk()` stops on the floor whatever stands ahead (review of #117) |
+| `fight_stop_hurt` | SAFETY | in a fight, out of combat, under 30 % | `stopFight`: the fight ends `SAFETY_STOP_PLAYER_BELOW_30` |
 | `hostile_ahead` | RULE | a red name or hostile plate within 30° of the walk's heading; not on the way to safety, not on an armed walk past | `stopWalk(.hostileAhead)`: the walk ends `DANGER_AHEAD` (M4h, M4t) |
+| `hurt_out_of_combat` | RULE | out of combat, under 60 % | `recover`: the session heals or rests (M4w); the hunt offers no walk or pick-up; `recover()` casts; a walk between 30 and 60 % walks on; before the stop rules, so hurt at a stop the session recovers first and the stop stands (review of #117) |
 | `walk_past` | RULE | a stop stands, its creature is unaggressive with no threat in view, this step not yet walked past | `walkPast`: the stopped step is offered again and its walk goes past (M4am) |
 | `blocker_fight` | RULE | a stop stands, a lone creature no higher than the character | `fightAhead`: FIGHT_AHEAD with no Jev call (M4ak; `JEV_BLOCKER_FIGHT=off` turns it off) |
-| `walk_low_health` | SAFETY | in a walk, out of combat, under 30 %; not on the way to safety | `stopWalk(.lowHealth)`: the walk ends `LOW_HEALTH` |
-| `fight_stop_hurt` | SAFETY | in a fight, out of combat, under 30 % | `stopFight`: the fight ends `SAFETY_STOP_PLAYER_BELOW_30` |
-| `hurt_out_of_combat` | RULE | out of combat, under 60 % | `recover`: the session heals or rests (M4w); the hunt offers no walk or pick-up; `recover()` casts; a walk between 30 and 60 % walks on |
 
 `ReflexLimits` holds the three thresholds (`combatHealthFloor` 0.3, `healMana` 0.15, `walkHealth` 0.6) and the cone (30°);
 `FightLimits`, `HuntLimits`, `NavLimits` and `RecoverLimits` alias them. Nothing in the table is offered to Jev: `BUFF_WEAPON`

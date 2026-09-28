@@ -1417,16 +1417,19 @@ every loop asks it each tick, building a `WorldState` from what it already reads
 - **The run loop** (`runQuests`): the owner's takeover before the quest read (`ReflexTable.ownerTakeover`); after a stop,
   `walk_past` (M4am) then `blocker_fight` (M4ak) over the `ahead` belief (`Ahead.belief`: the creature knowledge stays here,
   in m4, and the table judges a belief) and the log's level. The codes are the run's, unchanged.
-- **The session loop**: as before, plus the two stop rules from the table instead of its own copy.
+- **The session loop**: as before, plus the two stop rules from the table instead of its own copy; hurt at a stop, the
+  recovery comes first (`hurt_out_of_combat` precedes them) and the stop stands for the next tick.
 - **The fight** (`runFight`, `admissible`): the owner on the last frame, the start's enchant (`buff_before_fight`, with the
   review of #79's 60 % rule), the heal floor (`combat_low_health`: HEAL alone, WAIT in a cast) and the stop out of combat
   (`fight_stop_hurt`: `SAFETY_STOP_PLAYER_BELOW_30`). `BUFF_WEAPON` is no longer Jev's offer (the fight graph and
   `FightTactics.offerNames` lost it; a chain may still cast it). The tactics are the fight's.
-- **The hunt** (`runHunt`, `huntAdmissible`): the owner before the survey; death (`DEAD`); in combat FIGHT alone (or
-  LOOK_AROUND and FIGHT); under 60 % out of combat no walk or pick-up (REST and EAT_DRINK stay Jev's choices).
+- **The hunt** (`runHunt`, `huntAdmissible`): the owner before the survey; death (`DEAD`, read before the unread-place
+  path, so an empty bar with the place unread is a death and no turn is posted); in combat FIGHT alone (or LOOK_AROUND and
+  FIGHT); under 60 % out of combat no walk or pick-up (REST and EAT_DRINK stay Jev's choices).
 - **The walks** (`runSteer`, `runNav`, `walk()`): the owner; combat (`COMBAT`); under 30 % out of combat (`LOW_HEALTH`,
-  `walk_low_health`); a red name or hostile plate within 30° of the heading (`DANGER_AHEAD`, `hostile_ahead`), never on the
-  way to safety nor during an armed walk past (`walk()` now honours the pass too, as `runSteer` did).
+  `walk_low_health`, before `hostile_ahead`: the floor wins whatever stands ahead); a red name or hostile plate within 30° of
+  the heading (`DANGER_AHEAD`, `hostile_ahead`), never on the way to safety nor during an armed walk past (`walk()` now
+  honours the pass too, as `runSteer` did, and `QuestProbe`'s Jev-walked branch arms it as the steering branch does).
 - **Recovery and the way to safety**: `recover()` (M4w) asks the table whether a heal is due; `leaveDanger` asks it about the
   owner and `leaveDangerRounds` about combat.
 - **Evidence.** Sim only: `EngineTests` (the order, each entry, combat over recovery and buffing, the #79 rule, the stop

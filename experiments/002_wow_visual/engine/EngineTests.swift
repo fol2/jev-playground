@@ -33,7 +33,7 @@ struct EngineChecks {
         planner()
         await judge()
         report()
-        let floor = 110  // the count, as the motor proof's floor (tools/MotorProof.swift): removing a check must lower both on purpose
+        let floor = 111  // the count, as the motor proof's floor (tools/MotorProof.swift): removing a check must lower both on purpose
         if failures > 0 { print("engine checks failed: \(failures) of \(checks)") }
         print("engine checks passed: \(checks - failures)")
         if failures > 0 || checks < floor { exit(1) }
@@ -162,8 +162,8 @@ struct EngineChecks {
               && ReflexTable.first(walk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90, passing: true)) == nil,
               "the way to safety and an armed walk past do not stop for a hostile ahead")
         // After a stop (#88): M4am then M4ak, in the table, in that order.
-        func stopped(_ a: AheadBelief?, level: Int? = 4, past: Bool = false, combat: Bool = false) -> (reflex: Reflex, action: ReflexAction)? {
-            var w = healthy(at: 10, combat: combat)
+        func stopped(_ a: AheadBelief?, level: Int? = 4, past: Bool = false, combat: Bool = false, health: Double = 1) -> (reflex: Reflex, action: ReflexAction)? {
+            var w = healthy(at: 10, combat: combat, health: health)
             if let a { w.ahead = .known(Reading(value: a, confidence: 1, capturedAt: 10, source: "ocr:tab")) }
             if let level { w.update(\.character.level, .known(Reading(value: level, confidence: 1, capturedAt: 10, source: "ocr:log"))) }
             return ReflexTable.first(w, ReflexContext(now: 10, ownerTookFocus: false, stoppedWalk: true, walkedPast: past))
@@ -183,6 +183,18 @@ struct EngineChecks {
               "M4ak: a lone creature no higher than the character is fought by RULE; company, a higher or unread level, or no reading, is Jev's")
         check(stopped(weak, combat: true)?.action == .fightBack && stopped(meek, combat: true)?.action == .fightBack,
               "combat outranks the stop rules: attacked at a stop, the fight back comes first")
+        // Review of #117: the floors outrank a hostile ahead (one walk() call carries the heading), and a recovery outranks the
+        // stop rules: hurt at a stop, the session recovers first and the stop stands for the next tick.
+        var hurtWalk = healthy(at: 10, health: 0.2)
+        hurtWalk.entities.observe([sighting("Roiling Winds", 95, at: 10)], at: 10)
+        let order = ReflexTable.standard.map(\.name)
+        func before(_ a: String, _ b: String) -> Bool { order.firstIndex(of: a)! < order.firstIndex(of: b)! }
+        check(ReflexTable.first(hurtWalk, ReflexContext(now: 10, ownerTookFocus: false, walkingHeading: 90, walking: true))?.reflex.name == "walk_low_health"
+              && stopped(weak, health: 0.45)?.action == .recover && stopped(meek, health: 0.45)?.action == .recover
+              && stopped(weak, health: 0.2)?.action == .recover && stopped(weak, health: 0.6)?.action != .recover
+              && before("combat", "walk_low_health") && before("walk_low_health", "hostile_ahead") && before("fight_stop_hurt", "hostile_ahead")
+              && before("hostile_ahead", "hurt_out_of_combat") && before("hurt_out_of_combat", "walk_past") && before("walk_past", "blocker_fight"),
+              "review of #117: the floors before a hostile ahead; a recovery before the stop rules; the fight before them all")
         check(ReflexTable.first(healthy(at: 10, health: 0.5), ctx)?.action == .recover, "hurt out of combat: recover before walking")
         var unbuffed = healthy(at: 10)
         unbuffed.update(\.character.weaponBuffActive, .known(Reading(value: false, confidence: 1, capturedAt: 10, source: "pixels:hud")))

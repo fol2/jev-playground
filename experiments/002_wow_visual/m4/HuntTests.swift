@@ -544,6 +544,14 @@ extension NavTests {
         check(lost.outcome == "HUD_UNREADABLE" && placeless.keys.codesPosted.split(separator: FightLimits.tab).last.map(Array.init) == [FightLimits.turnRight]
               && !lost.holding,
               "live run 55: a hunt that cannot read its place turns once on the spot before it gives up")
+        // Review of #117: an empty health bar out of combat with the place unread is a death, not an unreadable HUD, and no
+        // turn on the spot is posted for it.
+        let fallen = SimHunt.field(clock: FightClock())
+        fallen.positionBlind = true
+        fallen.world.player = 0
+        let fell = await runHunt(host: fallen, jev: huntScripted([.lookAround, .nextTarget]))
+        check(fell.outcome == "DEAD" && fell.decisions == 0 && !fallen.keys.codesPosted.contains(FightLimits.turnRight) && !fell.holding,
+              "review of #117: dead with the place unread ends DEAD, with no turn on the spot (\(fell.outcome))")
     }
 }
 

@@ -1396,8 +1396,9 @@ final class LiveQuestHost: QuestHost {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let legs = newWalker(folder)
         walker = legs
-        let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout),
-                                  destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive))
+        var destination = NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive)
+        if passing { destination.passUntil = hostNow() + QuestLimits.passSeconds }  // M4am, as the steering branch (review of #117)
+        let walked = await runNav(body: legs, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout), destination: destination)
         guard !legs.holding else { return "WALK_KEYS_HELD" }
         if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }
         return walked.outcome == "ARRIVED" ? nil : "WALK_" + walked.outcome

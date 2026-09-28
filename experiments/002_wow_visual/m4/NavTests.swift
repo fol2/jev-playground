@@ -667,6 +667,16 @@ struct NavTests {
         check(combat == ("COMBAT", false) && low == ("LOW_HEALTH", false) && lowSafe == ("ARRIVED", false) && owner == ("OWNER_TOOK_FOCUS", false)
               && redAhead == ("DANGER_AHEAD", false) && pastIt == ("ARRIVED", false) && blank == ("HUD_UNREADABLE", false),
               "M4ac: combat, low health, the owner, a red name on the aim and an unread HUD stop the walk, keys released; the way to safety walks on at low health and past a red name")
+        // Review of #117: inside walk() one table call carries the heading, and the floor outranks the red name ahead: at 25 %
+        // with one straight ahead the move ends on walk_low_health, not warned (the loop then ends LOW_HEALTH, as on main).
+        let hurtAhead = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        hurtAhead.player = 0.25; hurtAhead.hostiles = [(40, 28)]
+        var hurtReflexes: [String] = []
+        hurtAhead.emitHandler = { event, fields in if event == "reflex", let name = fields["reflex"] as? String { hurtReflexes.append(name) } }
+        let hurtMove = await walk(hurtAhead, .goToward, from: hurtAhead.look()!, to: d)
+        let hurtSteer = await stops { $0.player = 0.25; $0.hostiles = [(40, 28)] }
+        check(hurtReflexes.first == "walk_low_health" && !hurtMove.warned && !hurtAhead.keys.holding && hurtSteer == ("LOW_HEALTH", false),
+              "review of #117: below the floor with a red name ahead, walk() ends on the floor, not warned; the steering walk ends LOW_HEALTH (\(hurtReflexes))")
         let dark = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
         dark.unreadable = true
         let unread = await runSteer(body: dark, path: [], destination: d)

@@ -7,7 +7,7 @@ import ImageIO
 let minChecks = 100  // the suite must not silently lose its cases
 let minSeekChecks = 103  // the current count: removing a check must lower this on purpose
 let minFightChecks = 237  // the current count: removing a check must lower this on purpose
-let minNavChecks = 509  // the current count: removing a check must lower this on purpose
+let minNavChecks = 512  // the current count: removing a check must lower this on purpose
 let minLearningChecks = 81  // the video evaluator's self-test: 67 on the evaluator, 14 on the JSON format
 let minPerceptionChecks = 43  // M5: the current count: removing a check must lower this on purpose
 let lateMS = 100.0  // dry-runs stall their observer 400 ms per pulse; an observer-bound release fails
@@ -482,7 +482,7 @@ func motorProof(update: Bool) throws -> String {
         Build(output: engineTests, sources: ["World.swift", "Controller.swift", "Planner.swift", "Judge.swift", "Report.swift", "EngineTests.swift"]
             .map { engineDir + $0 }),
     ])
-    let engineChecks = try suite(engineTests, "engine", 110)
+    let engineChecks = try suite(engineTests, "engine", 111)
     _ = try suite(coreTests, "runtime", 33)
     let experienceChecks = try suite(experienceTests, "experience", 34)
     _ = try suite(integration, "runtime integration", 43)

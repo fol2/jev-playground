@@ -121,10 +121,30 @@ enum ReflexTable {
             return .buffWeapon
         },
         Reflex(name: "combat", controller: .safety) { w, _ in w.character.inCombat.value == true ? .fightBack : nil },
+        // The floors before a hostile ahead (review of #117: in walk() one call carries the heading, and the stop at 30 % out of
+        // combat is the walk's answer whatever stands ahead, as on main). Inside a walk, out of combat below the floor, the walk
+        // stops (LOW_HEALTH), except the way to safety, which walks on (reviews of #72: stopping among hostiles is what it leaves).
+        Reflex(name: "walk_low_health", controller: .safety) { w, c in
+            guard c.walking, !c.walkingToSafety, w.character.inCombat.value == false, let h = w.character.health.value,
+                  h < ReflexLimits.combatHealthFloor else { return nil }
+            return .stopWalk(.lowHealth, "below the floor out of combat: the walk stops")
+        },
+        // Inside a fight, out of combat below the floor, the fight ends and the loop recovers (M3: SAFETY_STOP_PLAYER_BELOW_30;
+        // the owner, 23 Sept: never a stop in combat, where standing still is dying).
+        Reflex(name: "fight_stop_hurt", controller: .safety) { w, c in
+            guard c.inFight, w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.combatHealthFloor else { return nil }
+            return .stopFight("below the floor out of combat: the fight ends")
+        },
         Reflex(name: "hostile_ahead", controller: .rule) { w, c in
             guard let heading = c.walkingHeading, !c.walkingToSafety, !c.passing else { return nil }
             let ahead = w.entities.hostilesAhead(of: heading, within: ReflexLimits.warnCone)
             return ahead.isEmpty ? nil : .stopWalk(.hostileAhead, "\(ahead.count) hostile ahead within \(Int(ReflexLimits.warnCone)) degrees")
+        },
+        // A recovery before the stop rules (review of #117: hurt at a stop, the session recovers first; the stop stands and the
+        // walk past or the fight ahead is the next tick's). Between 30 and 60 % a walk walks on (the loop's recovery, after it).
+        Reflex(name: "hurt_out_of_combat", controller: .rule) { w, _ in
+            guard w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.walkHealth else { return nil }
+            return .recover
         },
         // After a stop, before any plan: M4am (the owner, 28 Sept: "Juvenile Vuldren is unagreesive") is tried before M4ak,
         // as the run loop did; both replace a Jev decision that the live record shows Jev got wrong (RETREAT at every stop,
@@ -137,23 +157,6 @@ enum ReflexTable {
             guard c.stoppedWalk, ReflexLimits.fightsWeakBlockers, let a = w.ahead.value, !a.unaggressive, let level = a.level,
                   let mine = w.character.level.value, level <= mine, a.company == 0 else { return nil }
             return .fightAhead("a lone creature no higher than the character stopped the walk: fight it")
-        },
-        // Inside a walk, out of combat below the floor, the walk stops (LOW_HEALTH), except the way to safety, which walks on
-        // (reviews of #72: stopping among hostiles is what it leaves).
-        Reflex(name: "walk_low_health", controller: .safety) { w, c in
-            guard c.walking, !c.walkingToSafety, w.character.inCombat.value == false, let h = w.character.health.value,
-                  h < ReflexLimits.combatHealthFloor else { return nil }
-            return .stopWalk(.lowHealth, "below the floor out of combat: the walk stops")
-        },
-        // Inside a fight, out of combat below the floor, the fight ends and the loop recovers (M3: SAFETY_STOP_PLAYER_BELOW_30;
-        // the owner, 23 Sept: never a stop in combat, where standing still is dying).
-        Reflex(name: "fight_stop_hurt", controller: .safety) { w, c in
-            guard c.inFight, w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.combatHealthFloor else { return nil }
-            return .stopFight("below the floor out of combat: the fight ends")
-        },
-        Reflex(name: "hurt_out_of_combat", controller: .rule) { w, _ in
-            guard w.character.inCombat.value == false, let h = w.character.health.value, h < ReflexLimits.walkHealth else { return nil }
-            return .recover
         },
     ]
 
