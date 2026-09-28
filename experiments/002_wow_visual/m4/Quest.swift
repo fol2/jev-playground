@@ -765,14 +765,32 @@ protocol QuestHost: AnyObject {
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
-    func stoppedBy() async -> String?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
+    func stoppedBy() async -> Ahead?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
 }
 
 extension QuestHost {
-    func stoppedBy() async -> String? { nil }
+    func stoppedBy() async -> Ahead? { nil }
+}
+
+/// What stands ahead after a red name stopped a walk: its name, and its level from its unit tooltip (M4ai), nil when unread.
+struct Ahead: Equatable {
+    var name: String
+    var level: Int? = nil
+}
+
+/// A creature's level from its unit tooltip ("Scrawny Ursera", "Level 3", "Beast"): the number after "Level"; nil for "??".
+/// Only a tooltip whose first line names `name` counts, as a leftover or another unit's would give another level (review of
+/// #104); an item's "Requires Level" and a player's line are not a creature's.
+func unitLevel(_ lines: [String], named name: String) -> Int? {
+    guard let first = lines.first, fuzzyNameMatch(first, [name]) || fuzzyNameMatch(name, [first]) else { return nil }
+    for line in lines.dropFirst() where !line.lowercased().contains("requires") && !line.lowercased().contains("player") {
+        let words = line.split(separator: " ")
+        if let i = words.firstIndex(where: { $0.lowercased() == "level" }), i + 1 < words.count, let n = Int(words[i + 1]) { return n }
+    }
+    return nil
 }
 
 /// The objectives a quest log's lines name ("0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah"), each under its quest.
@@ -1212,8 +1230,9 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
 /// taken are READ resources, loaded only when Jev asks for them.
 /// `stoppedBy`: what the last walk stopped for (M4ah), with the objective it counts for: Jev chose RETREAT nearly every time
-/// without it (live run 89: four walks stopped, four retreats, two of them from Foul Matriarch's own quarry).
-func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], stoppedBy: String? = nil) -> [String: Any] {
+/// without it (live run 89: four walks stopped, four retreats, two of them from Foul Matriarch's own quarry). Its level and
+/// the character's (M4ai: run 91 retreated from a level 3 Scrawny Ursera at level 4, a fight a player would take).
+func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], stoppedBy: Ahead? = nil) -> [String: Any] {
     let plan = questPlan(read.quests, from: read.player)
     let zone = Set(thisZone(plan, from: read.player).map(\.title))
     var state: [String: Any] = ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
@@ -1226,7 +1245,8 @@ func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], st
             "givers": read.givers.map { ["tooltip": $0.names, "distance": roundTo(distance(read.player, $0.pin), 10)] },
             "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
     if let stoppedBy {
-        state["stopped_by"] = ["name": stoppedBy, "counts_for_objective": objective(for: stoppedBy, in: logObjectives(read.quests))?.text ?? "none"]
+        state["stopped_by"] = ["name": stoppedBy.name, "level": orNull(stoppedBy.level), "character_level": orNull(read.level),
+                               "counts_for_objective": objective(for: stoppedBy.name, in: logObjectives(read.quests))?.text ?? "none"] as [String: Any]
     }
     return state
 }
@@ -1255,7 +1275,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
     var stuck = 0
     var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
-    var ahead: String?  // what it stopped for, by Tab's target (M4ah)
+    var ahead: Ahead?  // what it stopped for, by Tab's target (M4ah, M4ai)
     let deadline = host.now() + seconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -1311,7 +1331,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
             ahead = await host.stoppedBy()
-            host.emit("stopped_by", ["name": orNull(ahead), "step": offer.step.name])
+            host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "step": offer.step.name])
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)

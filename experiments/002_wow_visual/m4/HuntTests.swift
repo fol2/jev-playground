@@ -941,8 +941,8 @@ extension NavTests {
         func handIn(_ quest: PlannedQuest) async -> String { handed.append(quest.title); return outcomes[quest.title] ?? "COMPLETED" }
         func accept(_ giver: Giver) async -> String { handed.append("!" + giver.key); return outcomes["!" + giver.key] ?? "ACCEPTED" }
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
-        var ahead: String?  // what a red name stopped a walk for (M4ah)
-        func stoppedBy() async -> String? { ahead }
+        var ahead: Ahead?  // what a red name stopped a walk for (M4ah, M4ai)
+        func stoppedBy() async -> Ahead? { ahead }
         func fightAhead() async -> String { handed.append("FIGHT_AHEAD"); return outcomes["FIGHT_AHEAD"] ?? "KILLED_AND_LOOTED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
@@ -1384,19 +1384,25 @@ extension NavTests {
             return (host, jev, await runQuests(host: host, jev: jev, graph: graph()!))
         }
         // M4ah (live run 89: four stops, four retreats): Jev sees what stopped the walk, and whether it counts.
-        func stopFor(_ name: String?) async -> CannedGraph {
+        func stopFor(_ name: String?, level: Int? = nil) async -> CannedGraph {
             let winds = PlannedQuest(title: "Agitators", level: 3, ready: false, objective: "- 0/6 Roiling Winds destroyed", pin: (44, 25))
-            let host = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: []),
+            let host = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: [], level: 4),
                                    QuestRead(quests: [infest, winds], player: (42, 24), missing: [])])
             host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Agitators": "WALK_DANGER_AHEAD"]
-            host.ahead = name
+            host.ahead = name.map { Ahead(name: $0, level: level) }
             let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT"])
             _ = await runQuests(host: host, jev: jev, graph: graph()!)
             return jev
         }
-        let quarry = await stopFor("Pesky Cirrusfly"), other = await stopFor("Juvenile Vuldren"), unread = await stopFor(nil)
-        check((quarry.sent[1]["stopped_by"] as? [String: String]) == ["name": "Pesky Cirrusfly", "counts_for_objective": "Pesky Cirrusfly slain"]
-              && (other.sent[1]["stopped_by"] as? [String: String])?["counts_for_objective"] == "none"
+        let quarry = await stopFor("Pesky Cirrusfly", level: 3), other = await stopFor("Juvenile Vuldren"), unread = await stopFor(nil)
+        let seen = quarry.sent[1]["stopped_by"] as? [String: Any]
+        check(seen?["name"] as? String == "Pesky Cirrusfly" && seen?["counts_for_objective"] as? String == "Pesky Cirrusfly slain"
+              && seen?["level"] as? Int == 3 && seen?["character_level"] as? Int == 4 && (other.sent[1]["stopped_by"] as? [String: Any])?["level"] is NSNull
+              && (other.sent[1]["stopped_by"] as? [String: Any])?["counts_for_objective"] as? String == "none"
+              && unitLevel(["Scrawny Ursera", "Level 3", "Beast"], named: "Scrawny Ursera 71 871") == 3
+              && unitLevel(["Urs'anah", "Level ?? Elite"], named: "Urs'anah") == nil
+              && unitLevel(["Roiling Winds", "Level 5", "Elemental"], named: "Scrawny Ursera") == nil
+              && unitLevel(["Scrawny Ursera", "Requires Level 12"], named: "Scrawny Ursera") == nil
               && unread.sent[1]["stopped_by"] == nil && quarry.sent[0]["stopped_by"] == nil && quarry.sent.count == 3 && quarry.sent[2]["stopped_by"] == nil
               && logObjectives([PlannedQuest(title: "Foul Matriarch", level: 5, ready: false, objective: "0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah")])
                   .map(\.text) == ["Ursera Scavenger slain", "Head of Urs'anah"],
