@@ -936,7 +936,8 @@ so the pick-up is a choice Jev makes, not a script's loop; and it sees through a
   - The pointer jumps to the object (one move event). Two fresh tooltip reads there must name one open collect
     objective, and neither may be a unit's ("Level" line, `confirmedObject`). Only then, with no combat read just
     before, is it right-clicked. Click-to-Move walks there and picks it up.
-  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
+  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s
+    (15 s since M4af).
   - An attack ends the wait, as does no count by then, and a tap of forward stops Click-to-Move. A pick-up that
     counts is progress, as a fight is, for the hunt's search limit.
 - **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
@@ -1422,7 +1423,8 @@ text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run 
   - Live: run 86's recording (121–143 s) shows the first click's walk cut at 8 s, just short of the cluster. It shows the
     second click's cast bar, the loot line (x2) and 5/15. The next Windstones hunt is the proof that a pick-up is
     counted.
-- **Also:** the count before the click is read from the click's own frame, not the survey's. Jev's PICK_UP_OBJECT facts
+- **Also:** the count before the click is read from a frame taken just before it, not from the survey. The owner's
+  takeover ends the wait with no key pressed, and `hunt_limits` records `pick_up_s`. Jev's PICK_UP_OBJECT facts
   say the new wait (15 s at most), not "a few seconds".
 
 ## Limits
