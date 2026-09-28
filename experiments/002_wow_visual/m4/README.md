@@ -1551,6 +1551,26 @@ read "nothing" four times in run 98.
 - **Evidence:** a source check in `tools/MotorProof.swift`. Run 98's recording is the cause. Live: the next run's
   `stopped_by` levels.
 
+## M4am — an unaggressive creature in the way is walked past (28 Sept)
+
+The owner, 28 Sept: "Juvenile Vuldren is unagreesive. Need to separate aggressive or non aggressive". Their names are red,
+like any hostile's (run 99's frame), so the walks stopped for them, Jev retreated, and M4ak's rule fought them. Only
+knowledge tells them apart.
+
+- **Knowledge:** `learning/knowledge/zephras-creatures.json` lists the creatures that do not attack first, by the
+  owner's word (Juvenile Vuldren); the owner's rules have it for Jev too. A read name matches when most of the known one
+  is in it (`mostlyIn`), so "luvenile Vuldren ЛОРAУ" matches.
+- **The rule** (`runQuests`, RULE `WALK_PAST`): when a walk stops for one, alone (`Ahead.others == 0`), there is no
+  retreat and no fight. The stopped step stays open, and the next walk goes past red names ahead for its first 30 s
+  (`QuestLimits.passSeconds`, `NavDestination.passUntil`, `QuestHost.passNext`). An attack still stops that walk and is
+  fought back (M4i). It happens once a step per run; a second stop on that step is Jev's.
+- **M4ak's rule** no longer fights an unaggressive creature.
+- **Evidence:**
+  - Sim: `HuntTests` checks one Vuldren stop walked past (no RETREAT offered, the hunt offered again), the second stop
+    Jev's, the OCR-mangled name matched, a Scrawny Ursera not matched, and M4ak's rule not fighting a Vuldren.
+  - Sim: `NavTests` checks that a steering walk with a red name ahead stops, and does not while it walks past.
+  - Live: the next Vuldren stop.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

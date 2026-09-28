@@ -591,6 +591,17 @@ struct NavTests {
         check(index == 1 && corner.x > 40, "M4ac: a waypoint within reach is passed and the aim goes on round the corner")
 
         let d = NavDestination(label: "stone", x: 40, y: 25)
+        // M4am: a red name ahead stops a steering walk, but not one walking past an unaggressive creature, for its window.
+        let redInWay = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        redInWay.hostiles = [(40, 27)]
+        let halted = await runSteer(body: redInWay, path: [], destination: d)
+        let pastWalker = SimNav(clock: FightClock(), x: 40, y: 30, facing: 0)
+        pastWalker.hostiles = [(40, 27)]
+        var past = d
+        past.passUntil = pastWalker.now() + QuestLimits.passSeconds
+        let went = await runSteer(body: pastWalker, path: [], destination: past)
+        check(halted.outcome == "DANGER_AHEAD" && went.outcome != "DANGER_AHEAD" && (pastWalker.look()?.y ?? 30) < 29,
+              "M4am: a red name ahead stops a steering walk, but not while it walks past an unaggressive creature (\(went.outcome))")
         // `turned`: the net rotation one way (a spin is a whole turn in one direction), from the facing's signed changes.
         func walked(_ sim: SimNav, path: [MapPoint] = [], known: [(at: MapPoint, heading: Double, side: Double)] = []) async -> (result: NavResult, blocks: Int, turned: Double) {
             var blocks = 0, turned = 0.0, last: Double? = nil

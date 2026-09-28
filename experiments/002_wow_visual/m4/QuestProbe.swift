@@ -1028,6 +1028,7 @@ final class LiveQuestHost: QuestHost {
     var walkedFrom: MapPoint?
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
+    var passingNext = false  // M4am: the next walk goes past a red name ahead (an unaggressive creature stopped the last)
     var town: [TownNPC] = []  // M4u: the villages' vendors and trainers (learning/knowledge/zephras-town.json)
     var enders: [QuestEnder] = []  // M4v: who takes each quest in, and where (learning/knowledge/zephras-quests.json)
     /// From the character's memory (private, under runs/): the level at the last visit to the trainer (M4u), and each step's
@@ -1089,6 +1090,9 @@ final class LiveQuestHost: QuestHost {
         emit("quest_step", ["controller": "SAFETY", "skill": "FIGHT_BACK", "step": "fight back after a fight ahead Jev stopped"])
         return "BACK_" + (await fight(inCombat: true))
     }
+
+    /// M4am: the next walk goes past a red name ahead for its first seconds: an unaggressive creature stopped the last one.
+    func passNext() { passingNext = true }
 
     /// M4ah: what stands ahead when a red name stopped the walk. Tab selects the nearest enemy in front, as a player looks
     /// before choosing; usually the stop, not always (Tab takes the nearest). It follows the hunt's own sequence
@@ -1355,8 +1359,9 @@ final class LiveQuestHost: QuestHost {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let legs = newWalker(folder)
             walker = legs
-            let walked = await runSteer(body: legs, path: path, destination: NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y,
-                                                                                          arrive: arrive, seconds: seconds), known: loadBumps())
+            var destination = NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive, seconds: seconds)
+            if passingNext { destination.passUntil = hostNow() + QuestLimits.passSeconds; passingNext = false }  // M4am
+            let walked = await runSteer(body: legs, path: path, destination: destination, known: loadBumps())
             saveBumps(walked.bumps)
             guard !legs.holding else { return "WALK_KEYS_HELD" }
             if walked.outcome == "NO_PROGRESS", !retreating, let end = walked.end { rememberStuck(end.point) }

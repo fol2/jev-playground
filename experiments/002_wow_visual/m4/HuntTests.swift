@@ -961,6 +961,8 @@ extension NavTests {
         func retreat() async -> String { handed.append("RETREAT"); return outcomes["RETREAT"] ?? "RETREATED" }
         var ahead: Ahead?  // what a red name stopped a walk for (M4ah, M4ai)
         func stoppedBy() async -> Ahead? { ahead }
+        var passes = 0  // M4am
+        func passNext() { passes += 1 }
         func fightAhead() async -> String { handed.append("FIGHT_AHEAD"); return outcomes["FIGHT_AHEAD"] ?? "KILLED_AND_LOOTED" }
         func fightBack() async -> String { handed.append("FIGHT_BACK"); return outcomes["FIGHT_BACK"] ?? "KILLED_AND_LOOTED" }
         var budgets: [Double] = [], huntTakes = 0.0, readTakes: [Double] = []
@@ -1436,15 +1438,28 @@ extension NavTests {
             _ = await runQuests(host: host, jev: jev, graph: graph()!)
             return (host, jev)
         }
-        let (weak, weakJev) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1))
+        let (weak, weakJev) = await blockerRun(Ahead(name: "Scrawny Ursera", level: 1))
         let (strong, _) = await blockerRun(Ahead(name: "Al'Aketh Brute", level: 5))
-        let (crowd, _) = await blockerRun(Ahead(name: "Juvenile Vuldren", level: 1, others: 1))
-        let (unlevelled, _) = await blockerRun(Ahead(name: "Juvenile Vuldren"))
+        let (crowd, _) = await blockerRun(Ahead(name: "Scrawny Ursera", level: 1, others: 1))
+        let (unlevelled, _) = await blockerRun(Ahead(name: "Scrawny Ursera"))
         check(weak.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && weakJev.offered.count == 2 && weakJev.offered[1].contains("DO:HUNT_1")
               && strong.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"] && crowd.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
               && unlevelled.handed.prefix(2) == ["HUNT Infestation Investigation", "RETREAT"]
               && !fightsBlocker(Ahead(name: "x", level: 3), characterLevel: nil) && fightsBlocker(Ahead(name: "x", level: 4), characterLevel: 4),
               "M4ak: a lone creature at or below the character's level is fought by rule and the stopped hunt offered again; a higher one, company or an unread level is Jev's")
+        // M4am (the owner, 28 Sept: "Juvenile Vuldren is unagreesive"): an unaggressive creature alone in the way is walked past,
+        // once a step: no retreat, no fight, the stopped hunt offered again; a second stop on that step is Jev's.
+        let meek = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5),
+                               QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5), QuestRead(quests: [infest], player: (43, 25), missing: [], level: 5)])
+        meek.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD"]
+        meek.ahead = Ahead(name: "luvenile Vuldren ЛОРAУ", level: 1)
+        let meekJev = CannedGraph(["DO:HUNT_1", "DO:HUNT_1", "DO:RETREAT"])
+        _ = await runQuests(host: meek, jev: meekJev, graph: graph()!)
+        check(meek.passes == 1 && meek.handed.prefix(3) == ["HUNT Infestation Investigation", "HUNT Infestation Investigation", "RETREAT"]
+              && meekJev.offered.count >= 3 && meekJev.offered[1].contains("DO:HUNT_1") && !meekJev.offered[1].contains("DO:RETREAT")
+              && Creatures.isUnaggressive("Juvenile Vuldren") && Creatures.isUnaggressive("luvenile Vuldren ЛОРAУ")
+              && !Creatures.isUnaggressive("Scrawny Ursera") && !fightsBlocker(Ahead(name: "Juvenile Vuldren", level: 1), characterLevel: 5),
+              "M4am: an unaggressive creature alone in the way is walked past once, not fled or fought; the second stop is Jev's")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),

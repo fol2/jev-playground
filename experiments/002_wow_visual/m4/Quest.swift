@@ -766,6 +766,7 @@ protocol QuestHost: AnyObject {
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
     func stoppedBy() async -> Ahead?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
+    func passNext()  // M4am: the next walk goes past a red name ahead for its first `QuestLimits.passSeconds`
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -773,6 +774,19 @@ protocol QuestHost: AnyObject {
 
 extension QuestHost {
     func stoppedBy() async -> Ahead? { nil }
+    func passNext() {}
+}
+
+/// Creatures that do not attack first, by the owner's word (M4am; `learning/knowledge/zephras-creatures.json`). The owner, 28
+/// Sept: "Juvenile Vuldren is unagreesive. Need to separate aggressive or non aggressive". Their names are red like any
+/// hostile's, so only knowledge tells them apart. A name matches when most of the known one reads in it (mostlyIn).
+enum Creatures {
+    static let file = "experiments/002_wow_visual/learning/knowledge/zephras-creatures.json"
+    static let unaggressive: [String] = {
+        struct Book: Codable { let unaggressive: [String] }
+        return (try? JSONDecoder().decode(Book.self, from: Data(contentsOf: URL(fileURLWithPath: file))))?.unaggressive ?? []
+    }()
+    static func isUnaggressive(_ name: String) -> Bool { unaggressive.contains { mostlyIn($0, name) } }
 }
 
 /// What stands ahead after a red name stopped a walk: its name, and its level from its unit tooltip (M4ai), nil when unread.
@@ -787,7 +801,8 @@ struct Ahead: Equatable {
 /// quests that way stood still. Any other stop is Jev's, as before; the fight's own start health (90%) still holds.
 /// `JEV_BLOCKER_FIGHT=off` turns it off.
 func fightsBlocker(_ ahead: Ahead?, characterLevel: Int?) -> Bool {
-    guard QuestLimits.fightsWeakBlockers, let a = ahead, let level = a.level, let character = characterLevel else { return false }
+    guard QuestLimits.fightsWeakBlockers, let a = ahead, !Creatures.isUnaggressive(a.name), let level = a.level,
+          let character = characterLevel else { return false }
     return level <= character && a.others == 0
 }
 
@@ -811,6 +826,7 @@ func logObjectives(_ quests: [PlannedQuest]) -> [Objective] {
 enum QuestLimits {
     static let slots = 4  // HAND_IN_1 to HAND_IN_4 in the graph
     static let fightsWeakBlockers = ProcessInfo.processInfo.environment["JEV_BLOCKER_FIGHT"] != "off"  // M4ak
+    static let passSeconds = 30.0  // M4am: to walk by an unaggressive creature that stopped a walk, up to 6 units off (0.2 a second)
     static let giverSlots = 3  // ACCEPT_1 to ACCEPT_3
     static let huntSlots = 2  // HUNT_1 and HUNT_2
     static let useSlots = 1  // USE_1 (M4m)
@@ -1288,6 +1304,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     var stuck = 0
     var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
     var ahead: Ahead?  // what it stopped for, by Tab's target (M4ah, M4ai)
+    var passed: Set<String> = []  // steps walked past an unaggressive creature this run, once each (M4am)
     let deadline = host.now() + seconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -1353,6 +1370,16 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             danger = offer.step
             ahead = await host.stoppedBy()
             host.emit("stopped_by", ["name": orNull(ahead?.name), "level": orNull(ahead?.level), "others": ahead?.others ?? 0, "step": offer.step.name])
+            // M4am: an unaggressive creature alone in the way is walked past, not fled or fought (the owner, 28 Sept), once a step.
+            if let a = ahead, a.others == 0, Creatures.isUnaggressive(a.name), !passed.contains(offer.step.key) {
+                passed.insert(offer.step.key)
+                host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
+                                         "rule": "an unaggressive creature stopped the walk: walk past it"])
+                host.passNext()
+                danger = nil
+                ahead = nil
+                continue  // the stopped step is not failed: it is offered again, and its walk goes past
+            }
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
