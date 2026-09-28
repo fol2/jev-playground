@@ -1389,9 +1389,11 @@ session has run.
   faults (keys held, a failed handoff) end it at once, as before.
 - **Live** (`questsExecute`): `LiveQuestHost` is the session's host through M4r, M4s and M4w; the steps' window is the run's
   (no step after 20 minutes), the end has the envelope's rest.
-- **Evidence.** Sim only: `SessionTests.swift` (24 checks) on scripted reads, vitals and outcomes: the holds, the recorded
+- **The run loop's danger-stop rules, kept in step** (28 Sept): what stopped the walk (`stopped_by`, M4ah, M4ai) goes into
+  Jev's state, and a lone creature no higher than the character is fought by RULE (M4ak), as in `runQuests`.
+- **Evidence.** Sim only: `SessionTests.swift` (25 checks) on scripted reads, vitals and outcomes: the holds, the recorded
   failures, the reflexes' order and controllers, death and recovery as modes, the owner's pause and its limit, a failed call, the
-  call, death and stuck-walk limits, keys held, a danger stop's retreat and fight ahead, and `--session`. Live: not yet run; the first
+  call, death and stuck-walk limits, keys held, a danger stop's retreat and fight ahead, M4ak's rule, and `--session`. Live: not yet run; the first
   announced session is its qualification, and its `events.jsonl` (`task_failed`, `reflex`, `session_mode`, `session_end`) the
   evidence.
 

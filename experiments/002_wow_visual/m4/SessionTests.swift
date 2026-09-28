@@ -42,6 +42,7 @@ extension NavTests {
         func retreat() async -> String { await quests.retreat() }
         func fightAhead() async -> String { await quests.fightAhead() }
         func fightBack() async -> String { await quests.fightBack() }
+        func stoppedBy() async -> Ahead? { await quests.stoppedBy() }
         func hunt(_ quest: PlannedQuest, until deadline: Double) async -> String { await quests.hunt(quest, until: deadline) }
         func walkRoad(to quest: PlannedQuest, by legs: [MapPoint], until deadline: Double) async -> String {
             await quests.walkRoad(to: quest, by: legs, until: deadline)
@@ -200,6 +201,26 @@ extension NavTests {
         check(danger.offered[1].contains("DO:RETREAT") && danger.offered[1].contains("DO:FIGHT_AHEAD") && danger.offered[2].contains("DO:FIGHT_AHEAD")
               && !danger.offered[2].contains("DO:RETREAT") && wary.handed == ["Agitators", "RETREAT", "FIGHT_AHEAD"] && stopped.failures("safety") == ["WALK_DANGER_AHEAD"],
               "a danger stop offers the retreat and the fight ahead; a failed retreat is not offered again while the fight ahead is; the stop is a safety failure")
+        // M4ah-M4ak, as a run: a lone creature no higher than the character is fought by RULE with no Jev call; a higher one is
+        // Jev's, with what stopped the walk in its state.
+        func blocked(_ ahead: Ahead) async -> (FakeQuests, FakeSession, CannedGraph) {
+            let quests = FakeQuests([])
+            quests.outcomes["Agitators"] = "WALK_DANGER_AHEAD"
+            quests.ahead = ahead
+            var levelled = read([ready]); levelled.level = 4
+            let host = FakeSession(quests, reads: [levelled, levelled, read([])])
+            let jev = CannedGraph(["DO:HAND_IN_1", "DO:RETREAT"])
+            _ = await runSession(host: host, jev: jev, graph: graph(), budget: budget(400))
+            return (quests, host, jev)
+        }
+        let (weak, weakHost, weakJev) = await blocked(Ahead(name: "Scrawny Ursera", level: 2))
+        let (strong, _, strongJev) = await blocked(Ahead(name: "Al'Aketh Brute", level: 6))
+        check(weak.handed.prefix(2) == ["Agitators", "FIGHT_AHEAD"] && weakJev.offered.count == 1
+              && weakHost.events.contains { $0.name == "quest_step" && $0.fields["controller"] as? String == "RULE" && $0.fields["skill"] as? String == "FIGHT_AHEAD" }
+              && weakHost.count("stopped_by") == 1
+              && strong.handed.prefix(2) == ["Agitators", "RETREAT"] && strongJev.offered.count == 2
+              && (strongJev.sent[1]["stopped_by"] as? [String: Any])?["name"] as? String == "Al'Aketh Brute",
+              "M4ak in the session: a weak lone blocker is fought by RULE without Jev; a stronger one is Jev's, named in its state (M4ah)")
 
         // 13. The defaults are the owner's standing envelope: a death ends the session, 120 calls, the second stuck walk.
         check(SessionLimits.deaths == 1 && SessionLimits.judgeCalls == 120 && SessionLimits.stuckWalks == 2,
