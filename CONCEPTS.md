@@ -19,7 +19,20 @@ The real controller is always logged, and one is never silently substituted for 
 A general ability of the engine that every consumer relies on, such as locating interface elements wherever they are drawn, resolving read names to known entities, verifying an outcome from independent evidence, or learning world knowledge. It is distinct from a patch that makes one failure pass.
 *Avoid:* fix, workaround (for the capability itself)
 
-A live failure is fixed by naming the capability it exposes and improving that capability for all its consumers; a goal such as a target level measures the engine but does not drive its design.
+A live failure is fixed by naming the capability it exposes and improving that capability for all its consumers; a goal such as a target level measures the engine but does not drive its design. One live run is one sample of a failure class: when a second fix is about to land in the same class, or the owner questions the method, the class needs its capability rather than another patch.
+
+## Perceiving and remembering
+
+### Learned reader
+A perception component trained on audited, labelled frames and scored on held-out runs, as opposed to a hand-tuned pixel rule.
+*Avoid:* pixel decode (for anything but fixed interface bars)
+
+A learned reader first runs in shadow: its readings are logged but never acted on. It replaces a rule only after beating it on held-out data, and it is demoted again when it proves confidently wrong in live play. New failure cases become labelled data, not new rules.
+
+### Working memory
+What the engine has recently read from the screen, such as the quest log or the skill bar, kept so that it is not read again while nothing has changed; distinct from long-term knowledge.
+
+Each entry is keyed by what it was read from and is dropped by the events that change it: a hand-in or accepted quest changes the log, a slot whose icon looks different is read again, loot or a sale changes the bags. A change the key cannot see, such as a new rank of a spell whose icon stays the same, is caught only when the entry expires, which is why the quest log and skill bar memories also expire with age. It only saves reads; it is not learning, and a store of places or read results is working memory at most (see Engine capability).
 
 ## Playing live
 
