@@ -49,7 +49,7 @@ extension NavTests {
               && far.map { huntAdmissible($0).contains(.toArea) } == true
               && areaState?["on_minimap"] as? Bool == false && areaState?["remembered_from_pick_ups"] as? Bool == true
               && plain([], objectives: windstones).readSurvey().value?.area == nil
-              && rememberedArea(from: (44, 29.5), places: [(x: 44, y: 29)])?.inside == true && rememberedArea(from: (44, 29), places: []) == nil,
+              && rememberedArea(from: (44, 31), places: [(x: 44, y: 29)])?.inside == true && rememberedArea(from: (44, 32.5), places: [(x: 44, y: 29)])?.inside == false && rememberedArea(from: (44, 29), places: []) == nil,
               "M4aj: pick-ups are remembered under their objective; with no ring on the minimap the nearest remembered place is the area to walk to")
         let decoy = plain([], objectives: windstones)
         decoy.objects = [SimHunt.Mob(name: "Glowing Lantern", x: 40, y: 29.5)]

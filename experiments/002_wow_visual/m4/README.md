@@ -1498,15 +1498,18 @@ So every hunt searched by compass (run 87 wandered south and east among Vuldren 
   for:)`; live in the private `runs/002_wow_visual/memory/places.json`, the newest 32 per objective; logged
   `place_remembered`).
 - **Used:** with no ring on the minimap, the nearest remembered place for an open collect objective is the hunt's area
-  (`readSurvey`, `rememberedArea`). It is inside within 1.5 units. So GO_TO_QUEST_AREA and the area detours are offered
-  as for a ring. Jev's state says `"on_minimap": false, "remembered_from_pick_ups": true`.
+  (`readSurvey`, `rememberedArea`). It is inside within 3 units, since the two seeded pick-ups were 3.3 apart. So
+  GO_TO_QUEST_AREA and the area detours are offered as for a ring. Jev's state says `"on_minimap": false, "remembered_from_pick_ups": true`.
 - **Seeded:** from the two pick-ups that worked, (41.6, 26.8) in run 86 (its recording's minimap) and (43.8, 26.5) in
   run 89.
 - **Evidence:**
   - Sim: `HuntTests` checks the two pick-ups remembered under their objective; the nearest place as the area (not
     inside, at its distance); GO_TO_QUEST_AREA offered; the state's flags; no area without places; inside within the
     radius.
-  - Live: the next Windstones hunt.
+  - Live, run 93: Jev chose GO_TO_QUEST_AREA twice by the remembered area (south-west, to the grove). It picked up a
+    cluster there (10/15), and the place was remembered at (41.4, 26.9); `places: 2` shows the seeded file was read.
+    It ended SAFE, with no death.
+- **Also:** the places of every open collect objective are pooled, so with two such quests the nearest of either leads.
 
 ## Limits
 

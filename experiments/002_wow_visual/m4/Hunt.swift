@@ -10,7 +10,7 @@ enum HuntLimits {
     static let stepLength = 1.5  // M4ad: y units a walking move steers on for, at most stepSeconds
     static let stepSeconds = 10.0
     static let pickUpSeconds = 15.0  // a right-click's walk, the gathering cast and the count (live run 86: 8.5 s of walk alone)
-    static let placeRadius = 1.5  // y units: within this of a remembered pick-up place is inside its area (M4aj)
+    static let placeRadius = 3.0  // y units: within this of a remembered pick-up place is inside its area (M4aj; run 86's and 89's were 3.3 apart)
     static let placesKept = 32  // remembered pick-up places per objective, the newest
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
