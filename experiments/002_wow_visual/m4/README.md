@@ -1382,6 +1382,22 @@ the rock slopes west of Thendal Village; and LOOK_AROUND, offered out of combat,
   four creatures (its fight limit) on the grove's flat ground among the trees, none of its frames on a rock slope; the run
   retreated three times from danger ahead and fought one creature back (killed and looted); no death.
 
+## M4ae — a creature counts for something to collect only if it drops it (28 Sept)
+
+Live run 85: the Windstones hunt fought four Roiling Winds, and each ended `KILLED_NO_CORPSE`. That result was correct: an
+elemental leaves no corpse. The fault was the choice. `counts` said a Roiling Wind counts for "Windstone Cluster", because
+the two names share four letters ("wind"). So Jev saw a creature that counted, and chose GO_TO_QUEST_CREATURE over
+PICK_UP_OBJECT, while the detector held a cluster at the character's feet.
+
+- **Collect objectives:** a creature now counts for one only if a whole word of its name is a word of the objective
+  ("Scrawny Ursera" for "Scrawny Ursera Claw"), or its whole name is in it (Urs'anah for "Head of Urs anah").
+- **Kill objectives:** unchanged.
+- **Jev's walk facts:** the hunt's walking moves now describe what they are since M4ad: up to 1.5 map units, 10 s at most,
+  steering round what they meet. The old text said "about 3 s". The run's `hunt_limits` records `walk_s` as the step's
+  seconds.
+- **Evidence:** sim only (`HuntTests`: Roiling Winds against "Windstone Cluster"; Urs'anah against her head). The live
+  proof is the next Windstones hunt.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

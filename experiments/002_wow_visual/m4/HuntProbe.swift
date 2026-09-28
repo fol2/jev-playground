@@ -381,7 +381,7 @@ func warmJev(_ key: String) async -> Double? {
 
 func huntLimits() -> [String: Any] {
     ["max_decisions": HuntLimits.maxDecisions, "max_seconds": HuntLimits.maxSeconds, "max_fights": HuntLimits.maxFights,
-     "search_limit": HuntLimits.searchLimit, "rest_s": HuntLimits.restSeconds, "max_walks": HuntLimits.maxMoves, "walk_s": NavLimits.moveSeconds,
+     "search_limit": HuntLimits.searchLimit, "rest_s": HuntLimits.restSeconds, "max_walks": HuntLimits.maxMoves, "walk_s": HuntLimits.stepSeconds,
      "player_safety": FightLimits.playerSafety, "heal_mana": FightLimits.healMana, "fight_start_health": FightLimits.startHealth,
      "eat_below_health": HuntLimits.eatBelowHealth, "eat_below_mana": HuntLimits.eatBelowMana, "walk_health": HuntLimits.walkHealth,
      "fight_max_decisions": FightLimits.maxDecisions, "fight_max_seconds": FightLimits.maxSeconds,

@@ -213,6 +213,10 @@ extension NavTests {
               && counts(plate("AI' Aketh Convert"), [Objective(quest: "Agitators", done: 0, need: 7, text: "Al'Aketh Convert slain")]) != nil
               && counts(plate("Scrawny Ursera"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
               "live run 48: a Pesky Cirrusfly is not the Cirrusfly Queen; a Roiling Wind still counts for Roiling Winds, a misread Vuldren for Vuldren, a Pesky Cirrusfly for its own kills, \"AI' Aketh\" for Al'Aketh, and a creature for the item it drops (review of #60)")
+        let stones = [Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster")]
+        check(counts(plate("Roiling Winds"), stones) == nil && counts(plate("Rolling WWinds"), stones) == nil
+              && counts(plate("Urs'anah"), [Objective(quest: "Foul Matriarch", done: 0, need: 1, text: "Head of Urs anah")]) != nil,
+              "live run 85: a Roiling Wind shares only \"wind\" with a Windstone Cluster and does not count for it; Urs'anah counts for her head")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]

@@ -428,7 +428,14 @@ func counts(_ creature: Seen, _ objectives: [Objective]) -> Objective? {
     return objectives.first { o in
         guard o.unfinished, fuzzyNameMatch(o.text, [creature.name]) else { return false }
         var words = o.text.split(separator: " ").map { Array(nameKey(String($0))) }
-        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else { return true }
+        guard let last = words.last, ["slaln", "destroyed", "kllled", "defeated"].contains(String(last)) else {
+            // Something to collect counts a creature that drops it: a whole word of its name is a word of the objective
+            // ("Scrawny Ursera" for "Scrawny Ursera Claw"), or its whole name is in it (Urs'anah for "Head of Urs anah").
+            // Four shared letters are not a drop: live run 85 fought four Roiling Winds for "Windstone Cluster".
+            let named = Set(words.map { String($0) })
+            return nameKey(o.text).contains(plate)
+                || creature.name.split(separator: " ").contains { let w = nameKey(String($0)); return w.count >= 4 && named.contains(w) }
+        }
         words.removeLast()
         return words.filter { $0.count >= 4 }.allSatisfy { w in (0...(w.count - 4)).contains { plate.contains(String(w[$0..<$0 + 4])) } }
     }
@@ -484,7 +491,8 @@ enum HuntAction: String, JevAction {
 
     var facts: String {
         let walk = "then selects the nearest enemy in front. Stops early if blocked or attacked."
-        if let heading = compassHeading { return "Walks about 3 s on compass heading \(Int(heading))° (0 north, 90 east), \(walk)" }
+        let steps = "Walks up to \(HuntLimits.stepLength) map units (\(Int(HuntLimits.stepSeconds)) s at most), steering round what it meets,"
+        if let heading = compassHeading { return "\(steps) on compass heading \(Int(heading))° (0 north, 90 east), \(walk)" }
         switch self {
         case .fight:
             return "Fights the selected creature to the end: pull, spells, melee, healing and looting, each chosen in its own decisions. Costs mana and usually health."
@@ -493,14 +501,14 @@ enum HuntAction: String, JevAction {
         case .lookAround:
             return "Turns a full circle in four 90° steps without moving, listing the creatures whose nameplates come into view with their compass bearings, then selects the nearest enemy in front."
         case .toCreature:
-            return "Walks about 3 s towards the nearest creature in view that counts for an unfinished objective, \(walk)"
+            return "\(steps) towards the nearest creature in view that counts for an unfinished objective, \(walk)"
         case .toArea:
-            return "Walks about 3 s towards the selected quest's area on the minimap, \(walk)"
+            return "\(steps) towards the selected quest's area on the minimap, \(walk)"
         case .detourLeft45, .detourRight45, .detourLeft90, .detourRight90:
             let side = rawValue.contains("LEFT") ? "left" : "right", by = rawValue.hasSuffix("45") ? 45 : 90
-            return "Walks about 3 s on a heading \(by)° \(side) of the selected quest's area, \(walk)"
+            return "\(steps) on a heading \(by)° \(side) of the selected quest's area, \(walk)"
         case .backTrack:
-            return "Walks about 3 s directly away from the selected quest's area, \(walk)"
+            return "\(steps) directly away from the selected quest's area, \(walk)"
         case .rest:
             return "Stands still for 20 s to regain health and mana, about 40% of each. A fight can start only at 90% health or more. Ends early if something attacks."
         case .eatDrink:
