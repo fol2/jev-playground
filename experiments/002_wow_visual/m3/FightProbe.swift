@@ -323,6 +323,7 @@ final class LiveHost: FightHost {
 
     private var lastTargetPlate: Plate?  // the selected creature's plate while it lived: its corpse lies below it
     private var hoverLoots = 0  // right-clicks on a corpse's tooltip this fight: two, then the kill stands unlooted
+    private var hoverHit = false  // the last corpse search stopped because the character was hit
 
     /// The first of corpseHoverPoints whose unit tooltip is the fought creature's corpse, or nil. M4's rule for a hover (review
     /// of #71): the pointer first rests off every unit until two fresh frames show no tooltip; at each point two reads, on
@@ -331,9 +332,19 @@ final class LiveHost: FightHost {
     private func hoverCorpse(_ points: [(x: Double, y: Double)]) async -> (x: Double, y: Double)? {
         let start = hostNow()
         var seen: [[String: Any]] = []  // the points where a tooltip showed, and what it said
+        func health() -> Double? { latestImage().map { main.observe(rgba($0), plates: false).player } }
+        let before = health()
+        hoverHit = false
         guard await parkPointer() else { return nil }
         for p in points where (0.1...0.9).contains(p.x / Double(HUD.width)) && (0.2...0.85).contains(p.y / Double(HUD.height))
             && hostNow() - start < FightLimits.corpseHoverSeconds {
+            // Hit while searching: another creature is attacking, and the search stops (live run 90: 30 s of it, and death).
+            if let before, let now = health(), now < before - FightLimits.healthDrop {
+                hoverHit = true
+                emit("corpse_hover_hit", ["health_before": Int(before * 100), "health_now": Int(now * 100), "seconds": Int(hostNow() - start)])
+                _ = await parkPointer()
+                return nil
+            }
             guard move(p) else { return nil }
             var reads: [[String]] = []
             for wait in [0.4, 0.3] { reads.append(await tip(after: hostNow() + wait) ?? []) }
@@ -419,7 +430,8 @@ final class LiveHost: FightHost {
         guard hoverLoots < 2 else { return "no corpse loot: its corpse's tooltip was right-clicked twice, and no loot line came" }
         let label = corpseLabel(image, corpseNames).map { (x: Double($0.midX), bottom: Double($0.maxY), height: Double($0.height)) }
         guard let found = await hoverCorpse((lastTargetPlate.map(corpseHoverPoints) ?? []) + corpseSearchPoints(label: label)) else {
-            return "no corpse visible: no tooltip named its corpse"
+            // Not "no corpse", which ends the fight with the attacker still on: the fight goes on, and fights it (hitAfterKill).
+            return hoverHit ? "not looted: hit while searching for its corpse" : "no corpse visible: no tooltip named its corpse"
         }
         hoverLoots += 1
         let before = chatLines(image)

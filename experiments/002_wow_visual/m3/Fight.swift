@@ -259,6 +259,14 @@ func admissible(_ o: Obs, _ e: Episode, kit: FightKit? = nil, now: Double = 0) -
     return out
 }
 
+/// Hit again after a kill, in combat, with nothing alive selected: another creature is attacking (live run 90: a second
+/// Scrawny Ursera killed the character during 30 s of looking for the first one's corpse, as LOOT_CORPSE was all a kill
+/// allowed). The corpse waits, and the attacker is fought: the kill is set aside, so SELECT_TARGET is offered again.
+func hitAfterKill(_ e: Episode, _ o: Obs, healthAtKill: Double?) -> Bool {
+    guard e.killed, !e.looted, o.combat, !Episode.alive(o), let h = healthAtKill else { return false }
+    return o.player < h - FightLimits.healthDrop
+}
+
 func events(previous: Obs, current: Obs, errorText: String?) -> [String] {
     var out: [String] = []
     if current.player < previous.player - FightLimits.healthDrop {
@@ -538,6 +546,7 @@ func fightGraphOutcome(_ error: Error) -> String {
 func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits.startHealth,
               tactics: FightTactics? = nil) async -> FightResult {
     var episode = Episode()
+    var healthAtKill: Double?  // the character's health when the kill was seen: a later fall in combat is another attacker
     var lastAction = "none", lastResult = "episode start"
     var decisions = 0, jevCalls = 0, steps = 0, chainSteps = 0
     var latencies: [Double] = []
@@ -589,6 +598,14 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         lastStamp = o.stamp
         episode.update(o)
+        healthAtKill = episode.killed ? healthAtKill ?? o.player : nil
+        if hitAfterKill(episode, o, healthAtKill: healthAtKill) {
+            episode.killed = false
+            episode.sawTargetAlive = false
+            episode.meleeOn = false
+            healthAtKill = nil
+            host.emit("reflex", ["controller": "RULE", "trigger": "hit again after the kill, in combat", "does": "fight the attacker; the corpse waits"])
+        }
         if let step = ranOn {  // what the last step did, now that a newer frame shows it
             tally.record(step.action, before: step.obs, after: o, seconds: host.now() - step.at, meleeOn: episode.meleeOn)
             running?.observe(before: step.obs, after: o, killed: episode.killed)

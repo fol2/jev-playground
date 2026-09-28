@@ -170,6 +170,12 @@ struct FightTests {
 
         let plate = Plate(x0: 1214, x1: 1346, top: 400, bottom: 413)
         let unlooted = Episode(engaged: true, killed: true)
+        check(hitAfterKill(unlooted, Obs(player: 0.6, combat: true), healthAtKill: 0.7)
+              && !hitAfterKill(unlooted, Obs(player: 0.69, combat: true), healthAtKill: 0.7)
+              && !hitAfterKill(unlooted, Obs(player: 0.6, combat: false), healthAtKill: 0.7)
+              && !hitAfterKill(unlooted, Obs(player: 0.6, target: 0.8, combat: true), healthAtKill: 0.7)
+              && !hitAfterKill(Episode(engaged: true, killed: true, looted: true), Obs(player: 0.6, combat: true), healthAtKill: 0.7),
+              "live run 90: hit again after the kill, in combat, with nothing alive selected, is another attacker; not a lingering combat ring, not out of combat, not with a live target, not once looted")
         let dead = admissible(Obs(combat: true), unlooted)
         check(has(dead, .lootCorpse) && !has(dead, .selectTarget),
               "unlooted kill: LOOT_CORPSE and no SELECT_TARGET")
