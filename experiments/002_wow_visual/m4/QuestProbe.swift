@@ -1097,7 +1097,7 @@ final class LiveQuestHost: QuestHost {
     /// bar's heal is cast on it, and Esc drops the selection after, only while a target shows (Esc with none is the Game Menu).
     func healBeforeWalking() async {
         guard !ownerTookFocus() else { return }
-        let outcome = await recover(read: { self.vitalsNow() }, aim: {
+        let outcome = await main.recover(read: { self.vitalsNow() }, aim: {
             await self.quester.tap(QuestHUD.targetSelf)
             await self.quester.sleep(0.3)
         }, cast: {
@@ -1400,7 +1400,7 @@ final class LiveQuestHost: QuestHost {
         // No click while any of the run's keys is held (review of #73: a hunt that ended with keys held).
         guard !ownerTookFocus(), !holding, let first = shown(await quester.frame(after: hostNow()), nil) else { return nil }
         emit("death", ["controller": "SAFETY", "shown": first.step.rawValue])
-        let end = await revive(first, clicks: QuestLimits.reviveClicks, click: { c in
+        let end = await main.revive(first, clicks: QuestLimits.reviveClicks, click: { c in
             guard !self.ownerTookFocus() else { return false }
             self.emit("revive_click", ["controller": "SAFETY", "step": c.step.rawValue, "at": [Int(c.x), Int(c.y)]])
             return c.step == .talk ? self.quester.click(c.x, c.y, right: true) : self.quester.click(c.x, c.y)
@@ -1532,7 +1532,7 @@ extension LiveQuestHost: SessionHost {
 /// session loop (#87, m4/Session.swift) runs in place of the run loop: a failure is recorded and planned round,
 /// an unread frame holds, and only the envelope or the owner ends it.
 @MainActor
-func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil, session: Bool = false) async throws -> Int32 {
+func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: String? = nil, session sessionLoop: Bool = false) async throws -> Int32 {
     let key = try apiKey()
     let session = try await wowSession(input: true, full: true)
     guard session.config.width == HUD.width, session.config.height == HUD.height else {
@@ -1592,14 +1592,14 @@ func questsExecute(graph: GraphSession, fightGraph: String? = nil, huntGraph: St
     let signals = trapSignals(dummy, log, also: { body.releaseAll(); host.releaseAll() },
                               holding: { body.holding || host.holding })
     await setZoom(body.keys, log)  // the engine's zoom, not whatever the camera had (owner, 26 Sept)
-    body.emit("start", ["run_id": run.id, "mode": session ? "session" : "quests", "decision_graph": graph.graph.id])
+    body.emit("start", ["run_id": run.id, "mode": sessionLoop ? "session" : "quests", "decision_graph": graph.graph.id])
     // Dead at the start (live, 27 Sept: it died between runs 56 and 57): resurrected first, or the run does not start.
     let revivedFirst = await host.reviveIfDead()
     var result = QuestResult()
     var revived: String?
     if let revivedFirst, revivedFirst != "REVIVED" {
         result.outcome = revivedFirst
-    } else if session {
+    } else if sessionLoop {
         // #87: the steps' window is the run's (no step after runDeadline); the session's end, inside the reserve, walks to safety
         // and checks for death itself (runSession's finish), so neither is repeated below.
         let played = await runSession(host: host, jev: LiveJev(key: key, timeout: HuntLimits.jevTimeout, retries: 0), graph: graph,
