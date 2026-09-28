@@ -9,6 +9,7 @@ enum HuntLimits {
     static let maxSeconds = 900.0
     static let stepLength = 1.5  // M4ad: y units a walking move steers on for, at most stepSeconds
     static let stepSeconds = 10.0
+    static let pickUpSeconds = 15.0  // a right-click's walk, the gathering cast and the count (live run 86: 8.5 s of walk alone)
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
     static let searchLimit = 12  // hunt decisions in a row without a fight
@@ -131,6 +132,12 @@ func confirmedObject(_ reads: [[String]], in objectives: [Objective]) -> Objecti
     let named = reads.suffix(2).map { objectTipObjective($0, in: objectives) }
     guard let first = named.first ?? nil, named.last ?? nil == first else { return nil }
     return first
+}
+
+/// The count a pick-up raised, found by the objective's own text. The quest's title can go unread while the tracker changes:
+/// live run 86 read "5/15 Windstone Cluster" under the quest above it, and a pick-up that worked was recorded as failed.
+func pickedUp(_ counted: Objective, in tracker: [Objective]) -> Objective? {
+    tracker.first { nameKey($0.text) == nameKey(counted.text) && $0.done > counted.done }
 }
 
 /// The selected creature as a cue for revalidation: the objective it counts for, else its name's letters. The frame's
@@ -514,7 +521,7 @@ enum HuntAction: String, JevAction {
         case .eatDrink:
             return "Sits to drink water and eat bread for 20 s: restores health and mana to full, far faster than standing. Only out of combat; ends early if something attacks, and standing up stops it."
         case .pickUp:
-            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, a few seconds. Stops early if attacked."
+            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, \(Int(HuntLimits.pickUpSeconds)) s at most. Stops early if attacked."
         default:
             return ""
         }

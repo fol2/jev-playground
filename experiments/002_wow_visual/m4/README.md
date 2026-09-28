@@ -936,7 +936,8 @@ so the pick-up is a choice Jev makes, not a script's loop; and it sees through a
   - The pointer jumps to the object (one move event). Two fresh tooltip reads there must name one open collect
     objective, and neither may be a unit's ("Level" line, `confirmedObject`). Only then, with no combat read just
     before, is it right-clicked. Click-to-Move walks there and picks it up.
-  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s.
+  - The evidence is the objective's count rising in the tracker, or its quest turning "Ready for turn-in", within 8 s
+    (15 s since M4af).
   - An attack ends the wait, as does no count by then, and a tap of forward stops Click-to-Move. A pick-up that
     counts is progress, as a fight is, for the hunt's search limit.
 - **Without the detector's model** no object is seen, PICK_UP_OBJECT is never offered, and the hunt is as before.
@@ -1400,6 +1401,31 @@ PICK_UP_OBJECT, while the detector held a cluster at the character's feet.
 - **Evidence:** sim only. `HuntTests` checks Roiling Winds, full or short, against "Windstone Cluster", and that it
   is no quest creature for it; it also checks Urs'anah, with a tail or without, against her head. The live
   proof is the next Windstones hunt.
+
+## M4af — a pick-up that worked is counted (28 Sept)
+
+Live run 86, after M4ae: the Windstones hunt chose PICK_UP_OBJECT twice. Both hovers read "Raw Windstone / Harvesting
+Windstones / 3/15 Windstone Cluster".
+- The first right-click walked the character to a far cluster by Click-to-Move, which took about 8.5 s.
+- The second started the gathering cast in reach. The chat said "You receive loot: [Windstone Cluster]x2", and the tracker
+  showed 5/15.
+
+Both were still recorded as "its count did not rise within 8 s". As the tracker changed, OCR missed the quest's title, so
+"5/15 Windstone Cluster" was read under the quest above it (Foul Matriarch). The check needed the same quest and the same
+text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run walked on and fought instead.
+
+- **The count check (`pickedUp`):** a pick-up's count is found by the objective's own text; the quest title is not needed.
+  The "Ready for turn-in" check still goes by quest, since that line has no text of its own.
+- **The wait:** a pick-up now waits up to 15 s (`HuntLimits.pickUpSeconds`) for the walk, the cast and the count. It was
+  8 s, and it still ends at once on success or an attack.
+- **Evidence:**
+  - Sim: `HuntTests` parses run 86's tracker with the title unread and finds the rise; an unchanged count finds none.
+  - Live: run 86's recording (121–143 s) shows the first click's walk cut at 8 s, just short of the cluster. It shows the
+    second click's cast bar, the loot line (x2) and 5/15. The next Windstones hunt is the proof that a pick-up is
+    counted.
+- **Also:** the count before the click is read from a frame taken just before it, not from the survey. The owner's
+  takeover ends the wait with no key pressed, and `hunt_limits` records `pick_up_s`. Jev's PICK_UP_OBJECT facts
+  say the new wait (15 s at most), not "a few seconds".
 
 ## Limits
 

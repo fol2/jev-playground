@@ -220,6 +220,11 @@ extension NavTests {
               && counts(plate("Urs'anah"), head) != nil && counts(plate("Urs'anah ЛОРAУ"), head) != nil
               && counts(plate("Scrawny Ursera ЛОРAУ"), [Objective(quest: "Claws", done: 0, need: 6, text: "Scrawny Ursera Claw")]) != nil,
               "live run 85: a Roiling Wind, however much of its name reads, shares only letters with a Windstone Cluster and is no quest creature for it; Urs'anah counts for her head, a junk tail or not")
+        let picking = Objective(quest: "Harvesting Windstones", done: 3, need: 15, text: "Windstone Cluster")
+        let titleUnread = parseTracker(["[5] Foul Matriarch", "- 0/8 Ursera Scavenger slain", "- 0/1 Head of Urs'anah", "- 5/15 Windstone Cluster"])
+        check(titleUnread.last?.quest == "Foul Matriarch" && pickedUp(picking, in: titleUnread)?.done == 5
+              && pickedUp(picking, in: parseTracker(["[4] Harvesting Windstones", "- 3/15 Windstone Cluster"])) == nil,
+              "live run 86: a pick-up's count is found by the objective's text when its quest's title went unread; no rise, no pick-up")
         check(remaining(objectives, in: done).count == 2, "an objective read at done >= need is no longer remaining")
         let lines = ["Agitators", "- 0/7 Al'Aketh Convert slain", "- 0/6 Roiling Winds destroyed",
                      "Infestation Investigation", "- 5/8 Pesky Cirrusfly slain"]

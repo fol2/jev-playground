@@ -222,8 +222,9 @@ final class LiveHuntHost: HuntHost {
     /// right-clicked; Click-to-Move walks there and picks it up. First the pointer waits off every unit until two fresh
     /// frames show no tooltip (tooltipGone), so a fading one cannot confirm the wrong place; the pointer then jumps to the
     /// object (one move event, no path across the view), and two fresh reads there must name one objective
-    /// (confirmedObject). Combat is read again before the click. Its count rising within 8 s is the evidence; an attack,
-    /// or no count by then, ends the wait, and a tap of forward stops the walk (review of #59).
+    /// (confirmedObject). Combat is read again before the click. Its count rising within HuntLimits.pickUpSeconds is the
+    /// evidence; an attack, or no count by then, ends the wait, and a tap of forward stops the walk (review of #59). The
+    /// owner's takeover ends it with no key (review of #100).
     func pickUp(objectives: [Objective]) async -> String {
         guard let image = freshImage() else { return "no fresh frame" }
         let feetY = 800.0 * Double(image.height) / Double(HUD.height)
@@ -261,6 +262,11 @@ final class LiveHuntHost: HuntHost {
             _ = move(1280, 60)
             return "in combat, or unreadable, before the click; not clicked"
         }
+        // The count before the click, from a frame taken just before it rather than the survey's: a survey that read low
+        // would make an unchanged count a rise (review of #100).
+        var before = counted
+        before.done = parseTracker(upscaledText(freshImage() ?? image, HuntHUD.tracker))
+            .first { nameKey($0.text) == nameKey(counted.text) }?.done ?? counted.done
         let request = NativeBackgroundClickDispatchRequest(target: routed, eventTapPointTopLeft: point(near.x, near.y),
                                                            appKitPoint: point(near.x, near.y), clickCount: 1, mouseButton: .right)
         guard let dispatched = keys.withControl({ Result { try NativeBackgroundClickTransport().dispatch(request) } }),
@@ -271,22 +277,23 @@ final class LiveHuntHost: HuntHost {
             keys.grant(FightLimits.forward, seconds: HuntLimits.tap + NavLimits.forwardWatchdog)  // lifted if this stalls
             await tap(self, FightLimits.forward)  // a movement key ends Click-to-Move
         }
-        while hostNow() - clicked < 8 {
+        while hostNow() - clicked < HuntLimits.pickUpSeconds {
             await sleep(0.5)
+            if ownerTookFocus() { return "cancelled: the owner took focus while picking up \(counted.text)" }
             if vitals()?.combat == true {
                 await stopWalking()
                 return "attacked while picking up \(counted.text); the walk there stopped"
             }
             guard let seen = freshImage() else { continue }
             let tracker = parseTracker(upscaledText(seen, HuntHUD.tracker))
-            if let now = tracker.first(where: { $0.quest == counted.quest && $0.text == counted.text }), now.done > counted.done {
+            if let now = pickedUp(before, in: tracker) {
                 return "picked up \(counted.text): \(now.done)/\(now.need)"
             }
             // the last one: the quest's lines give way to "Ready for turn-in"
             if tracker.contains(where: { $0.quest == counted.quest && $0.text == Objective.ready }) { return "picked up \(counted.text): quest ready" }
         }
         await stopWalking()
-        return "right-clicked \(counted.text); its count did not rise within 8 s"
+        return "right-clicked \(counted.text); its count did not rise within \(Int(HuntLimits.pickUpSeconds)) s"
     }
 
     /// One M3 episode on a child input capability: its clock and budgets start fresh, and its frames go
@@ -381,7 +388,7 @@ func warmJev(_ key: String) async -> Double? {
 
 func huntLimits() -> [String: Any] {
     ["max_decisions": HuntLimits.maxDecisions, "max_seconds": HuntLimits.maxSeconds, "max_fights": HuntLimits.maxFights,
-     "search_limit": HuntLimits.searchLimit, "rest_s": HuntLimits.restSeconds, "max_walks": HuntLimits.maxMoves, "walk_s": HuntLimits.stepSeconds,
+     "search_limit": HuntLimits.searchLimit, "rest_s": HuntLimits.restSeconds, "max_walks": HuntLimits.maxMoves, "walk_s": HuntLimits.stepSeconds, "pick_up_s": HuntLimits.pickUpSeconds,
      "player_safety": FightLimits.playerSafety, "heal_mana": FightLimits.healMana, "fight_start_health": FightLimits.startHealth,
      "eat_below_health": HuntLimits.eatBelowHealth, "eat_below_mana": HuntLimits.eatBelowMana, "walk_health": HuntLimits.walkHealth,
      "fight_max_decisions": FightLimits.maxDecisions, "fight_max_seconds": FightLimits.maxSeconds,
