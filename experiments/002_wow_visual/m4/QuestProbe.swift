@@ -1086,6 +1086,22 @@ final class LiveQuestHost: QuestHost {
         return "BACK_" + (await fight(inCombat: true))
     }
 
+    /// M4ah: what a red name ahead stopped the walk for. Tab selects the nearest enemy in front, as a player looks before
+    /// choosing, and the target frame's name is read; Esc drops the selection, only while a target shows (Esc with none is the
+    /// Game Menu), before and after. Selecting starts no fight. Out of combat only, and never while the owner has the game.
+    func stoppedBy() async -> String? {
+        guard !ownerTookFocus(), walker?.holding != true, combatNow() == false else { return nil }
+        func clear() async { if (vitalsNow()?.target ?? 0) > 0, !ownerTookFocus() { await quester.tap(QuestHUD.escape) } }
+        await clear()
+        await quester.tap(FightLimits.tab)
+        await quester.sleep(HuntLimits.settle)
+        guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+              frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { await clear(); return nil }
+        let name = upscaledText(frame.image, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        await clear()
+        return name.filter(\.isLetter).count >= 4 ? name : nil
+    }
+
     /// The HUD on a frame no older than the fight's age limit; nil without one.
     private func vitalsNow() -> Obs? {
         guard let frame = runtimeFrame(quester.body.session, quester.body.feed),

@@ -1444,6 +1444,25 @@ the Spirit Healer: killed while idle, then released by the game.
     still walks nowhere. It also checks that a timed-out walk is walked on to arrival.
   - Live: the next run that ends away from a village.
 
+## M4ah — Jev is told what stopped the walk (28 Sept)
+
+Live run 89: four walks stopped for a red name ahead (`WALK_DANGER_AHEAD`), and Jev chose RETREAT each time (0.87–0.98),
+over FIGHT_AHEAD. That included both walks towards Foul Matriarch, whose objective is those very Ursera Scavengers. Jev's
+state said nothing of what stood ahead, and the owner's rules say a red name is danger.
+
+- **`stoppedBy`** (`QuestHost`, live in `LiveQuestHost`): after a stop, Tab selects the nearest enemy in front, as a player
+  looks before choosing, and the target frame's name is read. Esc drops the selection, only while a target shows, before
+  and after. Selecting starts no fight. It runs only out of combat, and never while the owner has the game; logged
+  `stopped_by`.
+- **Jev's state:** while the stop stands (RETREAT or FIGHT_AHEAD on offer), the quest state has
+  `"stopped_by": {"name", "counts_for_objective"}`. The objective is matched against the log's objectives
+  (`logObjectives`, `objective(for:)`), or "none". Nothing is added when the name did not read. No criterion or graph
+  changed: the choice stays Jev's.
+- **Evidence:**
+  - Sim: `HuntTests` checks the quarry named with its objective, another creature with "none", an unread name with
+    nothing, and nothing before a stop; also the log's two objectives for Foul Matriarch.
+  - Live: the next run whose walk stops for a red name.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

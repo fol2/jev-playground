@@ -765,9 +765,19 @@ protocol QuestHost: AnyObject {
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
+    func stoppedBy() async -> String?  // M4ah: the name of what a red name ahead stopped a walk for (Tab's target), or nil
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
+}
+
+extension QuestHost {
+    func stoppedBy() async -> String? { nil }
+}
+
+/// The objectives a quest log's lines name ("0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah"), each under its quest.
+func logObjectives(_ quests: [PlannedQuest]) -> [Objective] {
+    quests.flatMap { q in parseTracker([q.title] + q.objective.components(separatedBy: " - ")) }
 }
 
 enum QuestLimits {
@@ -1201,10 +1211,12 @@ func questOffers(_ read: QuestRead, failed: Set<String>, stopped: QuestStep? = n
 
 /// Jev's input: the goal and position; the log (every quest in the owner's zone-first order) and the steps
 /// taken are READ resources, loaded only when Jev asks for them.
-func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) -> [String: Any] {
+/// `stoppedBy`: what the last walk stopped for (M4ah), with the objective it counts for: Jev chose RETREAT nearly every time
+/// without it (live run 89: four walks stopped, four retreats, two of them from Foul Matriarch's own quarry).
+func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], stoppedBy: String? = nil) -> [String: Any] {
     let plan = questPlan(read.quests, from: read.player)
     let zone = Set(thisZone(plan, from: read.player).map(\.title))
-    return ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
+    var state: [String: Any] = ["goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order).",
             "player": [read.player.x, read.player.y],
             "units": "zone-map coordinates; distances in y units, about 5 s of running each",
             "quest_log": plan.map { q -> [String: Any] in
@@ -1213,6 +1225,10 @@ func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)]) ->
                  "distance": q.pin.map { roundTo(distance(read.player, $0), 10) } as Any? ?? NSNull()] },
             "givers": read.givers.map { ["tooltip": $0.names, "distance": roundTo(distance(read.player, $0.pin), 10)] },
             "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
+    if let stoppedBy {
+        state["stopped_by"] = ["name": stoppedBy, "counts_for_objective": objective(for: stoppedBy, in: logObjectives(read.quests))?.text ?? "none"]
+    }
+    return state
 }
 
 struct QuestResult {
@@ -1239,6 +1255,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     var failed: Set<String> = [], used: Set<String> = []  // used: quests whose item was used this run (M4m)
     var stuck = 0
     var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
+    var ahead: String?  // what it stopped for, by Tab's target (M4ah)
     let deadline = host.now() + seconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -1262,7 +1279,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
         let decision: GraphDecision
         do {
-            decision = try await graph.next(state: questState(read, steps: r.steps),
+            decision = try await graph.next(state: questState(read, steps: r.steps, stoppedBy: danger == nil ? nil : ahead),
                 skills: Dictionary(uniqueKeysWithValues: offers.map { ($0.skill, $0.criterion) }), jev: jev,
                 now: host.now, deadline: host.now() + QuestLimits.decisionSeconds, stopped: host.ownerTookFocus)
         } catch {
@@ -1293,6 +1310,8 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         }
         if outcome == "WALK_DANGER_AHEAD" {
             danger = offer.step
+            ahead = await host.stoppedBy()
+            host.emit("stopped_by", ["name": orNull(ahead), "step": offer.step.name])
             failed.remove(QuestStep.fightAhead.key)  // a new stop may be fought
         } else if case .fightAhead = offer.step, QuestLimits.fightAheadHeld.contains(outcome) {
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
