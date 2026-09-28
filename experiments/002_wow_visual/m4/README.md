@@ -1469,6 +1469,22 @@ state said nothing of what stood ahead, and the owner's rules say a red name is 
     nothing, and nothing before a stop or after the retreat; also the log's two objectives for Foul Matriarch.
   - Live: the next run whose walk stops for a red name.
 
+## M4ai — Jev is told the level of what stands ahead (28 Sept)
+
+Live run 91: a walk stopped for a red name, `stopped_by` read "Scrawny Ursera" (it counts for no objective), and Jev chose
+RETREAT. A level 4 character retreated from a creature of level 3 or 4, a fight a player takes for its experience.
+
+- **`stoppedBy`** now returns an `Ahead` (a name and a level). After Tab reads the name, the pointer rests on the target
+  frame's portrait (`QuestHUD.targetPortrait`, the mirror of the character's own). The level comes from its unit tooltip
+  (`unitLevel`: "Level 3"; nil for "??").
+- **Jev's state:** `stopped_by` has `level` and `character_level` beside the name and the objective. No criterion changed.
+- **Evidence:**
+  - Sim: `HuntTests` checks the level in the state, and `unitLevel` on run 90's tooltip ("Scrawny Ursera", "Level 3",
+    "Beast") and on an elite's "??".
+  - The portrait's place was checked on run 91's fight frame: the portrait is centred at (1795, 993), with the level
+    badge below it.
+  - Live: the next stop.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

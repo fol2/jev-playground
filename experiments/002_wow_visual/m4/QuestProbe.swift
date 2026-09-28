@@ -50,6 +50,7 @@ enum QuestHUD {
     // Boro's name stood at x 2130-2270, outside the first box, 512-2048, and the visit ended NPC_NOT_OPENED).
     static let townView = CGRect(x: 100, y: 200, width: 2160, height: 640)
     static let portrait = (x: 764.0, y: 995.0)  // the character's own portrait: its unit tooltip names its level
+    static let targetPortrait = (x: 1796.0, y: 995.0)  // the target frame's portrait, the mirror of the character's (M4ai)
     static let junkButton = (dx: 12.0, dy: 411.0)  // Sell All Junk Items, the coin bag under the merchant's grid
     static let junkTip = (dx: 20.0, dy: 355.0, width: 240.0, height: 40.0)  // its tooltip, just above it
     static let merchantMoney = (dx: 140.0, dy: 430.0, width: 120.0, height: 40.0)
@@ -1092,7 +1093,7 @@ final class LiveQuestHost: QuestHost {
     /// opened anyway is closed, then Tab, each key given time to show. The selection is dropped the same way after: Tab does
     /// not move off a selected creature, and FIGHT_AHEAD's fight selects its own. Selecting starts no fight. Out of combat
     /// only, and never while the owner has the game.
-    func stoppedBy() async -> String? {
+    func stoppedBy() async -> Ahead? {
         guard !ownerTookFocus(), walker?.holding != true, combatNow() == false else { return nil }
         func latest() -> CGImage? {
             guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
@@ -1115,9 +1116,15 @@ final class LiveQuestHost: QuestHost {
         }
         await clear()
         await press(FightLimits.tab)
-        let name = named()
+        guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
+        // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
+        quester.hover(QuestHUD.targetPortrait.x, QuestHUD.targetPortrait.y)
+        let hovered = hostNow()
+        await quester.sleep(0.4)
+        let tip = quester.lines(QuestHUD.unitTip, await quester.frame(after: hovered + 0.3)).map(\.text)
+        quester.hover(1280, 60)
         await clear()
-        return name.flatMap { $0.filter(\.isLetter).count >= 4 ? $0 : nil }
+        return Ahead(name: name, level: unitLevel(tip))
     }
 
     /// The HUD on a frame no older than the fight's age limit; nil without one.
