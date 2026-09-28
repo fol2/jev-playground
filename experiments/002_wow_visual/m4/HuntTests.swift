@@ -39,6 +39,18 @@ extension NavTests {
         check(done.outcome == "OBJECTIVES_COMPLETE" && done.steps.filter { $0.action == .pickUp }.count == 2
               && done.steps.allSatisfy { $0.action != .pickUp || $0.result.hasPrefix("picked up") } && ground.fightsRun == 0,
               "two Windstone Clusters in view: two pick-ups and the objective is complete, no fight (\(done.outcome))")
+        // M4aj: each pick-up is remembered where it was; with no ring on the minimap, the nearest place is the area.
+        let homing = plain([], objectives: windstones)
+        homing.places = [(x: 44, y: 29), (x: 50, y: 20)]
+        let far = homing.readSurvey().value
+        let areaState = far.map { huntStatePacket($0, recent: [], fights: [], blocked: [])["selected_quest_area"] as? [String: Any] } ?? nil
+        check(ground.remembered.count == 2 && ground.remembered.allSatisfy { $0.objective == "Windstone Cluster" }
+              && far?.areaRemembered == true && far?.area?.inside == false && abs((far?.area?.distance ?? 0) - distance((40, 30), (44, 29))) < 0.05
+              && far.map { huntAdmissible($0).contains(.toArea) } == true
+              && areaState?["on_minimap"] as? Bool == false && areaState?["remembered_from_pick_ups"] as? Bool == true
+              && plain([], objectives: windstones).readSurvey().value?.area == nil
+              && rememberedArea(from: (44, 31), places: [(x: 44, y: 29)])?.inside == true && rememberedArea(from: (44, 32.5), places: [(x: 44, y: 29)])?.inside == false && rememberedArea(from: (44, 29), places: []) == nil,
+              "M4aj: pick-ups are remembered under their objective; with no ring on the minimap the nearest remembered place is the area to walk to")
         let decoy = plain([], objectives: windstones)
         decoy.objects = [SimHunt.Mob(name: "Glowing Lantern", x: 40, y: 29.5)]
         let skipped = await runHunt(host: decoy, jev: huntScripted([.pickUp, .nextTarget, .lookAround, .east, .west]))
