@@ -51,6 +51,13 @@ Whoever prepares the machine, starts live runs and tends them between runs, norm
 
 The operator's actions (builds, what else runs on the machine, the screen's state, what is recorded, where the character is left between runs) are outside the engine's view, so the engine cannot guard against them; they need checks in the harness that starts the run, not notes.
 
+## Delivering changes
+
+### Exact-head review
+An independent review's verdict bound to the full commit a pull request points at; a merge proceeds only on a trusted pass for that exact commit.
+
+The verdict is posted as a review, not a comment, in fixed lines that give the verdict, the reviewer's independence and the head it covers; a line that differs in any way, even by trailing spaces, is not read as a verdict. Any new commit invalidates it, so a fix is reviewed again before the merge.
+
 ## Flagged ambiguities
 
 - The operator (who runs and tends live runs) is distinct from the Owner controller (the human taking over during a run).
