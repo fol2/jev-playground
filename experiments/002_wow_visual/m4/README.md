@@ -1040,8 +1040,8 @@ killed. The owner, 27 Sept: "error exit should still try best to leave danger zo
   - So that a fight is always left for it, the run starts no step after 20 minutes, not 25. The last step's walk and
     its fight back end by 25:30.
 - **The walk.**
-  - Its moves are a fixed preference: straight, then the detours. It makes no model call, so a run that ended on a
-    failed Jev call still walks.
+  - It makes no model call, so a run that ended on a failed Jev call still walks. Its moves were a fixed preference
+    (straight, then the detours); since M4ac it is the steering walk, by the roads where they lead there.
   - It walks on past a red name ahead, and at low health out of combat (`toSafety`): stopping among hostiles is what
     it leaves. Live run 65 met combat at once, ended, and the character died where it stood.
 - **Steps.** SAFETY's fights back no longer use Jev's twelve steps. Run 65 spent them on five attacked walks and their
@@ -1434,11 +1434,14 @@ to. Thendal Village was 13.6 units away, beyond `safeReach` (12). So `safePlace`
 `leave_danger`. The character stood there for the seven minutes before run 87, and run 87 began with it as a ghost by
 the Spirit Healer: killed while idle, then released by the game.
 
-- **The limit:** `QuestLimits.safeReach` is now 25 units. The way home goes by the learned roads, steered (M4ac), inside the
-  run envelope's reserve, as before.
+- **The limit:** `QuestLimits.safeReach` is now 25 units. The way home is steered (M4ac), by the learned roads where they
+  lead there, else straight at the village. It stays inside the run envelope's reserve, as before.
+- **A longer way:** a walk to safety that ran out of its time (`TIME_LIMIT`, one walk at most 180 s) is now walked on
+  from where it stopped, as one that met combat is. It is still at most four walks (`safeWalks`), all by the envelope's
+  end.
 - **Evidence:**
   - Sim: `HuntTests` checks that run 86's end point walks to Thendal Village, and that a point 42 units from any village
-    still walks nowhere.
+    still walks nowhere. It also checks that a timed-out walk is walked on to arrival.
   - Live: the next run that ends away from a village.
 
 ## Limits

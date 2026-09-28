@@ -1423,6 +1423,9 @@ extension NavTests {
         check(wayLost == "FIGHT_PLAYER_DEAD" && wayStuck == "WALK_NO_PROGRESS" && wayEndless == "SAFE_ROUNDS"
               && wayEndlessSteps.filter { $0.hasPrefix("walk") }.count == QuestLimits.safeWalks && wayEndlessSteps.last == "fight",
               "review of #72: the way to safety ends on a lost fight, a walk's other end or its walks; the last walk's combat is fought too")
+        let (wayLong, wayLongSteps) = await wayRounds([false, false], [], ["TIME_LIMIT", "ARRIVED"])
+        check(wayLong == "SAFE" && wayLongSteps == ["walk 180", "walk 180"],
+              "M4ag: a walk to safety that ran out of time is walked on from where it stopped")
         let (wayLateFight, wayLateFightSteps) = await wayRounds([true], ["KILLED_AND_LOOTED"], [], left: [FightLimits.maxSeconds - 1])
         let (wayShort, wayShortSteps) = await wayRounds([false, false], [], ["COMBAT"], left: [100, QuestLimits.safeWalkSeconds - 1])
         check(wayLateFight == "SAFE_TIME_LIMIT_IN_COMBAT" && wayLateFightSteps.isEmpty && wayShort == "SAFE_TIME_LIMIT" && wayShortSteps == ["walk 100"],
