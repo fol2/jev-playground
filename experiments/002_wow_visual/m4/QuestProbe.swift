@@ -1028,7 +1028,7 @@ final class LiveQuestHost: QuestHost {
     var walkedFrom: MapPoint?
     var roads: RoadGraph?  // its stands give where to walk before an NPC is clicked (approach)
     var runDeadline = Double.infinity  // the quest run's: no leg of a walk round a gap starts after it (review of #69)
-    var passingNext = false  // M4am: the next walk goes past a red name ahead (an unaggressive creature stopped the last)
+    var passArmed: Double?  // M4am: when the step that walks past an unaggressive creature began; its first walk takes it
     var town: [TownNPC] = []  // M4u: the villages' vendors and trainers (learning/knowledge/zephras-town.json)
     var enders: [QuestEnder] = []  // M4v: who takes each quest in, and where (learning/knowledge/zephras-quests.json)
     /// From the character's memory (private, under runs/): the level at the last visit to the trainer (M4u), and each step's
@@ -1091,8 +1091,8 @@ final class LiveQuestHost: QuestHost {
         return "BACK_" + (await fight(inCombat: true))
     }
 
-    /// M4am: the next walk goes past a red name ahead for its first seconds: an unaggressive creature stopped the last one.
-    func passNext() { passingNext = true }
+    /// M4am: the step about to start walks past a red name ahead: an unaggressive creature stopped its last walk.
+    func passNext() { passArmed = hostNow() }
 
     /// M4ah: what stands ahead when a red name stopped the walk. Tab selects the nearest enemy in front, as a player looks
     /// before choosing; usually the stop, not always (Tab takes the nearest). It follows the hunt's own sequence
@@ -1328,6 +1328,10 @@ final class LiveQuestHost: QuestHost {
     func walk(to pin: MapPoint, label: String, retreating: Bool = false, road: Bool = false, arrive: Double = 0.5) async -> String? {
         // A key set whose release is unconfirmed is never dropped (its watchdog would stop retrying),
         // and a walk that ends so ends the run: WALK_ outcomes stop runQuests. Checked before any turn to read the place.
+        // M4am: the pass is the first walk's after it was armed, within its window: a walk that never starts (there, refused)
+        // or a step with no walk leaves it to no later walk.
+        let passing = !retreating && passArmed.map { hostNow() - $0 < QuestLimits.passSeconds } == true
+        passArmed = nil
         if walker?.holding == true { return "WALK_KEYS_HELD" }
         if !retreating { await healBeforeWalking() }  // a retreat leaves the danger first; a heal would stand in it
         // A plate over the coordinates must not refuse the walk (live run 47); a retreat does not turn beside the danger.
@@ -1360,7 +1364,7 @@ final class LiveQuestHost: QuestHost {
             let legs = newWalker(folder)
             walker = legs
             var destination = NavDestination(label: String(label.prefix(60)), x: pin.x, y: pin.y, arrive: arrive, seconds: seconds)
-            if passingNext { destination.passUntil = hostNow() + QuestLimits.passSeconds; passingNext = false }  // M4am
+            if passing { destination.passUntil = hostNow() + QuestLimits.passSeconds }  // M4am
             let walked = await runSteer(body: legs, path: path, destination: destination, known: loadBumps())
             saveBumps(walked.bumps)
             guard !legs.holding else { return "WALK_KEYS_HELD" }

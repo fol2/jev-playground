@@ -766,7 +766,7 @@ protocol QuestHost: AnyObject {
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
     func stoppedBy() async -> Ahead?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
-    func passNext()  // M4am: the next walk goes past a red name ahead for its first `QuestLimits.passSeconds`
+    func passNext()  // M4am: the step about to start walks past a red name ahead, its first walk's first `QuestLimits.passSeconds`
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -1305,6 +1305,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
     var danger: QuestStep?  // the step a red name stopped, while that stop stands (M4h, M4o, M4p)
     var ahead: Ahead?  // what it stopped for, by Tab's target (M4ah, M4ai)
     var passed: Set<String> = []  // steps walked past an unaggressive creature this run, once each (M4am)
+    var passing: String?  // the step whose next walk goes past, until another step is taken (M4am)
     let deadline = host.now() + seconds
     func finish(_ outcome: String) -> QuestResult {
         r.outcome = outcome
@@ -1348,6 +1349,8 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
         if host.now() >= deadline { return finish("TIME_LIMIT") }  // a decision takes up to 20 s: none starts after the deadline
         host.emit("quest_step", ["controller": ruled == nil ? "JEV" : "RULE", "skill": offer.skill, "step": offer.step.name]
             .merging(ruled == nil ? [:] : ["rule": "a lone creature no higher than the character stopped the walk: fight it"]) { a, _ in a })
+        if passing == offer.step.key { host.passNext() }  // M4am: only the stopped step's own walk goes past, not another step's
+        passing = nil
         let outcome: String
         switch offer.step {
         case .handIn(let q): outcome = await host.handIn(q)
@@ -1375,7 +1378,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
                 passed.insert(offer.step.key)
                 host.emit("quest_step", ["controller": "RULE", "skill": "WALK_PAST", "step": offer.step.name,
                                          "rule": "an unaggressive creature stopped the walk: walk past it"])
-                host.passNext()
+                passing = offer.step.key
                 danger = nil
                 ahead = nil
                 continue  // the stopped step is not failed: it is offered again, and its walk goes past

@@ -1460,6 +1460,13 @@ extension NavTests {
               && Creatures.isUnaggressive("Juvenile Vuldren") && Creatures.isUnaggressive("luvenile Vuldren ЛОРAУ")
               && !Creatures.isUnaggressive("Scrawny Ursera") && !fightsBlocker(Ahead(name: "Juvenile Vuldren", level: 1), characterLevel: 5),
               "M4am: an unaggressive creature alone in the way is walked past once, not fled or fought; the second stop is Jev's")
+        // The pass is the stopped step's own (review of #109): Jev taking another step first drops it, so no other walk goes past.
+        let wander = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: [], level: 5)])
+        wander.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD"]
+        wander.ahead = Ahead(name: "Juvenile Vuldren", level: 1)
+        _ = await runQuests(host: wander, jev: CannedGraph(["DO:HUNT_2", "DO:HUNT_1"]), graph: graph()!)
+        check(wander.passes == 0 && wander.handed.prefix(2) == ["HUNT Infestation Investigation", "HUNT Agitators"],
+              "M4am: when Jev takes another step after the pass, that step's walk does not go past red names")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),
