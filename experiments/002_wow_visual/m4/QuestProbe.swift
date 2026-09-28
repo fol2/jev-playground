@@ -1086,6 +1086,40 @@ final class LiveQuestHost: QuestHost {
         return "BACK_" + (await fight(inCombat: true))
     }
 
+    /// M4ah: what stands ahead when a red name stopped the walk. Tab selects the nearest enemy in front, as a player looks
+    /// before choosing; usually the stop, not always (Tab takes the nearest). It follows the hunt's own sequence
+    /// (selectNearest): Esc only while the target frame names something (Esc with none is the Game Menu), a Game Menu that
+    /// opened anyway is closed, then Tab, each key given time to show. The selection is dropped the same way after: Tab does
+    /// not move off a selected creature, and FIGHT_AHEAD's fight selects its own. Selecting starts no fight. Out of combat
+    /// only, and never while the owner has the game.
+    func stoppedBy() async -> String? {
+        guard !ownerTookFocus(), walker?.holding != true, combatNow() == false else { return nil }
+        func latest() -> CGImage? {
+            guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
+                  frame.stamp.isFresh(at: hostNow(), maximumAge: FightLimits.maxFrameAge) else { return nil }
+            return frame.image
+        }
+        func named() -> String? {
+            let name = latest().map { upscaledText($0, HuntHUD.targetName).joined(separator: " ").trimmingCharacters(in: .whitespaces) } ?? ""
+            return name.isEmpty ? nil : name
+        }
+        func menu() -> Bool { latest().map { upscaledText($0, HuntHUD.gameMenu).joined(separator: " ").lowercased().contains("game menu") } ?? false }
+        func press(_ code: UInt16) async {
+            guard !ownerTookFocus() else { return }
+            await quester.tap(code)
+            await quester.sleep(HuntLimits.settle)
+        }
+        func clear() async {
+            if named() != nil { await press(QuestHUD.escape) }
+            if menu() { await press(QuestHUD.escape) }
+        }
+        await clear()
+        await press(FightLimits.tab)
+        let name = named()
+        await clear()
+        return name.flatMap { $0.filter(\.isLetter).count >= 4 ? $0 : nil }
+    }
+
     /// The HUD on a frame no older than the fight's age limit; nil without one.
     private func vitalsNow() -> Obs? {
         guard let frame = runtimeFrame(quester.body.session, quester.body.feed),
