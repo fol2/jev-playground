@@ -818,7 +818,7 @@ a Cirrusfly selected in front of the character. None landed a blow.
 - In the same run the hunt for the Cirrusfly Queen read every Pesky Cirrusfly as counting ("Cirrusfly" shared) and
   walked toward them. For a kill objective a plate now counts only if each word of four letters or more in the
   objective's creature name shares a four-letter run with it. A collect objective names an item the creature drops, so
-  it keeps the looser rule.
+  it kept the looser rule, until M4ae (below) made it whole words.
 
 Run 38 (27 Sept, about 02:25) started the hunt near its pin at a red name (`hunt_near`): four fights, Pesky Cirrusfly
 slain 3 of 8 to 7 of 8 (run 37's three fights had killed too). The hunt ended `FIGHT_LIMIT`, and the step counted as
@@ -1381,6 +1381,25 @@ the rock slopes west of Thendal Village; and LOOK_AROUND, offered out of combat,
   no look round out of combat; the ridge's bump kept where it happened). Live run 85: the Windstones hunt fought and killed
   four creatures (its fight limit) on the grove's flat ground among the trees, none of its frames on a rock slope; the run
   retreated three times from danger ahead and fought one creature back (killed and looted); no death.
+
+## M4ae — a creature counts for something to collect only if it drops it (28 Sept)
+
+Live run 85: the Windstones hunt fought four Roiling Winds, and each ended `KILLED_NO_CORPSE`. That result was correct: an
+elemental leaves no corpse. The fault was the choice. `counts` said a Roiling Wind counts for "Windstone Cluster", because
+the two names share two runs of four letters ("wind", "inds"). So Jev saw a creature that counted, and chose GO_TO_QUEST_CREATURE over
+PICK_UP_OBJECT, while the detector held a cluster at the character's feet.
+
+- **Collect objectives:** a creature now counts for one only if a whole word of its name (four letters or more) is a word
+  of the objective ("Scrawny Ursera" for "Scrawny Ursera Claw"), or two neighbouring words of the objective joined, where
+  OCR read one word apart ("Urs'anah" for "Head of Urs anah"). A junk tail on the plate does not stop the match; a short read ("Winds", "Wind") never matches
+  "Windstone".
+- **Kill objectives:** unchanged.
+- **Jev's walk facts:** the hunt's walking moves now describe what they are since M4ad: up to 1.5 y units, 10 s at most,
+  steering round what they meet. The old text said "about 3 s". The run's `hunt_limits` records `walk_s` as the step's
+  seconds.
+- **Evidence:** sim only. `HuntTests` checks Roiling Winds, full or short, against "Windstone Cluster", and that it
+  is no quest creature for it; it also checks Urs'anah, with a tail or without, against her head. The live
+  proof is the next Windstones hunt.
 
 ## Limits
 
