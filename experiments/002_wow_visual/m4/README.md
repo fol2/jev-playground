@@ -1419,8 +1419,11 @@ text. After two such results the hunt stops offering PICK_UP_OBJECT, so the run 
   8 s, and it still ends at once on success or an attack.
 - **Evidence:**
   - Sim: `HuntTests` parses run 86's tracker with the title unread and finds the rise; an unchanged count finds none.
-  - Live: run 86's recording (frames 121–143 s: the walk, the cast bar, the loot line and 5/15) shows that the pick-ups
-    worked. The next Windstones hunt is the proof that they are counted.
+  - Live: run 86's recording (121–143 s) shows the first click's walk cut at 8 s, just short of the cluster. It shows the
+    second click's cast bar, the loot line (x2) and 5/15. The next Windstones hunt is the proof that a pick-up is
+    counted.
+- **Also:** the count before the click is read from the click's own frame, not the survey's. Jev's PICK_UP_OBJECT facts
+  say the new wait (15 s at most), not "a few seconds".
 
 ## Limits
 

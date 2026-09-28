@@ -521,7 +521,7 @@ enum HuntAction: String, JevAction {
         case .eatDrink:
             return "Sits to drink water and eat bread for 20 s: restores health and mana to full, far faster than standing. Only out of combat; ends early if something attacks, and standing up stops it."
         case .pickUp:
-            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, a few seconds. Stops early if attacked."
+            return "Rests the pointer on the nearest object on the ground in view. Only if the game's tooltip names an unfinished objective, right-clicks it: the character walks to it and picks it up, \(Int(HuntLimits.pickUpSeconds)) s at most. Stops early if attacked."
         default:
             return ""
         }

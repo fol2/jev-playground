@@ -261,6 +261,10 @@ final class LiveHuntHost: HuntHost {
             _ = move(1280, 60)
             return "in combat, or unreadable, before the click; not clicked"
         }
+        // The count before the click, from this frame's tracker rather than the survey's: a survey that read low would make
+        // an unchanged count a rise (review of #100).
+        var before = counted
+        before.done = parseTracker(upscaledText(image, HuntHUD.tracker)).first { nameKey($0.text) == nameKey(counted.text) }?.done ?? counted.done
         let request = NativeBackgroundClickDispatchRequest(target: routed, eventTapPointTopLeft: point(near.x, near.y),
                                                            appKitPoint: point(near.x, near.y), clickCount: 1, mouseButton: .right)
         guard let dispatched = keys.withControl({ Result { try NativeBackgroundClickTransport().dispatch(request) } }),
@@ -279,7 +283,7 @@ final class LiveHuntHost: HuntHost {
             }
             guard let seen = freshImage() else { continue }
             let tracker = parseTracker(upscaledText(seen, HuntHUD.tracker))
-            if let now = pickedUp(counted, in: tracker) {
+            if let now = pickedUp(before, in: tracker) {
                 return "picked up \(counted.text): \(now.done)/\(now.need)"
             }
             // the last one: the quest's lines give way to "Ready for turn-in"
