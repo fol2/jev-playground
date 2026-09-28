@@ -1380,14 +1380,17 @@ session has run.
   is revived (M4s) and counted; combat is fought back (M4i, SAFETY); low health out of combat is recovered (M4w, RULE), or rested.
 - **Modes** (`session_mode`): dead, recovering, idle-safe, in town, questing, paused. With nothing within reach the loop is
   idle-safe: it walks to the nearest village (M4r), forgets this session's failed steps, and reads again two minutes later.
-- **Only the envelope ends it** (`EnvelopeBudget`): its time, three deaths, 400 graph calls, or eight planned steps failed in a
-  row with no success between (a fight back won or a walk to safety is not progress). The end walks to safety and checks for
-  death itself; the engine's own faults (keys held, a failed handoff) end it at once, as before.
+- **Only the envelope ends it** (`EnvelopeBudget`, defaults in `SessionLimits`): its time; a death (after the revive), as a
+  run's; 120 graph calls, a run's budget; the second walk that makes no progress (`NO_PROGRESS_TWICE`), as a run's; or eight
+  planned steps failed in a row with no success between (a fight back won or a walk to safety is not progress). The defaults
+  are the owner's standing run envelope, so the first live session changes what happens between the ends, not when the owner
+  is asked; widening them is the owner's decision. The end walks to safety and checks for death itself; the engine's own
+  faults (keys held, a failed handoff) end it at once, as before.
 - **Live** (`questsExecute`): `LiveQuestHost` is the session's host through M4r, M4s and M4w; the steps' window is the run's
   (no step after 20 minutes), the end has the envelope's rest.
-- **Evidence.** Sim only: `SessionTests.swift` (21 checks) on scripted reads, vitals and outcomes: the holds, the recorded
+- **Evidence.** Sim only: `SessionTests.swift` (24 checks) on scripted reads, vitals and outcomes: the holds, the recorded
   failures, the reflexes' order and controllers, death and recovery as modes, the owner's pause and its limit, a failed call, the
-  call and death limits, keys held, a danger stop's retreat and fight ahead, and `--session`. Live: not yet run; the first
+  call, death and stuck-walk limits, keys held, a danger stop's retreat and fight ahead, and `--session`. Live: not yet run; the first
   announced session is its qualification, and its `events.jsonl` (`task_failed`, `reflex`, `session_mode`, `session_end`) the
   evidence.
 

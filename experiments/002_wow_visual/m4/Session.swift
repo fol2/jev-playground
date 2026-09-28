@@ -36,8 +36,13 @@ enum SessionLimits {
     static let ownerPause = 120.0       // the owner has the game this long: the session ends OWNER_TOOK_FOCUS
     static let endReserve = 300.0       // kept from the envelope for the way to safety and a revive at the end
     static let deadRetry = 60.0         // the HUD reads dead but no death screen shows this long: a perception failure, then backoff
-    static let deaths = 3               // the envelope's default death limit
-    static let judgeCalls = 400         // and its default call limit: a decision spends up to four (M4f)
+    // The defaults match the owner's standing run envelope, so the first live session changes what happens between the
+    // ends, not when the owner is asked: a death ends it (after the revive), as a run's does; 120 graph calls, a run's
+    // budget (M4f); the second walk that makes no progress ends it, as a run's does (NO_PROGRESS_TWICE). Widening any of
+    // these is the owner's decision, not a code default.
+    static let deaths = 1
+    static let judgeCalls = 120
+    static let stuckWalks = 2
     static let consecutiveFailures = 8  // planned steps failed in a row with no success between: the session is not making progress
 }
 
@@ -76,7 +81,7 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
     var world = WorldState()
     var failed: Set<String> = [], used: Set<String> = []
     var danger: QuestStep?  // the step a hostile stopped, while that stop stands (M4h, M4o, M4p)
-    var unread = 0, wasDead = false
+    var unread = 0, stuck = 0, wasDead = false
     var deadSince: Double?, pausedSince: Double?
     var lastMode = loop.mode
     let stepsEnd = began + budget.seconds - SessionLimits.endReserve  // no step starts after this: the end has its reserve
@@ -307,5 +312,9 @@ func runSession(host: SessionHost, jev: JevClient, graph: GraphSession, roads: R
             continue
         }
         failed.insert(offer.step.key)  // a walk that stopped, a hunt that found nothing, a hand-in that did not open: not offered again
+        if outcome == "WALK_NO_PROGRESS" {  // the standing envelope: the second stuck walk is the owner's to look at
+            stuck += 1
+            if stuck >= SessionLimits.stuckWalks { return await finish("NO_PROGRESS_TWICE") }
+        }
     }
 }

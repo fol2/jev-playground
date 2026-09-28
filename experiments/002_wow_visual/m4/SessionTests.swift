@@ -201,7 +201,24 @@ extension NavTests {
               && !danger.offered[2].contains("DO:RETREAT") && wary.handed == ["Agitators", "RETREAT", "FIGHT_AHEAD"] && stopped.failures("safety") == ["WALK_DANGER_AHEAD"],
               "a danger stop offers the retreat and the fight ahead; a failed retreat is not offered again while the fight ahead is; the stop is a safety failure")
 
-        // 13. The command line: --session is a flag of --quests only.
+        // 13. The defaults are the owner's standing envelope: a death ends the session, 120 calls, the second stuck walk.
+        check(SessionLimits.deaths == 1 && SessionLimits.judgeCalls == 120 && SessionLimits.stuckWalks == 2,
+              "the session's default limits match the run envelope until the owner widens them")
+        let bouldered = FakeQuests([])
+        bouldered.outcomes["Agitators"] = "WALK_NO_PROGRESS"
+        bouldered.outcomes["HUNT Foul Matriarch"] = "WALK_NO_PROGRESS"
+        let wedged = FakeSession(bouldered, reads: [read([ready, matriarch]), read([ready, matriarch]), read([ready, matriarch])])
+        let eleven = await runSession(host: wedged, jev: CannedGraph(["DO:HAND_IN_1", "DO:HUNT_1", "DO:HUNT_1"]), graph: graph(), budget: budget(1000))
+        check(eleven.outcome == "NO_PROGRESS_TWICE" && bouldered.handed == ["Agitators", "HUNT Foul Matriarch"] && wedged.failures("budget").count == 2
+              && eleven.steps.map(\.quest) == ["Agitators", "hunt: Foul Matriarch", "to safety", "revive"],
+              "the second walk that makes no progress ends the session as it ends a run, with the way to safety")
+        let onceStuck = FakeQuests([])
+        onceStuck.outcomes["Agitators"] = "WALK_NO_PROGRESS"
+        let freed = FakeSession(onceStuck, reads: [read([ready, matriarch]), read([ready, matriarch]), read([])])
+        let twelve = await runSession(host: freed, jev: CannedGraph(["DO:HAND_IN_1", "DO:HUNT_1"]), graph: graph(), budget: budget(400))
+        check(twelve.outcome == "TIME_LIMIT" && onceStuck.handed == ["Agitators", "HUNT Foul Matriarch"], "one stuck walk is a failed step, not an end")
+
+        // 14. The command line: --session is a flag of --quests only.
         check((try? parseNav(["--quests", "--graph", "g.json", "--keys", "wqe", "--session"]))?.session == true
               && (try? parseNav(["--quests", "--graph", "g.json", "--keys", "wqe"]))?.session == false
               && fails { _ = try parseNav(["--quests", "--graph", "g.json", "--keys", "wqe", "--session", "--session"]) }
