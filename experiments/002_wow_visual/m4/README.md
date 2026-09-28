@@ -1538,6 +1538,19 @@ walks to Foul Matriarch, Skysight and the Windstones' grove stood still, and so 
   - Live, run 95 (the first count): the rule fought a lone level 1 Juvenile Vuldren that stopped the walk to Skysight
     (`controller: RULE`), killed it, and the run went on. No death; it ended SAFE.
 
+## M4al — the backpack is closed after a read, whoever opened it (28 Sept)
+
+Live runs 87–98: the Combined Backpack stood open through whole runs. `readBags` closed it only when that read had
+opened it, so once it was open (from an earlier step or session) it stayed open. With it open, the game draws unit
+tooltips beside it, outside the tooltip box. The recording of run 98 shows "Scrawny Ursera / Level 3 / Beast" drawn by
+the backpack. So M4ai's target levels read null at most stops, and M4ak's rule seldom fired. PICK_UP_OBJECT's hovers also
+read "nothing" four times in run 98.
+
+- **The fix:** a read with `close` (the quest run's bag reads) now closes the backpack whenever its title still shows
+  after the read. Before, it did so only if it had opened it.
+- **Evidence:** a source check in `tools/MotorProof.swift`. Run 98's recording is the cause. Live: the next run's
+  `stopped_by` levels.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

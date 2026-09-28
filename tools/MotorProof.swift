@@ -357,6 +357,10 @@ func navTrap() throws {
     if !after("final class LiveQuestHost", quest).contains("if npc.role == \"vendor\" && (gearUnchecked || upgradeInBags) { return \"GEAR_UNSETTLED\" }") {
         throw GateError("the quest host may sell junk while an upgrade is unworn")
     }
+    // M4al (live runs 87-98): a read that closes the backpack closes it whoever opened it; left open, unit tooltips drew beside it.
+    if !after("func readBags(close: Bool = true)", quest).contains("if close && (bags.opened || stillShown) { await tap(QuestHUD.bags) }") {
+        throw GateError("readBags may leave open a backpack it did not open")
+    }
     let (fightCore, navCore, huntCore) = (try source(fightDir + "Fight.swift"), try source(navDir + "Nav.swift"), try source(navDir + "Hunt.swift"))
     if !fightCore.contains("interact, zoomOut, zoomIn]") || !navCore.contains("FightLimits.zoomOut, FightLimits.zoomIn,")
         || !huntCore.contains("FightLimits.zoomOut, FightLimits.zoomIn]") {

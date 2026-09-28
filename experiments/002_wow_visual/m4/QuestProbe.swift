@@ -256,7 +256,10 @@ final class QuestRun {
             if let name { items.append((name, at, reward)); empty = 0 } else { empty += 1 }
         }
         hover(1280, 60)
-        if close && bags.opened { await tap(QuestHUD.bags) }
+        // Closed whoever opened it (live runs 87-98: a backpack left open from before was never closed, and unit tooltips
+        // drew beside it, out of the tooltip box: target levels and pick-up tooltips read nothing).
+        let stillShown = lines(QuestHUD.bagTitle, await frame()).contains { nameKey($0.text).contains("backpack") }
+        if close && (bags.opened || stillShown) { await tap(QuestHUD.bags) }
         return items
     }
 
