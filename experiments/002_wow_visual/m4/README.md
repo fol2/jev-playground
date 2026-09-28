@@ -1523,13 +1523,19 @@ walks to Foul Matriarch, Skysight and the Windstones' grove stood still, and so 
 - **Everything else stays Jev's:** a higher level, company, an unread level or an unread character level.
 - **Unchanged:** the fight is M3's, with its own start health (90%) and safety. A kill offers the stopped step again
   (M4p).
-- **Counting company** (live): after Tab, the larger of the red names and the hostile plates in view, less the target's
-  own. With no frame it counts as company, so the rule never assumes the creature is alone.
+- **Counting company** (`aheadCompany`, live after Tab): the untargeted hostile plates, plus the red names. The
+  target's own plate is white-outlined and is not among them. Its red name is taken off only when it shows no plate,
+  since far off a creature is only a red name. A red that is not a creature counts as company too, and with no frame it
+  counts as some. So the rule never assumes the creature is alone. Jev's `stopped_by` carries it as
+  `other_hostiles_in_view`.
 - **Off switch:** `JEV_BLOCKER_FIGHT=off`.
 - **Evidence:**
   - Sim: `HuntTests` checks that a lone level 1 at level 4 is fought by rule and the stopped hunt offered again. A level
-    5, company and an unread level go to Jev (RETREAT in the script).
-  - Live: the next stop.
+    5, company and an unread level go to Jev (RETREAT in the script). On synthetic plates, an untargeted hostile plate
+    beside the white-outlined target counts as company (review of #107: the first count, the larger of the two less
+    one, missed it).
+  - Live, run 95 (the first count): the rule fought a lone level 1 Juvenile Vuldren that stopped the walk to Skysight
+    (`controller: RULE`), killed it, and the run went on. No death; it ended SAFE.
 
 ## Limits
 

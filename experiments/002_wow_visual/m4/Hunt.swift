@@ -731,6 +731,17 @@ func tap(_ host: HuntHost, _ code: UInt16) async {
     await host.sleep(HuntLimits.settle)
 }
 
+/// M4ak: the hostiles in view besides the Tab target. Untargeted hostile plates count (the target's own is white-outlined
+/// and left to findTargetPlate), plus red names, less the target's own red name when it shows no plate (far off, a
+/// creature is a red name). A red that is no creature counts as company too: the rule never assumes a lone creature
+/// (review of #107: the larger of the two, less one, missed a companion).
+func aheadCompany(_ px: RGBA) -> Int {
+    let plates = nameplates(px).filter(\.hostile).count
+    let reds = redNames(px).count
+    let targetPlate = observe(px, plates: true).plate != nil
+    return plates + max(0, reds - (targetPlate ? 0 : 1))
+}
+
 /// M4aj: an area from remembered pick-up places, for a collect objective whose area the minimap does not show (live runs
 /// 85-89: the Windstones' clusters were found round Thendal Grove, but with no ring on the minimap each hunt searched by
 /// compass). The nearest place is its centre.

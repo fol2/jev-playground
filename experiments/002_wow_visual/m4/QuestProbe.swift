@@ -1118,9 +1118,8 @@ final class LiveQuestHost: QuestHost {
         await clear()
         await press(FightLimits.tab)
         guard let name = named(), name.filter(\.isLetter).count >= 4 else { await clear(); return nil }
-        // M4ak: the other hostiles in view beside it, by red names or hostile plates (the more of the two, less the target's
-        // own); none read counts as some, so the rule's lone creature is never assumed.
-        let others = latest().map { img -> Int in let px = rgba(img); return max(0, max(redNames(px).count, nameplates(px).filter(\.hostile).count) - 1) } ?? 1
+        // M4ak: the other hostiles in view beside it (aheadCompany); none read counts as some, so a lone creature is never assumed.
+        let others = latest().map { aheadCompany(rgba($0)) } ?? 1
         // M4ai: its level, from the unit tooltip of the target frame's portrait, as the character's own is read (readLevel).
         // The pointer moves only while the game is the engine's and out of combat (review of #104).
         guard !ownerTookFocus(), combatNow() == false else { return Ahead(name: name, others: others) }

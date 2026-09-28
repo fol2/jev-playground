@@ -1257,6 +1257,7 @@ func questState(_ read: QuestRead, steps: [(quest: String, outcome: String)], st
             "recent_steps": steps.suffix(6).map { ["quest": $0.quest, "outcome": $0.outcome] }]
     if let stoppedBy {
         state["stopped_by"] = ["name": stoppedBy.name, "level": orNull(stoppedBy.level), "character_level": orNull(read.level),
+                               "other_hostiles_in_view": stoppedBy.others,
                                "counts_for_objective": objective(for: stoppedBy.name, in: logObjectives(read.quests))?.text ?? "none"] as [String: Any]
     }
     return state
