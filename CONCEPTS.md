@@ -8,12 +8,17 @@
 The small decision model that chooses among the skills the engine offers at each step, given a compact structured state; it judges between options and never executes them.
 *Avoid:* the brain, the agent (for the model itself)
 
-Jev receives structured state and the knowledge relevant to the choice, never raw frames, and it can only pick from options the engine has already judged admissible. When Jev keeps choosing badly, the first question is what its state was missing (see Engine capability).
+Jev receives structured state and the knowledge relevant to the choice, never raw frames, and it can only pick from options the engine has already judged admissible. When Jev keeps choosing badly, the first questions are what its state was missing and how its options were described (see Criterion and Engine capability).
 
 ### Controller
 Who actually took an action, recorded with it: Jev (a model choice), Rule (a validated deterministic policy deciding in Jev's place), Safety (a protective reflex), or Owner (the human took over).
 
 The real controller is always logged, and one is never silently substituted for another during a comparison. A Rule that overrides Jev usually means Jev lacked a fact; Rules belong with the jobs deterministic code already owns: admissibility, watchdogs, budgets and emergency stops.
+
+### Criterion
+The short description of one offered option that Jev reads with the node's question; together they are all Jev knows of what the option does, gains and gives up.
+
+Jev weighs options by these texts against its state: an exit that reads as safe or free draws it, and a benefit stated for one option beside no cost for another tilts the choice. A criterion that contradicts the state, such as a fixed warning the state rules out, misleads it the same way.
 
 ### Engine capability
 A general ability of the engine that every consumer relies on, such as locating interface elements wherever they are drawn, resolving read names to known entities, verifying an outcome from independent evidence, or learning world knowledge. It is distinct from a patch that makes one failure pass.
