@@ -316,6 +316,32 @@ stop reading the bolt out of range, all checked by eye, the "2" white on each: 7
 now reads out of range on exactly the 9 frames whose "2" is red by eye, and never while the shock
 (20 yd) reads in range. One more fight check (208). Proof: offline, on saved frames.
 
+## M3c — hit again after a kill: fight the attacker, the corpse waits (28 Sept)
+
+Live run 90: a walk was attacked, and SAFETY's fight back killed a Scrawny Ursera. After a kill the fight offered only
+LOOT_CORPSE, HEAL and WAIT ("a kill must be looted first"). So it spent 30 s hovering for the corpse while a second
+Scrawny Ursera attacked, and the character died ("You died." in chat, 0/98). The run read the quests and walked on
+before it saw the death.
+
+- **`hitAfterKill`** (`runFight`, RULE): after a kill seen on an earlier frame, in combat, with nothing alive selected,
+  another creature is attacking when either:
+  - the character's health fell since the previous observation; or
+  - combat is still on `FightLimits.combatAfterKill` (8 s) after the kill. The ring lingers only a few seconds after the
+    last attacker dies, and a heal each step can hide every fall, but not the combat an attacker keeps up.
+
+  The kill is set aside, SELECT_TARGET is offered again, and the attacker is fought. That corpse, the attacker's, is looted
+  when it falls; the first is left. The dying creature's own last hit, on the kill frame, does not count. Logged
+  `reflex`.
+- **The corpse search** (LiveHost `hoverCorpse`) and the walk to a still-selected corpse (Interact With Target) both stop
+  as soon as the character's health falls. LOOT_CORPSE then answers "not looted: hit while …". That is not "no corpse",
+  which would end the fight with the attacker still on.
+- **Evidence:**
+  - Sim: `FightTests` checks the predicate: a fall, and combat kept up past the linger, versus a lingering ring, out of
+    combat, a live target, and once looted.
+  - Sim: a whole `runFight` against `SimFight` with a second attacker and a 2.5 s heal: the kill is set aside once, the
+    attacker selected, killed and looted (`KILLED_AND_LOOTED`).
+  - Live: not yet run.
+
 ## Reproduce
 
 ```sh
