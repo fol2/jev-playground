@@ -1385,20 +1385,22 @@ extension NavTests {
         }
         // M4ah (live run 89: four stops, four retreats): Jev sees what stopped the walk, and whether it counts.
         func stopFor(_ name: String?) async -> CannedGraph {
-            let host = FakeQuests([QuestRead(quests: [infest], player: (42, 24), missing: []), QuestRead(quests: [infest], player: (43, 25), missing: [])])
-            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD"]
+            let winds = PlannedQuest(title: "Agitators", level: 3, ready: false, objective: "- 0/6 Roiling Winds destroyed", pin: (44, 25))
+            let host = FakeQuests([QuestRead(quests: [infest, winds], player: (42, 24), missing: []), QuestRead(quests: [infest, winds], player: (43, 25), missing: []),
+                                   QuestRead(quests: [infest, winds], player: (42, 24), missing: [])])
+            host.outcomes = ["HUNT Infestation Investigation": "WALK_DANGER_AHEAD", "HUNT Agitators": "WALK_DANGER_AHEAD"]
             host.ahead = name
             let jev = CannedGraph(["DO:HUNT_1", "DO:RETREAT"])
             _ = await runQuests(host: host, jev: jev, graph: graph()!)
             return jev
         }
-        let quarry = await stopFor("Pesky Cirrusfly"), other = await stopFor("Roiling Winds"), unread = await stopFor(nil)
+        let quarry = await stopFor("Pesky Cirrusfly"), other = await stopFor("Juvenile Vuldren"), unread = await stopFor(nil)
         check((quarry.sent[1]["stopped_by"] as? [String: String]) == ["name": "Pesky Cirrusfly", "counts_for_objective": "Pesky Cirrusfly slain"]
               && (other.sent[1]["stopped_by"] as? [String: String])?["counts_for_objective"] == "none"
-              && unread.sent[1]["stopped_by"] == nil && quarry.sent[0]["stopped_by"] == nil
+              && unread.sent[1]["stopped_by"] == nil && quarry.sent[0]["stopped_by"] == nil && quarry.sent.count == 3 && quarry.sent[2]["stopped_by"] == nil
               && logObjectives([PlannedQuest(title: "Foul Matriarch", level: 5, ready: false, objective: "0/8 Ursera Scavenger slain - 0/1 Head of Urs'anah")])
                   .map(\.text) == ["Ursera Scavenger slain", "Head of Urs'anah"],
-              "M4ah: after a red name stops a walk, Jev's state names it and the objective it counts for; none unread, none before a stop")
+              "M4ah: after a red name stops a walk, Jev's state names it and the objective it counts for; none unread, none before a stop or after the retreat")
         let (won, wonJev, _) = await stoppedHunt("KILLED_AND_LOOTED", ["DO:HUNT_1", "DO:FIGHT_AHEAD", "DO:HUNT_1"])
         check(won.handed.prefix(2) == ["HUNT Infestation Investigation", "FIGHT_AHEAD"] && wonJev.offered.count == 3
               && wonJev.offered[1].contains("DO:FIGHT_AHEAD") && wonJev.offered[2].contains("DO:HUNT_1") && !wonJev.offered[2].contains("DO:FIGHT_AHEAD"),

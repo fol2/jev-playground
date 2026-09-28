@@ -765,7 +765,7 @@ protocol QuestHost: AnyObject {
     func useItem(_ quest: PlannedQuest, item: String) async -> String  // right-click the bag item the quest names: USED or why not (M4m)
     func visit(_ npc: TownNPC) async -> String  // walk to a town NPC and sell the junk or train there: SOLD, TRAINED, NOTHING_TO_ or why not (M4u)
     func remember(_ key: String, outcome: String, level: Int?)  // a step's outcome into the character's memory (M4y): recordStep
-    func stoppedBy() async -> String?  // M4ah: the name of what a red name ahead stopped a walk for (Tab's target), or nil
+    func stoppedBy() async -> String?  // M4ah: after a red name stopped a walk, the nearest enemy in front (Tab's target), or nil
     func now() -> Double
     func ownerTookFocus() -> Bool
     func emit(_ event: String, _ fields: [String: Any])
@@ -1317,6 +1317,7 @@ func runQuests(host: QuestHost, jev: JevClient, graph: GraphSession, roads: Road
             failed.insert(QuestStep.fightAhead.key)  // the stop stands: RETREAT is offered again, this fight not (review of #66)
         } else {
             danger = nil
+            ahead = nil
         }
         // The walk that stopped failed this step's key; a hunt from here that took some is the step going on, not failed, so
         // its HUNT is offered again (review of #58: after four fights of eight it was never offered again).

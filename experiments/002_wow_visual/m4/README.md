@@ -1451,8 +1451,14 @@ over FIGHT_AHEAD. That included both walks towards Foul Matriarch, whose objecti
 state said nothing of what stood ahead, and the owner's rules say a red name is danger.
 
 - **`stoppedBy`** (`QuestHost`, live in `LiveQuestHost`): after a stop, Tab selects the nearest enemy in front, as a player
-  looks before choosing, and the target frame's name is read. Esc drops the selection, only while a target shows, before
-  and after. Selecting starts no fight. It runs only out of combat, and never while the owner has the game; logged
+  looks before choosing, and the target frame's name is read. That is usually what stopped the walk; Tab takes the
+  nearest. It follows the hunt's own key sequence (`selectNearest`):
+  - Esc only while the target frame names something;
+  - a Game Menu that opened anyway is closed;
+  - then Tab, each key given time to show.
+
+  The selection is dropped the same way after, since Tab does not move off a selection and FIGHT_AHEAD's fight selects
+  its own. Selecting starts no fight. It runs only out of combat, and never while the owner has the game; logged
   `stopped_by`.
 - **Jev's state:** while the stop stands (RETREAT or FIGHT_AHEAD on offer), the quest state has
   `"stopped_by": {"name", "counts_for_objective"}`. The objective is matched against the log's objectives
@@ -1460,7 +1466,7 @@ state said nothing of what stood ahead, and the owner's rules say a red name is 
   changed: the choice stays Jev's.
 - **Evidence:**
   - Sim: `HuntTests` checks the quarry named with its objective, another creature with "none", an unread name with
-    nothing, and nothing before a stop; also the log's two objectives for Foul Matriarch.
+    nothing, and nothing before a stop or after the retreat; also the log's two objectives for Foul Matriarch.
   - Live: the next run whose walk stops for a red name.
 
 ## Limits
