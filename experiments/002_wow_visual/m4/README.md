@@ -1519,7 +1519,7 @@ So every hunt searched by compass (run 87 wandered south and east among Vuldren 
 
 ## M4ak — a lone creature no higher than the character is fought, not asked about (28 Sept)
 
-**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89, #88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
+**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89), which the reflex table's hostile-ahead entry would use (#88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
 
 Live runs 89–94: Jev chose RETREAT at every red-name stop (0.77–0.98). With `stopped_by` it knew what stood there and
 at what level (M4ah, M4ai), and it still retreated, from a level 1 Juvenile Vuldren at level 4 too (run 94). The
@@ -1561,7 +1561,7 @@ read "nothing" four times in run 98.
 
 ## M4am — an unaggressive creature in the way is walked past (28 Sept)
 
-**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89, #88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
+**Since 28 Sept:** this RULE stands in for a fact Jev lacked: which creatures are aggressive. The capability is creature knowledge learned from what creatures did, with provenance, in Jev's state (#89), which the reflex table's hostile-ahead entry would use (#88); see `docs/solutions/architecture-patterns/fix-engine-capability-not-goal-patches.md`.
 
 The owner, 28 Sept: "Juvenile Vuldren is unagreesive. Need to separate aggressive or non aggressive". Their names are red,
 like any hostile's (run 99's frame), so the walks stopped for them, Jev retreated, and M4ak's rule fought them. Only
