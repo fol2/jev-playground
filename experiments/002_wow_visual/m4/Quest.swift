@@ -1124,12 +1124,13 @@ func leaveDangerRounds(_ walks: Int, until end: Double, now: () -> Double, inCom
                        fightBack: () async -> String, walk: (Double) async -> String) async -> String {
     var walked = 0
     for _ in 0...(2 * walks) {
-        let left = end - now()
+        let at = now()  // once a round: a scripted clock in the checks hands out one time per call
+        let left = end - at
         // The table's combat entry over the reading (#88): in combat, the fight back comes first, as everywhere.
         var world = WorldState()
-        world.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: now()))
-        world.update(\.character.inCombat, .known(Reading(value: await inCombat(), confidence: 1, capturedAt: now(), source: "pixels:hud")))
-        if case .fightBack? = ReflexTable.first(world, ReflexContext(now: now(), ownerTookFocus: false, maximumVisionAge: .infinity))?.action {
+        world.note(frame: FrameIdentity(stream: "hud", geometry: "hud", capturedAt: at))
+        world.update(\.character.inCombat, .known(Reading(value: await inCombat(), confidence: 1, capturedAt: at, source: "pixels:hud")))
+        if case .fightBack? = ReflexTable.first(world, ReflexContext(now: at, ownerTookFocus: false, maximumVisionAge: .infinity))?.action {
             guard left >= FightLimits.maxSeconds else { return "SAFE_TIME_LIMIT_IN_COMBAT" }
             let fought = await fightBack()
             guard QuestLimits.fightWon.contains(fought) else { return "FIGHT_" + fought }
