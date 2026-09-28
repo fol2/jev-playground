@@ -49,6 +49,10 @@ struct GateTests {
     static func routing() {
         check(try checks([("M", "README.md")]) == ["integrity", "governance"], "documentation only")
         check(!(try checks([("M", "docs/changes/note.md")])).contains("governance-tests"), "a modified change note is documentation")
+        let vocabulary = try? checks([("M", "CONCEPTS.md")]), solution = try? checks([("M", "docs/solutions/architecture-patterns/a.md")])
+        let loose = try? checks([("M", "docs/solutions/a.md")])
+        check(vocabulary == ["integrity", "governance"] && solution == ["integrity", "governance"] && loose == nil,
+              "the shared vocabulary and a documented solution under its category are documentation; a loose solutions file is not")
         for path in gateCode.union(policy).sorted() {
             check(try checks([("M", path)]).contains("governance-tests"), "authority and code path \(path) gets the full contract")
         }
