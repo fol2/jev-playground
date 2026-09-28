@@ -600,9 +600,12 @@ func runFight(host: FightHost, jev: JevClient, startHealth: Double = FightLimits
         if host.wowFrontmost() { outcome = "OWNER_TOOK_FOCUS"; break }
         guard let o = await freshObservation(host) else { outcome = "NO_FRESH_FRAME"; break }
         lastStamp = o.stamp
-        let killedBefore = episode.killed  // a kill seen on an earlier frame: the dying creature's own last hit is not an attacker
+        // Our own kill seen on an earlier frame: the dying creature's own last hit is not an attacker, and neither is a corpse
+        // seen at the start (live run 93: the start's corpse counted, the fought creature's death read as a hit after a kill,
+        // and its kill was set aside; 30 SELECT_TARGETs out of combat followed, and DECISION_LIMIT).
+        let killedBefore = episode.killed && !episode.oldCorpse
         episode.update(o)
-        killedAt = episode.killed ? killedAt ?? host.now() : nil
+        killedAt = episode.killed && !episode.oldCorpse ? killedAt ?? host.now() : nil  // our kill's time, not the start's corpse
         if killedBefore, let at = killedAt, hitAfterKill(episode, o, previous: prev, sinceKill: host.now() - at) {
             killedAt = nil
             episode.killed = false
@@ -829,7 +832,9 @@ final class SimFight: FightHost {
     var damageScale = 1.0  // below 1: a tougher creature, for a chain that must check in
     var addAfterKill = false  // M3c: a second creature attacks once the first is dead, until it is selected
     var healSeconds = 0.0  // the heal's cast, for a fight whose clock must run (M3c)
+    var boltSeconds = 0.0  // the bolt's cast, likewise
     private var adding = false
+    private var combatEnds: Double?
     private var bolts = 0
 
     init(clock: FightClock) { self.clock = clock }
@@ -867,6 +872,7 @@ final class SimFight: FightHost {
     func errorText() -> String? { errorMessage }
 
     func observe(plates: Bool) -> Obs {
+        if let end = combatEnds, clock.now() >= end { combat = false; combatEnds = nil }
         if stalls > 0 { stalls -= 1; return Obs(fresh: false) }
         var o = Obs()
         o.stamp = ObservationStamp(stream: "sim-fight", geometry: "sim-layout", capturedAt: now())
@@ -937,6 +943,7 @@ final class SimFight: FightHost {
             plateX = nil
             corpseLootable = leavesCorpse
             if addAfterKill { adding = true; addAfterKill = false }
+            if !adding { combatEnds = clock.now() + 3 }  // the last attacker is dead: combat ends a few seconds later, as live
         }
     }
 
@@ -979,6 +986,7 @@ final class SimFight: FightHost {
             return "within Lightning Bolt range"
         case .castLightningBolt:
             holdBolt()
+            await sleep(boltSeconds)
             bolts += 1
             spend(0.07)
             strike(1.0 / 3)
