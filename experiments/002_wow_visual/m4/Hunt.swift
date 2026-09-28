@@ -10,6 +10,8 @@ enum HuntLimits {
     static let stepLength = 1.5  // M4ad: y units a walking move steers on for, at most stepSeconds
     static let stepSeconds = 10.0
     static let pickUpSeconds = 15.0  // a right-click's walk, the gathering cast and the count (live run 86: 8.5 s of walk alone)
+    static let placeRadius = 1.5  // y units: within this of a remembered pick-up place is inside its area (M4aj)
+    static let placesKept = 32  // remembered pick-up places per objective, the newest
     static let jevTimeout = 10.0  // a hunt decides out of combat; its fights keep M3's 4 s
     static let maxFights = 4
     static let searchLimit = 12  // hunt decisions in a row without a fight
@@ -460,6 +462,7 @@ struct HuntObs: Equatable {
     var gameMenu = false
     var facing: Double? = nil  // the minimap arrow
     var area: QuestArea? = nil
+    var areaRemembered = false  // the area is a remembered pick-up place, not the minimap's ring (M4aj)
     var here: NavObs? = nil  // coordinates and facing, as a walk reads them
     var seen: [Seen] = []  // this view's plates, plus a fresh LOOK_AROUND's
     var objects: [SeenObject] = []  // objects on the ground in view (M5); none without the detector's model
@@ -649,7 +652,8 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
         target["counts_for_objective"] = objective(for: name, in: o.objectives)?.text ?? "none"
         if let inRange = o.targetInRange { target["in_lightning_bolt_range"] = inRange }
     }
-    var area: [String: Any] = ["on_minimap": o.area != nil]
+    var area: [String: Any] = ["on_minimap": o.area != nil && !o.areaRemembered]
+    if o.areaRemembered { area["remembered_from_pick_ups"] = true }
     if let a = o.area {
         area["character_inside"] = a.inside
         area["distance"] = roundTo(a.distance)
@@ -687,6 +691,8 @@ func huntStatePacket(_ o: HuntObs, recent: [HuntStep], fights: [String], blocked
 /// its host is a NavBody: `look` reads position and facing for the walk skill.
 protocol HuntHost: NavBody {
     func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)]  // M4ad: the steering walks' bump memory (none in a sim)
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint]  // M4aj: where the unfinished collect objectives' objects were picked up
+    func remember(place: MapPoint, for objective: String)
     func remember(bumps: [(at: MapPoint, heading: Double, side: Double)])
     func survey() -> HuntObs?  // everything, OCR included; nil when the tracker is unreadable
     func vitals() -> HuntObs?  // pixels only (no OCR), for polling; nil without a fresh frame
@@ -700,13 +706,20 @@ protocol HuntHost: NavBody {
 extension HuntHost {
     var facingState: FacingState? { nil }
     func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)] { [] }
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint] { [] }
+    func remember(place: MapPoint, for objective: String) {}
     func remember(bumps: [(at: MapPoint, heading: Double, side: Double)]) {}
 }
 
 extension HuntHost {
     func readSurvey() -> Observation<HuntObs> {
-        guard let o = survey(), let stamp = o.stamp,
+        guard var o = survey(), let stamp = o.stamp,
               stamp.isFresh(at: now(), maximumAge: FightLimits.maxFrameAge) else { return .unavailable("hunt_unreadable") }
+        // M4aj: with no area on the minimap, where this quest's objects were picked up before is the area to walk to.
+        if o.area == nil, let here = o.here, let remembered = rememberedArea(from: here.point, places: knownPlaces(o.objectives)) {
+            o.area = remembered
+            o.areaRemembered = true
+        }
         return .observed(o, stamp)
     }
 }
@@ -716,6 +729,15 @@ func tap(_ host: HuntHost, _ code: UInt16) async {
     await host.sleep(HuntLimits.tap)
     host.keys.lift(code)
     await host.sleep(HuntLimits.settle)
+}
+
+/// M4aj: an area from remembered pick-up places, for a collect objective whose area the minimap does not show (live runs
+/// 85-89: the Windstones' clusters were found round Thendal Grove, but with no ring on the minimap each hunt searched by
+/// compass). The nearest place is its centre.
+func rememberedArea(from here: MapPoint, places: [MapPoint]) -> QuestArea? {
+    guard let p = places.min(by: { distance(here, $0) < distance(here, $1) }) else { return nil }
+    let d = distance(here, p)
+    return QuestArea(bearing: bearing(from: here, to: p), distance: d, inside: d < HuntLimits.placeRadius)
 }
 
 /// Tab does not move off a selected creature, and Esc with nothing selected opens the Game Menu. So Esc
@@ -1029,7 +1051,13 @@ func runHunt(host: HuntHost, jev: JevClient, graph: GraphSession? = nil,
             if let here = host.look() { panorama = (here, look.seen) }
         case .pickUp:
             result = await host.pickUp(objectives: o.objectives)
-            if result.hasPrefix("picked up") { sinceFight = 0 }  // progress, as a fight is
+            if result.hasPrefix("picked up") {
+                sinceFight = 0  // progress, as a fight is
+                // M4aj: remembered where it was, so a later hunt with no area on the minimap walks back here.
+                if let here = host.look(), let picked = o.objectives.filter(collects).first(where: { result.contains($0.text) }) {
+                    host.remember(place: here.point, for: picked.text)
+                }
+            }
         case .rest:
             result = await rest(host, seconds: HuntLimits.restSeconds)
         case .eatDrink:
@@ -1082,6 +1110,10 @@ final class SimHunt: HuntHost {
     var gameMenu = false
     var fightOutcome = "KILLED_AND_LOOTED"
     var fightsRun = 0
+    var places: [MapPoint] = []  // M4aj: remembered pick-up places, offered while a collect objective is open
+    var remembered: [(at: MapPoint, objective: String)] = []
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint] { objectives.contains(where: collects) ? places : [] }
+    func remember(place: MapPoint, for objective: String) { remembered.append((place, objective)) }
     var foughtInCombat: [Bool] = []  // each fight's inCombat, as the hunt passed it
     var surveyBlind = false
     var positionBlind = false  // surveys read, but not the place (the arrow unread)

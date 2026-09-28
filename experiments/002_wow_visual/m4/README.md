@@ -1489,6 +1489,25 @@ RETREAT. A level 4 character retreated from a creature of level 3 or 4, a fight 
     FIGHT_AHEAD rose from 0.02–0.13 (run 89) to 0.19. The information is Jev's; whether to fight such a blocker is a
     policy question for the reflex table (#88).
 
+## M4aj — the hunt remembers where it picked things up (28 Sept)
+
+Live runs 85–89: the Windstones' clusters were found round Thendal Grove, but the minimap shows no ring for that quest.
+So every hunt searched by compass (run 87 wandered south and east among Vuldren and Cirrusflies, and found none).
+
+- **Remembered:** a pick-up that counts records where the character stood, under its objective (`HuntHost.remember(place:
+  for:)`; live in the private `runs/002_wow_visual/memory/places.json`, the newest 32 per objective; logged
+  `place_remembered`).
+- **Used:** with no ring on the minimap, the nearest remembered place for an open collect objective is the hunt's area
+  (`readSurvey`, `rememberedArea`). It is inside within 1.5 units. So GO_TO_QUEST_AREA and the area detours are offered
+  as for a ring. Jev's state says `"on_minimap": false, "remembered_from_pick_ups": true`.
+- **Seeded:** from the two pick-ups that worked, (41.6, 26.8) in run 86 (its recording's minimap) and (43.8, 26.5) in
+  run 89.
+- **Evidence:**
+  - Sim: `HuntTests` checks the two pick-ups remembered under their objective; the nearest place as the area (not
+    inside, at its distance); GO_TO_QUEST_AREA offered; the state's flags; no area without places; inside within the
+    radius.
+  - Live: the next Windstones hunt.
+
 ## Limits
 
 - Three supervised walks in one village. These are trials, not a success rate.

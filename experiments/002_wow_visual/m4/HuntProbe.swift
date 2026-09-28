@@ -23,6 +23,19 @@ func plateName(_ image: CGImage, _ bar: PlateBar) -> String {
     upscaledText(image, CGRect(x: bar.x0 - 20, y: bar.y0 - 34, width: bar.x1 - bar.x0 + 70, height: 32)).joined(separator: " ")
 }
 
+/// M4aj: where each collect objective's objects were picked up, private: `{objective: [[x, y]]}`.
+let placesMemory = URL(fileURLWithPath: "runs/002_wow_visual/memory/places.json")
+
+func loadPlaces() -> [String: [MapPoint]] {
+    let rows = (try? Data(contentsOf: placesMemory)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: [[Double]]] } ?? [:]
+    return rows.mapValues { $0.compactMap { $0.count == 2 ? (x: $0[0], y: $0[1]) : nil } }
+}
+
+func savePlaces(_ places: [String: [MapPoint]]) {
+    try? FileManager.default.createDirectory(at: placesMemory.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? JSONSerialization.data(withJSONObject: places.mapValues { $0.map { [$0.x, $0.y] } }).write(to: placesMemory)
+}
+
 /// The fields read from pixels alone: the M3 bars and ring, the minimap arrow and the quest area.
 func pixelObs(_ pixels: RGBA) -> HuntObs {
     let hud = observe(pixels, plates: false)
@@ -189,6 +202,17 @@ final class LiveHuntHost: HuntHost {
     }
     func knownBumps() -> [(at: MapPoint, heading: Double, side: Double)] { loadBumps() }
     func remember(bumps: [(at: MapPoint, heading: Double, side: Double)]) { saveBumps(bumps) }
+    func knownPlaces(_ objectives: [Objective]) -> [MapPoint] {
+        let open = Set(objectives.filter(collects).map { nameKey($0.text) })
+        return loadPlaces().filter { open.contains(nameKey($0.key)) }.flatMap(\.value)
+    }
+    func remember(place: MapPoint, for objective: String) {
+        var all = loadPlaces()
+        let kept = (all[objective] ?? []).filter { distance($0, place) > HuntLimits.placeRadius / 3 }  // one place once
+        all[objective] = Array((kept + [place]).suffix(HuntLimits.placesKept))
+        savePlaces(all)
+        emit("place_remembered", ["objective": objective, "at": [place.x, place.y], "places": all[objective]?.count ?? 0])
+    }
 
     /// The object detector (M5, ObjectReader), loaded once, before any hunt moves; nil without its private model.
     static let objectReader: ObjectReader? = try? ObjectReader()
