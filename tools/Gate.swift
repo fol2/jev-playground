@@ -95,8 +95,9 @@ func route(_ changes: [Change]) throws -> JSON {
             if path == sharedJSON { fishing = true; full = true }  // the fishing tools and the gate compile it too
         } else if isFishingPath(path) {
             fishing = true
-        } else if ["README.md", "experiments/README.md"].contains(path)
-                    || (segments.count == 3 && segments[0] == "docs" && segments[1] == "changes" && path.hasSuffix(".md")) {
+        } else if ["README.md", "experiments/README.md", "CONCEPTS.md"].contains(path)
+                    || (segments.count == 3 && segments[0] == "docs" && segments[1] == "changes" && path.hasSuffix(".md"))
+                    || (segments.count == 4 && segments[0] == "docs" && segments[1] == "solutions" && path.hasSuffix(".md")) {
             full = full || status != "M"  // added/deleted documentation gets the full contract
         } else {
             throw GateError("unclassified path: \(path); register actual offline proof before promotion")
@@ -269,7 +270,7 @@ func contracts(_ at: URL = root) throws {
 // MARK: The report
 
 /// The gate's own tests: built from these sources with -D GATE_TESTS and counted.
-let minimumGateTests = 523  // the current count: removing a check must lower this on purpose
+let minimumGateTests = 524  // the current count: removing a check must lower this on purpose
 func governanceTests() throws -> Int {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("gate-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: tmp) }

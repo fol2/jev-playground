@@ -98,7 +98,6 @@ regression and revalidate changes. No silent live self-edit.
 
 Load docs/agents/ai-sdlc.md for the learning lifecycle, rollout, gates and run envelope;
 experiments/README.md for evidence conventions; experiments/002_wow_visual/learning/README.md
-for existing research/replay; M0–M4 READMEs for actual runtime limits; `docs/solutions/` for
-documented past learnings by category (YAML frontmatter: module, tags, problem_type), relevant in
-documented areas; `CONCEPTS.md` for the shared domain vocabulary. CLAUDE.md imports
+for existing research/replay; M0–M4 READMEs for actual runtime limits; docs/solutions/ for
+past learnings by category; CONCEPTS.md for shared vocabulary. CLAUDE.md imports
 only this kernel. Do not restart methodology adoption without a demonstrated need.
