@@ -36,14 +36,14 @@ Over live runs 1-100 (25-28 September 2026) the engine's own stops did their job
 
 The fixes on the operator's side landed where the next session cannot find them:
 
-- **Two shell scripts in a session scratchpad under /tmp.** `liverun2.sh` wakes the displays, brings Finder to the front, starts a recording and then the `--quests` run. `syncrec.sh` copies a studied recording and its log to the NAS, checks the size there and deletes the local copy. Their comments hold the lessons of runs 49, 75, 76 and 96. The scratchpad belongs to one session, so a new or parallel session cannot run these scripts, or even see them.
+- **Two shell scripts in a session scratchpad under /tmp.** `liverun2.sh` wakes the displays, brings Finder to the front, starts a recording and then the `--quests` run. `syncrec.sh` copies a studied recording and its log to the NAS, checks the size there and deletes the local copy. `liverun2.sh`'s comments hold the lessons of runs 49, 75, 76 and 96. The scratchpad belongs to one session, so a new or parallel session cannot run these scripts, or even see them.
 - **Private memory notes.** These hold the rules: no builds during a run, no idling in danger, never unlock the screen, and Esc, never Enter. The standing run envelope is there too: area, allowed actions, budgets, stop rules and expiry (auto memory [claude]).
 
 What the tree holds today:
 
 - **The engine's guards.** A quest run reads a frame only if it is at most `FightLimits.maxFrameAge` = 1.0 s old (`experiments/002_wow_visual/m3/Fight.swift:58-59`, applied in `experiments/002_wow_visual/m4/QuestProbe.swift:151` and `experiments/002_wow_visual/m3/FightProbe.swift:98-103`). The limit's own comment assumes 30 fps capture: "an older newest frame is a stall".
   - A walk that cannot read its position ends `WALK_HUD_UNREADABLE` (`experiments/002_wow_visual/m4/Quest.swift:1004-1009`, `experiments/002_wow_visual/m4/QuestProbe.swift:1379`).
-  - WoW in front stops a run `OWNER_TOOK_FOCUS` (`experiments/002_wow_visual/m4/NavProbe.swift:148-150`, `experiments/002_wow_visual/m3/Fight.swift:600`, `experiments/002_wow_visual/m4/QuestProbe.swift:1273`).
+  - WoW in front stops a run `OWNER_TOOK_FOCUS` (`experiments/002_wow_visual/m4/NavProbe.swift:148-150`, `experiments/002_wow_visual/m3/Fight.swift:600`, `experiments/002_wow_visual/m4/Quest.swift:1326`).
   - The start refuses to run in five cases (`experiments/002_wow_visual/m1/SeekProbe.swift:161-178`):
     - Screen Recording or Accessibility is not already granted;
     - Escape is held;
@@ -62,7 +62,7 @@ Experiment 001 did this differently. Its playbook (`experiments/001_wow_fishing/
 
 Experiment 002 itself started this way. M0 and M1 each wrote their live envelope into their README (`experiments/002_wow_visual/m0/README.md:187-220`, `experiments/002_wow_visual/m1/README.md:140-159`). From M4's `--quests` runs on, the envelope was granted in conversation and kept in private memory, and the m4 README only mentions parts of it in passing.
 
-Sources for the table: the outcomes of runs 50, 57, 77 and 95 come from the private run logs (outcomes only). The locked screen at runs 8-9, the build beside run 95 and run 57's ghost start come from the agent's private memory notes (auto memory [claude]). The 30-minute stall and the recording faults of runs 49, 75 and 76 come from the comments in the scratchpad script, the only record of them.
+Sources for the table: the outcomes of runs 50, 57, 77 and 95 come from the private run logs (outcomes only). The locked screen at runs 8-9, the build beside run 95 and run 57's ghost start come from the agent's private memory notes (auto memory [claude]). So do the causes behind runs 50 and 95: a `tools/sdlc check` compile and frames 2-3 s apart at run 50, and a nav-test build with no stale frames at run 95. The 30-minute stall and the recording faults of runs 49, 75 and 76 come from the comments in the scratchpad script, the only record of them.
 
 | Incident (live runs) | Cause | Where the fix lives now | Where it should live |
 |---|---|---|---|
@@ -73,7 +73,7 @@ Sources for the table: the outcomes of runs 50, 57, 77 and 95 come from the priv
 | A side display with other work on it was recorded (49, 75) | avfoundation device numbers change as displays sleep and wake | Scratchpad harness: records only a device probed as 2560 wide | Repo harness |
 | The recorder did not stop (76) | ffmpeg started as `a && b &`: a backgrounded subshell that SIGINT does not stop | Scratchpad harness: keeps ffmpeg's own pid | Repo harness |
 | The open chat box took the map's key and the walk's (77: `LOG_INCOMPLETE`, `WALK_NO_PROGRESS`) | The typed `/equip NAME` left the box open with letters in it | Engine: typed chat removed (#80). "Esc, never Enter": private memory | Repo preflight and playbook |
-| A run with WoW in front reads as the owner taking over | WoW comes to the front after the agent enters the world | Engine: refuses to start, stops `OWNER_TOOK_FOCUS`. Finder brought forward: scratchpad harness | Repo harness |
+| A run with WoW in front reads as the owner taking over | Entering the world leaves WoW in front unless another app is brought forward (auto memory [claude]) | Engine: refuses to start, stops `OWNER_TOOK_FOCUS`. Finder brought forward: scratchpad harness | Repo harness |
 | A stale window id after a relaunch | WoW's window id changes on relaunch | Engine: finds the window by process at each start. The agent's own captures: private memory | Repo harness helper |
 | #96's session loop needed the standing envelope | The owner granted it in conversation | Private memory only; #96 took it from a review note | A repo envelope that the harness reads (area, actions, budgets, expiry) |
 
@@ -161,6 +161,6 @@ Exception: the owner's stop and the engine's safety stops act at once. Add the h
 - PR #96 (open): its session loop's envelope defaults came from a review note (commit 6).
 - PRs #72, #73, #80 and #101: the engine-side fixes named above.
 - Issues:
-  - #87 (the session loop): its idle-safe mode parks the character between steps inside one session. Between separate runs the harness still has to check.
+  - #87 (the session loop): its idle-safe mode parks the character in a village when the session has nothing to do. Between separate runs the harness still has to check.
   - #88 (the reflex table): owner-focus checks belong there. The harness brings another app to the front but does not detect the takeover itself.
   - #93 (run reports): a natural place for the harness's operator events, such as a build during a run, a locked screen or a wrong display.
