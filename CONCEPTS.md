@@ -34,6 +34,11 @@ A perception component trained on audited, labelled frames and scored on held-ou
 
 A learned reader first runs in shadow: its readings are logged but never acted on. It replaces a rule only after beating it on held-out data, and it is demoted again when it proves confidently wrong in live play. New failure cases become labelled data, not new rules.
 
+### Pixel rule
+A hand-written perception rule that counts the pixels in a fixed box passing a colour test and compares the count with a threshold; kept for fixed interface bars, as opposed to a Learned reader.
+
+A pixel rule's threshold holds only for the pixels it was set on, and the pixels that count are the ones the running engine decodes from a live capture. Saved compressed frames, and the same frames opened by another decoder, can shift a count past the threshold; they serve for regression and for looking, not for setting the rule or for a claim that it reads or misses something.
+
 ### Working memory
 What the engine has recently read from the screen, such as the quest log or the skill bar, kept so that it is not read again while nothing has changed; distinct from long-term knowledge.
 
