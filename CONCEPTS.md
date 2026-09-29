@@ -15,6 +15,11 @@ Who actually took an action, recorded with it: Jev (a model choice), Rule (a val
 
 The real controller is always logged, and one is never silently substituted for another during a comparison. A Rule that overrides Jev usually means Jev lacked a fact; Rules belong with the jobs deterministic code already owns: admissibility, watchdogs, budgets and emergency stops.
 
+### Reflex
+A decision the engine takes by itself before any task or model call, from one ordered table that every loop consults on each tick: the owner taking over, stale vision, death, combat, low health, a hostile ahead and the like; distinct from a choice offered to Jev.
+
+The first entry that applies wins, so the order is itself policy, and the owner's takeover comes first. Each reflex is logged with its name and its Controller, and none is ever offered to Jev. A reflex that decides what Jev used to be asked is a Rule standing in for a fact Jev lacked (see Controller).
+
 ### Criterion
 The short description of one offered option that Jev reads with the node's question; together they are all Jev knows of what the option does, gains and gives up.
 

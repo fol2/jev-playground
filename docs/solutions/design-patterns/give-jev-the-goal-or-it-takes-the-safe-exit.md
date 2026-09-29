@@ -39,35 +39,35 @@ Jev is a judge, not a planner. At each decision-graph node the engine sends it c
 
 The sources, row by row:
 
-- **Walk STOP.** `experiments/002_wow_visual/m4/README.md:96-100`: "With STOP in the set, Jev chose it the moment the first move was blocked, in all 10 rehearsals across three phrasings of the question and of STOP's description. On one blocked state, Jev put 0.54 on STOP as first sent, and 0.42 even with structured criteria saying it never reaches the destination. With STOP removed, it put 0.32 and 0.27 on the two 45° detours." The reason given is at `:102`: "A walk has no danger that the local stops miss." The code comment is at `experiments/002_wow_visual/m4/Nav.swift:356-357`, and `experiments/002_wow_visual/m4/NavTests.swift:734` checks that "STOP is not a move Jev can choose". The hunt was built the same way: "a hunt has no STOP: its ends are local" (`experiments/002_wow_visual/m4/HuntTests.swift:354`).
+- **Walk STOP.** `experiments/002_wow_visual/m4/README.md:96-100`: "With STOP in the set, Jev chose it the moment the first move was blocked, in all 10 rehearsals across three phrasings of the question and of STOP's description. On one blocked state, Jev put 0.54 on STOP as first sent, and 0.42 even with structured criteria saying it never reaches the destination. With STOP removed, it put 0.32 and 0.27 on the two 45° detours." The reason given is at `:102`: "A walk has no danger that the local stops miss." The code comment is at `experiments/002_wow_visual/m4/Nav.swift:382-383`, and `experiments/002_wow_visual/m4/NavTests.swift:744` checks that "STOP is not a move Jev can choose". The hunt was built the same way: "a hunt has no STOP: its ends are local" (`experiments/002_wow_visual/m4/HuntTests.swift:354`).
 - **Agitators.** `experiments/002_wow_visual/m4/README.md:244-247`: Jev "declined it (0.79). The owner overruled: taking quests is the owner's policy. The state had lacked the owner's goal, and it described declining as free. That is the same draw towards a safe exit that STOP showed. The quest was accepted by hand." Per the agent's notes from that day, the state also said the character "has only fought level-1 beasts", and the owner said: "i against the jev decision, why we decline? we need to rethink to take the quests" (auto memory [claude]). The policy now:
   - `experiments/002_wow_visual/learning/knowledge/owner-rules.md:12`: "Always accept quests. [owner] 24 Sept 2026".
   - M4g (#28, `experiments/002_wow_visual/m4/README.md:522`) turns each "!" giver into an ACCEPT step. The quest node's skills include no decline (`experiments/002_wow_visual/runtime/skyborne-quest.graph.json:8`).
   - A follow-up offered on completion is accepted by the hand-in (`experiments/002_wow_visual/m4/QuestProbe.swift:982-984`; the graph profile at `skyborne-quest.graph.json:3`: "(owner rule)").
-- **Fight STOP.** `experiments/002_wow_visual/m3/README.md:228-235`, with #76's fix "STOP is offered only out of combat". The STOP text is at `experiments/002_wow_visual/m3/Fight.swift:195`, and the fight goal ends "The owner is supervising" (`:313`). The owner's own rule says the opposite: "a stop hands the fight to an owner who may be away" (`owner-rules.md:20`). That rule is only a READ away, and STOP's description does not mention it. The 0.39 comes from run 68's private log. STOP is still in the fight graph's skills (`experiments/002_wow_visual/runtime/skyborne-fight.graph.json:12`).
+- **Fight STOP.** `experiments/002_wow_visual/m3/README.md:228-235`, with #76's fix "STOP is offered only out of combat". The STOP text is at `experiments/002_wow_visual/m3/Fight.swift:195`, and the fight goal ends "The owner is supervising" (`:314`). The owner's own rule says the opposite: "a stop hands the fight to an owner who may be away" (`owner-rules.md:20`). That rule is only a READ away, and STOP's description does not mention it. The 0.39 comes from run 68's private log. STOP is still in the fight graph's skills (`experiments/002_wow_visual/runtime/skyborne-fight.graph.json:12`).
 - **RETREAT, M4ah to M4am.**
-  - M4ah (#102, `experiments/002_wow_visual/m4/README.md:1488-1492`): in run 89, four walks stopped and four retreats followed. "Jev's state said nothing of what stood ahead, and the owner's rules say a red name is danger."
-  - M4ai (#104, `:1529-1531`): in run 92, level 3 against character level 4, "Jev still chose RETREAT, but FIGHT_AHEAD rose from 0.02–0.13 (run 89) to 0.19."
-  - M4ak (#107, `:1557-1563`) then fought by RULE, and M4am (#109, `:1599-1603`) walks past by RULE.
+  - M4ah (#102, `experiments/002_wow_visual/m4/README.md:1522-1526`): in run 89, four walks stopped and four retreats followed. "Jev's state said nothing of what stood ahead, and the owner's rules say a red name is danger."
+  - M4ai (#104, `:1563-1565`): in run 92, level 3 against character level 4, "Jev still chose RETREAT, but FIGHT_AHEAD rose from 0.02–0.13 (run 89) to 0.19."
+  - M4ak (#107, `:1591-1597`) then fought by RULE, and M4am (#109, `:1633-1637`) walks past by RULE.
   - The private run logs (counts only) cover every stop in runs 85-99. That is 23 decisions with RETREAT and FIGHT_AHEAD offered: 22 RETREATs and one other quest's hunt.
   - Without `stopped_by` (runs 85-89, 95, 99), P(RETREAT) was 0.83-0.98 and P(FIGHT_AHEAD) 0.02-0.15. With it (runs 91, 92, 94, 96, 98: seven decisions), P(RETREAT) was 0.53-0.97 and P(FIGHT_AHEAD) 0.03-0.27.
-  - Run 94's first stop (a level 1 creature, character level 4) was 0.55 against 0.27. M4ak's summary "0.77–0.98" (`:1561`) is narrower than the logs.
+  - Run 94's first stop (a level 1 creature, character level 4) was 0.55 against 0.27. M4ak's summary "0.77–0.98" (`:1595`) is narrower than the logs.
   - Across 27-28 September Jev chose FIGHT_AHEAD in none of the 39 decisions that offered it.
 
 **What the quest node's question and state contain today:**
 
 - **The question** (`skyborne-quest.graph.json:7`) describes RETREAT only as what it does: it "walks back to where that walk began". FIGHT_AHEAD gets a benefit: "a kill offers the stopped step again, and its experience is how the character levels".
-- **The criteria Jev reads** (`experiments/002_wow_visual/m4/Quest.swift:1210-1217`) have the same imbalance:
+- **The criteria Jev reads** (`experiments/002_wow_visual/m4/Quest.swift:1215-1222`) have the same imbalance:
   - RETREAT: "Walk back to where the last walk began: a hostile creature's red name or plate came into view ahead of it." No cost is stated.
   - FIGHT_AHEAD states its benefit and its risks: "it may be a level above the character, and others near it may join". That text is the same even when `stopped_by` says level 1, with no other hostile in view.
 - **RETREAT's real cost is in code only.**
-  - The stopped step is failed for the rest of the run (`Quest.swift:1434`, `:1438` "danger: the step is not offered again"; `experiments/002_wow_visual/m4/README.md:552`).
-  - Any retreat that does not get back ends the run (`Quest.swift:1433`).
+  - The stopped step is failed for the rest of the run (`Quest.swift:1457`, `:1461` "danger: the step is not offered again"; `experiments/002_wow_visual/m4/README.md:552`).
+  - Any retreat that does not get back ends the run (`Quest.swift:1456`).
   - Jev never reads either fact.
-- **The state** (`questState`, `Quest.swift:1270-1288`) holds:
-  - `"goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order)."` (`:1273`);
+- **The state** (`questState`, `Quest.swift:1275-1293`) holds:
+  - `"goal": "Finish the quests of the player's zone; the next zone's quests come after (the owner's order)."` (`:1278`);
   - the position and units, with the quest log, the givers and the recent steps kept for READs;
-  - after a stop, `stopped_by` with `name`, `level`, `character_level`, `other_hostiles_in_view` and `counts_for_objective` (`:1283-1286`).
+  - after a stop, `stopped_by` with `name`, `level`, `character_level`, `other_hostiles_in_view` and `counts_for_objective` (`:1288-1291`).
 
   There is no aggression or tap-state (grey plate) field.
 - **The owner's rules** are a READ resource (`skyborne-quest.graph.json:16`, from `owner-rules.md` "## Quests"):
@@ -75,15 +75,15 @@ The sources, row by row:
   - "A hostile creature's red name is danger" (`:9`);
   - since #109, "Tell aggressive creatures from unaggressive ones. Juvenile Vuldren are unaggressive." (`:15`).
 
-  In runs 85-99 Jev never chose `READ:owner_rules` at a stop; it chose `READ:recent` six times. In 10 of the 23 stop decisions the rules were already loaded from an earlier read in the same run (private run logs, counts only). Either way, the aggression rule was not there to read: it entered `owner-rules.md` with #109, merged after run 99. So in those runs Jev was never told which creatures attack. Since #109, the one creature the rule names is walked past by RULE before Jev is asked (`Quest.swift:1387`), so that fact still does not reach Jev at a stop. `experiments/002_wow_visual/m4/README.md:561-562` already called Juvenile Vuldren "a neutral red-brown creature" on 24 September, and `:888-892` did again on 27 September. Both times it was a pixel rule, never a fact in Jev's state.
+  In runs 85-99 Jev never chose `READ:owner_rules` at a stop; it chose `READ:recent` six times. In 10 of the 23 stop decisions the rules were already loaded from an earlier read in the same run (private run logs, counts only). Either way, the aggression rule was not there to read: it entered `owner-rules.md` with #109, merged after run 99. So in those runs Jev was never told which creatures attack. Since #109, the one creature the rule names is walked past by RULE before Jev is asked (`experiments/002_wow_visual/engine/Controller.swift:152-155` `walk_past`, applied at `experiments/002_wow_visual/m4/Quest.swift:1346-1356`), so that fact still does not reach Jev at a stop. `experiments/002_wow_visual/m4/README.md:561-562` already called Juvenile Vuldren "a neutral red-brown creature" on 24 September, and `:888-892` did again on 27 September. Both times it was a pixel rule, never a fact in Jev's state.
 
 **The offline evaluation of framings that exists:**
 
-- **Walk rehearsals.** `--sim-jev` runs the real Jev against simulated walks: open, wall, pocket (`experiments/002_wow_visual/m4/README.md:217-224`, `Nav.swift:1275`). It caught STOP before any live walk.
+- **Walk rehearsals.** `--sim-jev` runs the real Jev against simulated walks: open, wall, pocket (`experiments/002_wow_visual/m4/README.md:217-224`, `Nav.swift:1321`). It caught STOP before any live walk.
 - **Hunt rehearsals.** `--hunt-sim-jev` does the same for hunts (`experiments/002_wow_visual/m4/HuntProbe.swift:5`).
 - **The tabletop.** `experiments/002_wow_visual/m4/Tabletop.swift` holds 13 situations from the owner's demo play. Its goal is the owner's: "level up … like a skilled human … and never die" (`:12-14`). Its exits (FLEE, AVOID_ALL, IGNORE) are plain alternatives. Live Jev agreed with the owner 13/13 (`experiments/002_wow_visual/m4/README.md:278-279`). The set was tuned until it agreed ("a first run missed two situations until it did", `Tabletop.swift:5`), so it is not a held-out test.
 - **Video replay.** `experiments/002_wow_visual/learning/VideoJev.swift` replays 236 video decisions. Its totals are historical (`experiments/002_wow_visual/learning/README.md:28-38`), and the held-out relabel is still "Next" (`:130`).
-- **Missing: any rehearsal of the quest node.** `--quests` exists only as a live mode (`Nav.swift:1172-1175`). The sim checks for M4ah-M4am use canned replies ("RETREAT in the script", `experiments/002_wow_visual/m4/README.md:1579`), so they test the state's shape and the RULEs, not what Jev chooses. The private run logs save every stop decision with its state, criteria and probabilities: 39 on 27-28 September. No framing has been compared on them.
+- **Missing: any rehearsal of the quest node.** `--quests` exists only as a live mode (`Nav.swift:1218-1221`). The sim checks for M4ah-M4am use canned replies ("RETREAT in the script", `experiments/002_wow_visual/m4/README.md:1613`), so they test the state's shape and the RULEs, not what Jev chooses. The private run logs save every stop decision with its state, criteria and probabilities: 39 on 27-28 September. No framing has been compared on them.
 
 This note is the prompt and state side of [Fix the engine capability behind a live failure, not the per-run patch](../architecture-patterns/fix-engine-capability-not-goal-patches.md). That note's rule, "A RULE that overrides the model usually means the model lacked a fact. Find the fact first", applies here. So does its creature example: "creature knowledge … added to Jev's state. Then Jev makes the decision." This note is about how to ask Jev: what the question, the options and the state must say before Jev's choice counts as a judgement.
 
@@ -106,18 +106,18 @@ This note is the prompt and state side of [Fix the engine capability behind a li
    - Hold some stops out and freeze the texts before you score them: "held-out episodes/sessions/sources, same available observations and actions, with frozen tuning" (`docs/agents/ai-sdlc.md:157-160`); "do not … tune against the held-out test" (AGENTS.md).
    - Prompt and state text is behaviour: "Changes to learned parameters, prompts and knowledge are behaviour changes even when stored as Markdown" (`docs/agents/ai-sdlc.md:134-135`).
    - `--sim-jev` did this for walks on 23 September. The quest node needs the same before its next live stop.
-6. **Only then consider a RULE.** Label it a stopgap and say which fact or framing it stands in for. A RULE also hides the question: with `fightsBlocker` and WALK_PAST in place, the easy stops never reach Jev, so a framing fix can no longer be measured on them live. Offline replay is then the only place to measure it.
+6. **Only then consider a RULE.** Label it a stopgap and say which fact or framing it stands in for. A RULE also hides the question: with the table's `walk_past` and `blocker_fight` in place (still RULE), the easy stops never reach Jev, so a framing fix can no longer be measured on them live. Offline replay is then the only place to measure it.
 
-**The open question: be honest about it.** Name and level alone did not flip Jev's choice in runs 91-98. They moved it: P(FIGHT_AHEAD) rose from at most 0.15 to at most 0.27, and P(RETREAT) fell to 0.53 at its lowest. They never made FIGHT_AHEAD the choice. The owner's reading is that the missing fact was aggression. From the session on 28 September, recorded in the capability note: "we didn't mentione which are agreesive which are not, that's on us. but when it's agreesive, we will understand what we should do". M4ai's reading (`experiments/002_wow_visual/m4/README.md:1530-1531`) was that fighting such a blocker is "a policy question for the reflex table (#88)". Neither has been tested. Aggression was never in `stopped_by`. RETREAT's cost was never stated. FIGHT_AHEAD's risk text never changed. The goal never named what a retreat costs. A replay of the saved stops that changes one of these at a time can tell them apart. Until then, "Jev is too cautious" is a claim about a framing, not about Jev.
+**The open question: be honest about it.** Name and level alone did not flip Jev's choice in runs 91-98. They moved it: P(FIGHT_AHEAD) rose from at most 0.15 to at most 0.27, and P(RETREAT) fell to 0.53 at its lowest. They never made FIGHT_AHEAD the choice. The owner's reading is that the missing fact was aggression. From the session on 28 September, recorded in the capability note: "we didn't mentione which are agreesive which are not, that's on us. but when it's agreesive, we will understand what we should do". M4ai's reading (`experiments/002_wow_visual/m4/README.md:1564-1565`) was that fighting such a blocker is "a policy question for the reflex table (#88)". The table now answers it as `blocker_fight` (RULE, `experiments/002_wow_visual/engine/Controller.swift:156-160`); #88 is still open for live qualification. Aggression in the state has not been tested. Aggression was never in `stopped_by`. RETREAT's cost was never stated. FIGHT_AHEAD's risk text never changed. The goal never named what a retreat costs. A replay of the saved stops that changes one of these at a time can tell them apart. Until then, "Jev is too cautious" is a claim about a framing, not about Jev.
 
 ## Why This Matters
 
 - **The exits had real costs.**
   - Run 68's STOP left a fight in combat, and the character died where it stood.
   - The Agitators decline would have dropped a quest the owner wanted; it was taken by hand.
-  - In runs 85-99, 22 retreats each dropped a quest step for the rest of its run. The walks to Foul Matriarch, Skysight and the Windstones' grove "stood still, and so did the levelling" (`experiments/002_wow_visual/m4/README.md:1563`).
-- **The responses moved decisions out of Jev** against the owner's direction. From 24 September: "the engine's skeleton is Jev-driven" (`experiments/002_wow_visual/m4/README.md:496`). From 27 September: "a script does not make gameplay choices" (`:956`). Two RULEs now decide creature stops. Each has its own matcher and its own failure modes:
-  - M4al found the level unread at most stops, so `fightsBlocker` "seldom fired" (`:1591`);
+  - In runs 85-99, 22 retreats each dropped a quest step for the rest of its run. The walks to Foul Matriarch, Skysight and the Windstones' grove "stood still, and so did the levelling" (`experiments/002_wow_visual/m4/README.md:1597`).
+- **The responses moved decisions out of Jev** against the owner's direction. From 24 September: "the engine's skeleton is Jev-driven" (`experiments/002_wow_visual/m4/README.md:496`). From 27 September: "a script does not make gameplay choices" (`:956`). Two RULEs now decide creature stops (`walk_past` and `blocker_fight` in `ReflexTable.standard`, both controller RULE). Each has its own matcher and its own failure modes:
+  - M4al found the level unread at most stops, so `fightsBlocker` "seldom fired" (`:1625`);
   - PR #109's description notes that the far creature's own red name counted as company.
 - **The same mistake cost less once the fix was the question.**
   - STOP was removed on the grounds that local stops cover it, and walks and hunts have not needed it since.
@@ -170,6 +170,6 @@ Exception: a safety stop (combat, low health, the owner taking focus, stale visi
 - Issues:
   - #90 (planner): its motivation already names this: "Live: STOP and RETREAT chosen as safe exits". A planner that filters options before Jev is asked may replace some per-node framing fixes.
   - #91 (judge): a question library, small state slices and replay scoring against labelled cases before a question shape is trusted live. This note's test belongs there.
-  - #88 (the reflex table, with its "hostile ahead" entry): it may take some of these choices from Jev altogether.
+  - #88 (the reflex table, now `ReflexTable.standard` in `experiments/002_wow_visual/engine/Controller.swift`; live qualification still open): `walk_past` and `blocker_fight` already take the easy creature stops from Jev (RULE). Learned aggression still belongs in Jev's state (#89).
   - #89 (world model): where facts such as aggression and tap state would live.
   - #93 (offline learning loop): where a quest-node replay set belongs.
