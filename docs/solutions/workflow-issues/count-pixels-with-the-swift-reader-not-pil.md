@@ -51,7 +51,7 @@ The pixel readers in this repo are Swift. `hudCount` counts the pixels in a box 
 - *PNG (lossless):*
   - `m1-seek --look` writes `look.png`: one window-only frame, with no input (`experiments/002_wow_visual/m1/SeekProbe.swift:215-231`);
   - a quest run writes `use-N.png`, `minimap-scan.png`, `quest-log.png`, `no-marks.png` (commented "for calibration") and `no-marks-after.png` (`experiments/002_wow_visual/m4/QuestProbe.swift:293`, `:423`, `:462`, `:818`, `:866`);
-  - `m4-nav --zoom` writes `zoom.png` (`experiments/002_wow_visual/m4/QuestProbe.swift:1729`).
+  - `m4-nav --zoom` writes `zoom.png` (`experiments/002_wow_visual/m4/QuestProbe.swift:1737`).
 - *What that leaves:* fights, walks and hunts save no PNG. The fight HUD's states, such as a red range digit, a cast bar or error text, exist on disk only as JPEG.
 
 **The offline decode.** `--replay` and `--pixels` open a saved file with ImageIO and then call the same `rgba()` (`experiments/002_wow_visual/m4/NavProbe.swift:297-327`, `:353-372`). M5's `loadImage` also opens files with ImageIO (`experiments/002_wow_visual/m5/PerceiveTool.swift:38-40`), then draws them into 8-bit RGB with its own `pixels()` (`:43-52`), not `rgba()`. On a saved JPEG, the Swift replay runs the runtime's reader code on pixels that compression has already changed. PIL, or any other decoder, adds a second difference: a different JPEG decoder on top of the compression.
@@ -105,7 +105,7 @@ The pixel readers in this repo are Swift. `hudCount` counts the pixels in a box 
    - `m4-nav --pixels DIR` prints each reader's reading for every frame under DIR. `m4-nav --replay DIR` adds the OCR readers and `redDanger`. Both run the runtime's reader code. Name the format of the frames you ran them on.
    - No mode prints the raw count behind a boolean. The stopgap (auto memory [claude]), labelled as a stopgap:
      - in a scratch worktree, add the box's `hudCount(...)` to the row that `pixelReadings` returns;
-     - build `m4-nav` with the M4 README's `swiftc` line (`experiments/002_wow_visual/m4/README.md:1644-1651`);
+     - build `m4-nav` with the M4 README's `swiftc` line (`experiments/002_wow_visual/m4/README.md:1678-1685`);
      - run `--pixels` on the main checkout's `runs/002_wow_visual`, since a worktree has no `runs/`;
      - read the counts, then delete the worktree.
    - Never commit that edit. Never build while a live run is on. If the stopgap is needed again, a counts mode in `m4-nav` is the fix. That is a proposal.
@@ -120,9 +120,9 @@ The pixel readers in this repo are Swift. `hudCount` counts the pixels in a box 
    - A number from PIL or any other decoder is not evidence, so it does not go in a PR. If one got in, withdraw it in the PR and restate it with the Swift reader's count, as #33's third commit did, and let the review name the withdrawal.
    - Say whether the frames are JPEG or PNG, and whether the set is calibration or held out. A threshold set on JPEG stays unqualified on the live decode until a PNG check or a live run.
 6. **The same rule applies to learned readers, in a different place.**
-   - M5 trains and scores on saved frames decoded by ImageIO (`experiments/002_wow_visual/m5/PerceiveTool.swift:38-40`). The facing reader's rows are walk and hunt `.jpg` frames (`experiments/002_wow_visual/m5/Facing.swift:44`, `:56`). Video frames "are compressed and scaled" (`experiments/002_wow_visual/m5/README.md:286-287`). Live, the readers see raw frames.
+   - M5 trains and scores on saved frames decoded by ImageIO (`experiments/002_wow_visual/m5/PerceiveTool.swift:38-40`). The facing reader's rows are walk and hunt `.jpg` frames (`experiments/002_wow_visual/m5/Facing.swift:44`, `:56`). Video frames "are compressed and scaled" (`experiments/002_wow_visual/m5/README.md:287-288`). Live, the readers see raw frames.
    - So the decode is a difference between training and serving. The held-out test that counts is the live game's frames.
-   - When explaining a live miss, keep "JPEG against live" as an unmeasured candidate. The README puts the facing reader's live misses down to "a new character, dusk" (`experiments/002_wow_visual/m5/README.md:473-474`). The effect of the decode was not measured.
+   - When explaining a live miss, keep "JPEG against live" as an unmeasured candidate. The README puts the facing reader's live misses down to "a new character, dusk" (`experiments/002_wow_visual/m5/README.md:474-475`). The effect of the decode was not measured.
 
 ## Why This Matters
 
@@ -171,5 +171,5 @@ Exception: looking needs no rule. Crops and contact sheets from any tool are fin
 - `AGENTS.md`: "Name and test the actual runtime consumer before claiming transfer".
 - `docs/agents/ai-sdlc.md:96` (the decoder version as part of an extraction's identity) and `:101-103` ("A visual-capable analyst checks actual frames for claims about pixels").
 - `CONCEPTS.md`: *Pixel rule*, kept for fixed interface bars such as the range digits, and *Learned reader*, the trained alternative.
-- `experiments/002_wow_visual/m4/README.md:129-133`, `:178-213`, `:292`, `:536`, `:559-572`; `experiments/002_wow_visual/m3/README.md:282-292`, `:310-317`; `experiments/002_wow_visual/m5/README.md:286-287`, `:441-476`.
+- `experiments/002_wow_visual/m4/README.md:129-133`, `:178-213`, `:292`, `:536`, `:559-572`; `experiments/002_wow_visual/m3/README.md:282-292`, `:310-317`; `experiments/002_wow_visual/m5/README.md:287-288`, `:442-477`.
 - PRs: #17 (facing, PNG), #26 (screenshot against capture), #28 (JPEG calibration frames), #32 (the perception set), #33 and #34 (the digits), #37 (the gate in Swift).
