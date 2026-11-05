@@ -67,7 +67,8 @@ func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
 func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
     guard history.count >= 22 else { return false }
     let median = history.sorted()[history.count/2]
-    return energy > max(median*4, 4)
+    // Floor 5: ring ripples and the bob reached 3.55-4.96 (frames checked); catches 4.47 once, else 5.3-12.8.
+    return energy > max(median*4, 5)
 }
 
 // The spell orb is bright blue-purple; the float and night water never are. A box frame that
