@@ -63,8 +63,9 @@ func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
 
 // A bite is a spike far above the box's own calm history (bobbing included), not an absolute level.
 // ponytail: 5 Nov night replay: real bites peak 4.47-9.8; bob animation 3.55, orb masked; 19/22 fire, 0/4 false.
+// The first 2.2 s after the lock are the float settling: 5 of 14 uncaught reels fired there, 2 of 65 catches.
 func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
-    guard history.count >= 10 else { return false }
+    guard history.count >= 22 else { return false }
     let median = history.sorted()[history.count/2]
     return energy > max(median*4, 4)
 }
