@@ -355,6 +355,8 @@ struct Fishing {
         let jev = execute && !check && CommandLine.arguments.contains("--jev") ? try JevClient() : nil
         defer { jev?.cancel() }
         let prepared = CommandLine.arguments.contains("--prepared")
+        let jevLocateKey = ProcessInfo.processInfo.environment["JEV_LOCATE"] == "1"
+            ? typesafeKey(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) : nil
         guard execute || probe || check else {
             print("Usage: live --probe | --check | --execute [--background] (one cast maximum)")
             return
@@ -376,8 +378,9 @@ struct Fishing {
         inputTargetWindow = background ? window.windowID : nil
         if background { nativeTarget = try routedTarget(pid: pid, window: window.windowID, bounds: bounds) }
         // Search the playfield above the avatar, excluding the main HUD/minimap.
+        // Jev mode looks further down: on 5 Nov the float landed at the old 0.55 edge.
         let crop = CGRect(x: bounds.width * 0.02, y: bounds.height * 0.08,
-                          width: bounds.width * 0.83, height: bounds.height * 0.47).integral
+                          width: bounds.width * 0.83, height: bounds.height * (jevLocateKey == nil ? 0.47 : 0.60)).integral
         let width = Int(crop.width / 2), height = Int(crop.height / 2)
         let config = SCStreamConfiguration()
         config.sourceRect = crop
@@ -640,6 +643,123 @@ struct Fishing {
             var requested: MotionWindow?, lastSubmitted: Blob?
             var lastRequest = -100.0, lastTimestamp = -1.0
             var submittedChange = false
+            let frames = directory.appendingPathComponent("frames")
+            try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
+            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = []
+            // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
+            func reel(_ point: CGPoint, _ image: CGImage) async throws {
+                // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
+                // (5 Nov: an instant background click opened UI menus but never reached the float.)
+                // 3D picking follows the real cursor, so warp it onto the float briefly and put it back
+                // (owner-approved 5 Nov; about 0.25 s per reel).
+                // Do not snatch the cursor mid-movement: wait for 0.3 s of owner mouse stillness (max 1.5 s).
+                let waitStart = ProcessInfo.processInfo.systemUptime
+                while CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved) < 0.3,
+                      ProcessInfo.processInfo.systemUptime - waitStart < 1.5 {
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                emit("cursor_idle_wait", ["seconds": ProcessInfo.processInfo.systemUptime - waitStart])
+                let savedCursor = CGEvent(source: nil)?.location
+                CGWarpMouseCursorPosition(point)
+                mouse(.mouseMoved, point)
+                try await Task.sleep(for: .milliseconds(150))
+                emit("hover_before_click", ["desktop_x": point.x, "desktop_y": point.y, "cursor_warped": true])
+                try await clickAt(point, .right)
+                try await Task.sleep(for: .milliseconds(100))
+                if let savedCursor { CGWarpMouseCursorPosition(savedCursor) }
+                emit("right_click")
+                // Diagnostics: did the float react to the click? Two playfield frames shortly after.
+                for (index, wait) in [150, 350].enumerated() {
+                    try await Task.sleep(for: .milliseconds(wait))
+                    if let frame = source.latest()?.0 { save(frame, directory.appendingPathComponent("post-click-\(index+1).jpg")) }
+                }
+                save(image, directory.appendingPathComponent("bite.jpg"))
+                try await Task.sleep(for: .milliseconds(50))
+                let full = SCStreamConfiguration()
+                full.width = Int(bounds.width); full.height = Int(bounds.height)
+                full.showsCursor = false
+                var after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                let lootRect = CGRect(x: max(0, point.x-bounds.minX-280),
+                    y: max(0, point.y-bounds.minY-180), width: 800, height: 400)
+                    .intersection(CGRect(x: 0, y: 0, width: after.width, height: after.height))
+                var lootImage = after.cropping(to: lootRect)!
+                save(lootImage, directory.appendingPathComponent("after.jpg"))
+                // Observe the early window transition: auto-loot can close it before a delayed check.
+                var visibleLootImage: CGImage?
+                var closedWithoutClick = false
+                var collection = LootObservation(startedAt: ProcessInfo.processInfo.systemUptime)
+                while !collection.expired(at: ProcessInfo.processInfo.systemUptime) {
+                    guard valid() else { emit("stopped_focus_or_geometry"); return }
+                    let visible = lootClose(lootImage) != nil
+                    if visible { visibleLootImage = lootImage }
+                    if collection.observe(visible: visible, at: ProcessInfo.processInfo.systemUptime) {
+                        closedWithoutClick = true; break
+                    }
+                    try await Task.sleep(for: .milliseconds(100))
+                    after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                    lootImage = after.cropping(to: lootRect)!
+                }
+                if let visibleLootImage { save(visibleLootImage,directory.appendingPathComponent("after.jpg")) }
+                if closedWithoutClick {
+                    save(lootImage,directory.appendingPathComponent("collected.jpg"))
+                    emit("loot_collected", ["item": "<unreadable>", "labels_observed": [], "loot_clicks": 0,
+                        "completion_method": "observed_window_closed_without_script_click"])
+                    return
+                }
+                var layout = try lootLayout(lootImage)
+                guard layout != nil else {
+                    save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
+                    let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                    let chatAfter = section(after,0.01,0.72,0.30,0.20)
+                    save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
+                    let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    // Auto-loot never shows a window: a new "You receive loot" chat line is the evidence.
+                    // OCR drops letters ("You receive oot"), and the same fish repeats: compare the
+                    // sequence of loot-like lines, which changes when the chat gains a new one.
+                    func lootLines(_ words: [String]) -> [String] {
+                        // Skill lines too: the same fish twice leaves the loot lines identical (5 Nov, skill 59).
+                        words.filter { let w = $0.lowercased(); return w.contains("receive") || w.contains("increased") || $0.contains("拾取") }
+                    }
+                    if let line = lootLines(afterWords).last, lootLines(afterWords) != lootLines(beforeWords) {
+                        save(chatAfter, directory.appendingPathComponent("collected.jpg"))
+                        emit("loot_collected", ["item": line, "labels_observed": [line], "loot_clicks": 0,
+                            "completion_method": "chat_loot_line_after_auto_loot", "chat_after_ocr": afterWords])
+                        return
+                    }
+                    emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
+                        "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
+                }
+                var observedLabels = [String]()
+                for index in 1...8 {
+                    guard valid(), let row = layout?.rows.first else {
+                        emit("loot_layout_unconfirmed", ["labels_observed": observedLabels]); return
+                    }
+                    let itemImage = lootImage.cropping(to: row.integral)!
+                    save(itemImage,directory.appendingPathComponent("loot-row-\(index).jpg"))
+                    let words = ((try? readText(itemImage)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    let label = words.max { $0.count < $1.count } ?? "<unreadable>"
+                    observedLabels.append(label)
+                    emit("loot_item_observed", ["label_ocr": label, "ocr_text": words, "click_number": index])
+                    // Click the visible item control. No name, language or item-class whitelist.
+                    let itemPoint = CGPoint(x: bounds.minX+lootRect.minX+row.midX,
+                                            y: bounds.minY+lootRect.minY+row.midY)
+                    guard valid() else { emit("stopped_before_loot_click"); return }
+                    try await clickAt(itemPoint,.left)
+                    try await Task.sleep(for: .milliseconds(500))
+                    after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
+                    lootImage = after.cropping(to: lootRect)!
+                    save(lootImage,directory.appendingPathComponent("collected.jpg"))
+                    layout = try lootLayout(lootImage)
+                    if layout == nil {
+                        emit("loot_collected", ["item": observedLabels.joined(separator: ", "),
+                            "labels_observed": observedLabels, "loot_clicks": index])
+                        return
+                    }
+                }
+                emit("loot_batch_limit", ["labels_observed": observedLabels])
+                return
+            }
             func invalidate(_ reason: String) {
                 loop.invalidate(preserveSupportedBite: reason == "tracker_unavailable"); jev?.discardPending(); requested = nil
                 lastSubmitted = nil; submittedChange = false
@@ -666,6 +786,9 @@ struct Fishing {
                 defer { priorImage = image }
                 lastTimestamp = timestamp
                 let captureAt = iterationAt-frameAge
+                // Record every observed playfield frame, named by capture_seconds to align with events.jsonl.
+                let frameURL = frames.appendingPathComponent(String(format: "%07.3f.jpg", captureAt-started))
+                DispatchQueue.global(qos: .utility).async { save(image, frameURL) }
                 let pixels = imagePixels(image, width: width, height: height)
                 var background = 0.0, count = 0
                 if let previous {
@@ -682,9 +805,53 @@ struct Fishing {
                 // The acquisition image is no longer valid after a camera change.
                 // Stop for review instead of adding a second, guess-based acquisition path.
                 guard background <= 8 else { emit("stopped_camera_motion"); return }
+                // Jev-box motion: after Jev located the float, watch only change inside its box.
+                if let box = jevBox, let patch = image.cropping(to: box) {
+                    let rgba = imagePixels(patch, width: patch.width, height: patch.height)
+                    defer { boxPreviousRGBA = rgba }
+                    guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
+                    // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
+                    guard let energy = maskedBoxEnergy(rgba, prior) else {
+                        emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
+                    }
+                    let spike = motionSpike(boxHistory, energy)
+                    emit("sample", ["box_energy": energy, "background_change": background, "spike": spike,
+                                    "capture_seconds": captureAt-started])
+                    // One frame above the spike floor: the float's own bob animation peaks near 3.5 for
+                    // two frames (5 Nov), real bites peak at 4.5-9.8, so a two-frame lower rule was cut.
+                    if !spike { boxHistory.append(energy) }
+                    if spike && background < 3 {
+                        let point = CGPoint(x: bounds.minX+crop.minX+box.midX*crop.width/Double(width),
+                                            y: bounds.minY+crop.minY+box.midY*crop.height/Double(height))
+                        save(patch, directory.appendingPathComponent("signal.jpg"))
+                        emit("bite_candidate", ["box_energy": energy, "desktop_x": point.x, "desktop_y": point.y, "controller": "RULE"])
+                        guard valid(), ProcessInfo.processInfo.systemUptime-captureAt < 0.2 else {
+                            emit("stopped_before_click"); return
+                        }
+                        try await reel(point, image); return
+                    }
+                    continue
+                }
                 let candidate: Blob?
                 if let tracker {
                     candidate = tracker.observe(image)
+                } else if iterationAt-castAt > 2, let jevKey = jevLocateKey {
+                    // Jev finds the float in the cropped playfield; the pixel tracker takes over from here.
+                    guard let found = await jevLocateFloat(image, key: jevKey) else {
+                        emit("jev_locate_error"); continue
+                    }
+                    emit("jev_locate", ["x": found.x, "y": found.y, "visible": found.visible,
+                                        "confidence": found.confidence, "jev_seconds": found.seconds, "controller": "JEV"])
+                    guard found.visible >= jevFloatMinimum,
+                          supportsMotionTemplate(CGPoint(x: found.x, y: found.y), width: width, height: height) else { continue }
+                    let side = 40.0
+                    jevBox = CGRect(x: min(max(found.x-side/2, 0), Double(width)-side),
+                                    y: min(max(found.y-side/2, 0), Double(height)-side), width: side, height: side)
+                    target = Blob(x: found.x, y: found.y, area: 0, novelty: found.visible)
+                    emit("target_acquired", ["x": found.x, "y": found.y, "area": 0, "novelty": found.visible, "controller": "JEV"])
+                    save(image, directory.appendingPathComponent("acquired.jpg"))
+                    emit("post_cast_target_candidate_observed")
+                    continue // the Jev call made this frame stale; track from the next fresh one
                 } else if iterationAt-castAt > 2 {
                     // Let the float materialise before ranking new objects against moving scenery.
                     let fresh = changedObjects(pixels, reference: referencePixels, width: width, height: height).filter { item in
@@ -769,81 +936,7 @@ struct Fishing {
                             guard valid(), ProcessInfo.processInfo.systemUptime-captureAt < 0.2 else {
                                 emit("stopped_before_click"); return
                             }
-                            try await clickAt(point, .right)
-                            emit("right_click")
-                            save(image, directory.appendingPathComponent("bite.jpg"))
-                            try await Task.sleep(for: .milliseconds(50))
-                            let full = SCStreamConfiguration()
-                            full.width = Int(bounds.width); full.height = Int(bounds.height)
-                            full.showsCursor = false
-                            var after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                            let lootRect = CGRect(x: max(0, point.x-bounds.minX-280),
-                                y: max(0, point.y-bounds.minY-180), width: 800, height: 400)
-                                .intersection(CGRect(x: 0, y: 0, width: after.width, height: after.height))
-                            var lootImage = after.cropping(to: lootRect)!
-                            save(lootImage, directory.appendingPathComponent("after.jpg"))
-                            // Observe the early window transition: auto-loot can close it before a delayed check.
-                            var visibleLootImage: CGImage?
-                            var closedWithoutClick = false
-                            var collection = LootObservation(startedAt: ProcessInfo.processInfo.systemUptime)
-                            while !collection.expired(at: ProcessInfo.processInfo.systemUptime) {
-                                guard valid() else { emit("stopped_focus_or_geometry"); return }
-                                let visible = lootClose(lootImage) != nil
-                                if visible { visibleLootImage = lootImage }
-                                if collection.observe(visible: visible, at: ProcessInfo.processInfo.systemUptime) {
-                                    closedWithoutClick = true; break
-                                }
-                                try await Task.sleep(for: .milliseconds(100))
-                                after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                                lootImage = after.cropping(to: lootRect)!
-                            }
-                            if let visibleLootImage { save(visibleLootImage,directory.appendingPathComponent("after.jpg")) }
-                            if closedWithoutClick {
-                                save(lootImage,directory.appendingPathComponent("collected.jpg"))
-                                emit("loot_collected", ["item": "<unreadable>", "labels_observed": [], "loot_clicks": 0,
-                                    "completion_method": "observed_window_closed_without_script_click"])
-                                return
-                            }
-                            var layout = try lootLayout(lootImage)
-                            guard layout != nil else {
-                                save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
-                                let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
-                                let chatAfter = section(after,0.01,0.72,0.30,0.20)
-                                save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
-                                let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                                let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                                emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
-                                    "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
-                            }
-                            var observedLabels = [String]()
-                            for index in 1...8 {
-                                guard valid(), let row = layout?.rows.first else {
-                                    emit("loot_layout_unconfirmed", ["labels_observed": observedLabels]); return
-                                }
-                                let itemImage = lootImage.cropping(to: row.integral)!
-                                save(itemImage,directory.appendingPathComponent("loot-row-\(index).jpg"))
-                                let words = ((try? readText(itemImage)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                                let label = words.max { $0.count < $1.count } ?? "<unreadable>"
-                                observedLabels.append(label)
-                                emit("loot_item_observed", ["label_ocr": label, "ocr_text": words, "click_number": index])
-                                // Click the visible item control. No name, language or item-class whitelist.
-                                let itemPoint = CGPoint(x: bounds.minX+lootRect.minX+row.midX,
-                                                        y: bounds.minY+lootRect.minY+row.midY)
-                                guard valid() else { emit("stopped_before_loot_click"); return }
-                                try await clickAt(itemPoint,.left)
-                                try await Task.sleep(for: .milliseconds(500))
-                                after = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
-                                lootImage = after.cropping(to: lootRect)!
-                                save(lootImage,directory.appendingPathComponent("collected.jpg"))
-                                layout = try lootLayout(lootImage)
-                                if layout == nil {
-                                    emit("loot_collected", ["item": observedLabels.joined(separator: ", "),
-                                        "labels_observed": observedLabels, "loot_clicks": index])
-                                    return
-                                }
-                            }
-                            emit("loot_batch_limit", ["labels_observed": observedLabels])
-                            return
+                            try await reel(point, image); return
                         }
                     }
                 } else if target != nil {

@@ -10,6 +10,8 @@ swiftc -parse-as-library -O \
   experiments/001_wow_fishing/loot.swift \
   experiments/001_wow_fishing/jev.swift \
   experiments/001_wow_fishing/self_tests.swift \
+  experiments/001_wow_fishing/jev_vision.swift \
+  experiments/001_wow_fishing/dotenv.swift \
   experiments/001_wow_fishing/live.swift -o /tmp/jev-fishing-live
 /tmp/jev-fishing-live --self-test
 # The offline tools, by absolute path so each finds the repository from its own source.

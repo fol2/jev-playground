@@ -1,6 +1,6 @@
 // Compare bite policies with identical preparation, observations and input checks.
 //
-//   run-test-a [--background] [--jev] [--seconds 60..1800]
+//   run-test-a [--background] [--jev] [--seconds 60..1800] [--until-skill N] [--until-item NAME:COUNT]
 //
 // Pre-go runs the live helper (/tmp/jev-fishing-live, from build.sh) once with --check; the autonomous
 // interval then repeats --execute --prepared. Test B (--jev) is provider-backed bite decisions with the
@@ -11,8 +11,8 @@ import Foundation
 let runnerRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 let liveBinary = "/tmp/jev-fishing-live"
 let hashedSources = ["live.swift", "decision.swift", "self_tests.swift", "motion.swift", "motion-fixtures.png", "jev.swift", "loot.swift",
-                     "loot-close.png", "loot-layout.png", "build.sh", "page-two.png", "rod-icon.png", "split-bobber.png",
-                     "split-bobber-before.png", "bobber-no-red.png", "bobber-no-red-before.png", "run_test_a.swift",
+                     "loot-close.png", "loot-layout.png", "build.sh", "page-two.png", "page-two-live.png", "page-one-live.png", "rod-icon.png", "split-bobber.png",
+                     "split-bobber-before.png", "bobber-no-red.png", "bobber-no-red-before.png", "run_test_a.swift", "jev_vision.swift",
                      "probes/background-click/Adapter.swift", "probes/background-click/NativeWindowServerPreparation.swift",
                      "probes/background-click/NativeBackgroundClickTransport.swift"]
 // A held bite that never returns is still an unconfirmed target before any click.
@@ -54,8 +54,27 @@ func event(_ e: JSON) -> String { e["event"]?.string ?? "" }
 /// Run Test A (rules) or B (Jev) and return the summary it wrote. A timeout or an interruption ends the
 /// run with that status; any other error still writes the summary, then propagates.
 @discardableResult
+// After a verified catch keep only the frames from 2 s before the bite: failures keep every frame,
+// and catches keep enough positive examples to replay rule changes. Frames are named by seconds.
+func pruneCaughtFrames(_ runPath: String, biteSeconds: Double, keep: Double = 2) {
+    let frames = URL(fileURLWithPath: runPath).appendingPathComponent("frames")
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: frames.path)) ?? [] {
+        if let t = Double(name.replacingOccurrences(of: ".jpg", with: "")), t < biteSeconds - keep {
+            try? FileManager.default.removeItem(at: frames.appendingPathComponent(name))
+        }
+    }
+}
+
+// "Your skill in Fishing has increased to 54." (OCR may read "to" as "io"); nil for any other line.
+func fishingSkill(_ line: String) -> Int? {
+    guard let range = line.range(of: #"Fishing has increased [ti]o (\d+)"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
+    return Int(line[range].split(separator: " ").last!.filter(\.isNumber))
+}
+
 func runTestA(_ arguments: [String], root: URL, environment: [String: String], host: RunnerHost) throws -> JSON {
     var background = false, jev = false, seconds = 300
+    // Goals end a run early; the time bound still applies. Skill comes from the chat OCR of each catch.
+    var untilSkill: Int?, untilItem: (name: String, count: Int)?
     var rest = arguments[...]
     while let flag = rest.popFirst() {
         switch flag {
@@ -64,6 +83,17 @@ func runTestA(_ arguments: [String], root: URL, environment: [String: String], h
         case "--seconds":
             guard let value = rest.popFirst().flatMap(Int.init) else { throw RunnerUsage(description: "--seconds needs a whole number") }
             seconds = value
+        case "--until-skill":
+            guard let value = rest.popFirst().flatMap(Int.init), (1...450).contains(value) else {
+                throw RunnerUsage(description: "--until-skill needs a level from 1 to 450")
+            }
+            untilSkill = value
+        case "--until-item":
+            guard let value = rest.popFirst(), let colon = value.lastIndex(of: ":"),
+                  let count = Int(value[value.index(after: colon)...]), count > 0, colon > value.startIndex else {
+                throw RunnerUsage(description: "--until-item needs NAME:COUNT")
+            }
+            untilItem = (String(value[..<colon]).lowercased(), count)
         default: throw RunnerUsage(description: "unknown argument " + flag)
         }
     }
@@ -158,9 +188,25 @@ func runTestA(_ arguments: [String], root: URL, environment: [String: String], h
                     ("run_path", events.first { event($0) == "ready" }?["output"] ?? .null),
                     ("item", loot?["item"] ?? .null), ("labels_observed", loot.map { $0["labels_observed"] ?? .array([]) } ?? .array([])),
                     ("loot_clicks", loot.map { $0["loot_clicks"] ?? .int(1) } ?? .int(0))])
+                if loot != nil, let path = cycle["run_path"]?.string,
+                   let bite = events.first(where: { event($0) == "bite_candidate" })?["seconds"]?.number {
+                    pruneCaughtFrames(path, biteSeconds: bite)
+                }
                 cycles.append(cycle)
                 record = record.setting("cycles", .array(cycles))
                 host.say(cycle.text())
+                let skill = (loot?["chat_after_ocr"]?.items ?? []).compactMap { $0.string.flatMap(fishingSkill) }.max()
+                if let skill, skill > int("fishing_skill") { record = record.setting("fishing_skill", .int(skill)) }
+                if let goal = untilSkill, int("fishing_skill") >= goal {
+                    record = record.setting("status", .string("goal_reached")).setting("goal", .string("skill \(goal)"))
+                    stopped = true
+                    break
+                }
+                if let goal = untilItem, cycles.filter({ $0["item"]?.string?.lowercased().contains(goal.name) == true }).count >= goal.count {
+                    record = record.setting("status", .string("goal_reached")).setting("goal", .string("\(goal.count) x \(goal.name)"))
+                    stopped = true
+                    break
+                }
                 failures = loot != nil ? 0 : failures + 1
                 if failures >= 3 {
                     record = record.setting("status", .string("stopped_after_three_consecutive_failures"))
@@ -200,7 +246,7 @@ func runTestA(_ arguments: [String], root: URL, environment: [String: String], h
     record = record.setting("autonomous_seconds", autonomous)
         .setting("verified_loot_cycles", .int(verified))
         .setting("unverified_retrievals", .int(cycles.filter { $0["outcome"] == .string("retrieval_unverified") }.count))
-    record = record.setting("perfect_run", .bool(record["status"] == .string("completed") && (autonomous.number ?? 0) >= Double(seconds)
+    record = record.setting("perfect_run", .bool([.string("completed"), .string("goal_reached")].contains(record["status"]!) && (autonomous.number ?? 0) >= Double(seconds)
                                                  && !cycles.isEmpty && verified == cycles.count))
         .setting("finished_at_utc", .string(utcNow()))
     try (record.text(indent: 2) + "\n").write(to: folder.appendingPathComponent("summary.json"), atomically: true, encoding: .utf8)

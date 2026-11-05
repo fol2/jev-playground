@@ -180,5 +180,27 @@ func runSelfTests() throws {
     guard try !containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
         print("Regression: real nameplates without an overlay block pre-go"); exit(1)
     }
-    print("Forty-five local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Live action-bar page indicators from 5 November 2026 (pre-go section, separate captures
+    // from the one page-two.png was cut from): page 2 must pass and page 1 must not.
+    func page(_ name: String) -> CGImage {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
+        return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
+    }
+    guard pageIsTwo(page("page-two-live.png")), !pageIsTwo(page("page-one-live.png")) else {
+        print("Regression: page-two glyph accepts page 1 or rejects page 2"); exit(1)
+    }
+    // Jev-box motion: calm bobbing never spikes; a splash several times the calm level does.
+    let calmBox = Array(repeating: [1.1, 1.4, 0.9, 1.6, 1.2, 1.0, 1.5, 1.3, 0.8, 1.2, 1.4], count: 2).flatMap { $0 }
+    guard !motionSpike(Array(calmBox.prefix(21)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9), !motionSpike(calmBox, 3.55) else {
+        print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
+    }
+    let water = [UInt8](repeating: 20, count: 40*40*4)
+    var orbBox = water; for i in 0..<5 { orbBox[i*4] = 120; orbBox[i*4+2] = 230 }
+    guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }
+    var orbNow = water; for i in 0..<800 { orbNow[i*4] = 60; orbNow[i*4+2] = 140 }
+    guard maskedBoxEnergy(water, water) == 0, maskedBoxEnergy(orbNow, water) == 0,
+          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true else {
+        print("Regression: masked box energy counts orb pixels or misses real change"); exit(1)
+    }
+    print("Forty-nine local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
