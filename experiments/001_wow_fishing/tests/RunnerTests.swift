@@ -62,6 +62,21 @@ struct RunnerTests {
                      ("response", .object([("usage", .object([("input_tokens", .int(100)), ("output_tokens", .int(20))]))]))]),
             .object([("event", .string("loot_collected")), ("item", .string("Fresh fish"))])]])
         check(record["provider_calls"] == .int(2) && record["input_tokens"] == .int(100), "counts actual requests and usage")
+
+        // Goals: stop once the chat shows the skill level, or once enough of an item is collected.
+        func catchAt(_ level: Int, _ item: String) -> [JSON] {
+            [.object([("event", .string("loot_collected")), ("item", .string("You receive loot: [\(item)]")),
+                      ("chat_after_ocr", .array([.string("Your skill in Fishing has increased io \(level)."), .string("x")]))])]
+        }
+        (record, calls, _) = run(pass, [catchAt(49, "Smallfish"), catchAt(50, "Mud Snapper"), catchAt(51, "Smallfish")],
+                                 arguments: ["--background", "--jev", "--until-skill", "50"])
+        check(record["status"] == .string("goal_reached") && record["fishing_skill"] == .int(50) && calls.count == 3,
+              "--until-skill stops at the level read from chat, including the OCR 'io'")
+        (record, calls, _) = run(pass, [catchAt(10, "Mud Snapper"), catchAt(11, "Smallfish"), catchAt(12, "Mud Snapper")],
+                                 arguments: ["--background", "--jev", "--until-item", "mud snapper:2"])
+        check(record["status"] == .string("goal_reached") && calls.count == 4, "--until-item counts matching catches")
+        check(fishingSkill("Your skill in Fishing has increased to 54.") == 54 && fishingSkill("You receive loot") == nil,
+              "skill parser reads only the skill line")
         check(record["perfect_run"] == .bool(true), "a caught fish over the whole interval is a perfect run")
         check(calls[1].contains("--prepared") && !calls[0].contains("--jev") && calls[1].contains("--jev"),
               "pre-go is shared; only the cycles use Jev")

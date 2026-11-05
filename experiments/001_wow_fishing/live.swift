@@ -718,7 +718,8 @@ struct Fishing {
                     // OCR drops letters ("You receive oot"), and the same fish repeats: compare the
                     // sequence of loot-like lines, which changes when the chat gains a new one.
                     func lootLines(_ words: [String]) -> [String] {
-                        words.filter { $0.lowercased().contains("receive") || $0.contains("拾取") }
+                        // Skill lines too: the same fish twice leaves the loot lines identical (5 Nov, skill 59).
+                        words.filter { let w = $0.lowercased(); return w.contains("receive") || w.contains("increased") || $0.contains("拾取") }
                     }
                     if let line = lootLines(afterWords).last, lootLines(afterWords) != lootLines(beforeWords) {
                         save(chatAfter, directory.appendingPathComponent("collected.jpg"))
