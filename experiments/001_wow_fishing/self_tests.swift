@@ -180,5 +180,14 @@ func runSelfTests() throws {
     guard try !containsText(overlayBand(window.makeImage()!), blockingOverlayText) else {
         print("Regression: real nameplates without an overlay block pre-go"); exit(1)
     }
-    print("Forty-five local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Live action-bar page indicators from 5 November 2026 (pre-go section, separate captures
+    // from the one page-two.png was cut from): page 2 must pass and page 1 must not.
+    func page(_ name: String) -> CGImage {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
+        return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
+    }
+    guard pageIsTwo(page("page-two-live.png")), !pageIsTwo(page("page-one-live.png")) else {
+        print("Regression: page-two glyph accepts page 1 or rejects page 2"); exit(1)
+    }
+    print("Forty-six local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
