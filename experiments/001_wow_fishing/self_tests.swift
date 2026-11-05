@@ -189,5 +189,11 @@ func runSelfTests() throws {
     guard pageIsTwo(page("page-two-live.png")), !pageIsTwo(page("page-one-live.png")) else {
         print("Regression: page-two glyph accepts page 1 or rejects page 2"); exit(1)
     }
-    print("Forty-six local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Jev-box motion: calm bobbing never spikes; a splash several times the calm level does.
+    let calmBox = [1.1, 1.4, 0.9, 1.6, 1.2, 1.0, 1.5, 1.3, 0.8, 1.2, 1.4]
+    guard !motionSpike(Array(calmBox.prefix(9)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9),
+          !motionRise(calmBox, 3.0), motionRise(calmBox, 3.7), !motionSpike(calmBox, 2.96) else {
+        print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
+    }
+    print("Forty-seven local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
