@@ -652,6 +652,13 @@ struct Fishing {
                 // (5 Nov: an instant background click opened UI menus but never reached the float.)
                 // 3D picking follows the real cursor, so warp it onto the float briefly and put it back
                 // (owner-approved 5 Nov; about 0.25 s per reel).
+                // Do not snatch the cursor mid-movement: wait for 0.3 s of owner mouse stillness (max 1.5 s).
+                let waitStart = ProcessInfo.processInfo.systemUptime
+                while CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved) < 0.3,
+                      ProcessInfo.processInfo.systemUptime - waitStart < 1.5 {
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                emit("cursor_idle_wait", ["seconds": ProcessInfo.processInfo.systemUptime - waitStart])
                 let savedCursor = CGEvent(source: nil)?.location
                 CGWarpMouseCursorPosition(point)
                 mouse(.mouseMoved, point)
@@ -716,7 +723,7 @@ struct Fishing {
                     if let line = lootLines(afterWords).last, lootLines(afterWords) != lootLines(beforeWords) {
                         save(chatAfter, directory.appendingPathComponent("collected.jpg"))
                         emit("loot_collected", ["item": line, "labels_observed": [line], "loot_clicks": 0,
-                            "completion_method": "chat_loot_line_after_auto_loot"])
+                            "completion_method": "chat_loot_line_after_auto_loot", "chat_after_ocr": afterWords])
                         return
                     }
                     emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
@@ -801,6 +808,10 @@ struct Fishing {
                 if let box = jevBox, let patch = image.cropping(to: box) {
                     let grey = greyPixels(patch)
                     defer { boxPrevious = grey }
+                    if orbInBox(imagePixels(patch, width: patch.width, height: patch.height)) {
+                        boxPrevious = nil; boxHits = 0  // the next frame's change is the orb leaving
+                        emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
+                    }
                     guard let prior = boxPrevious, prior.count == grey.count else { continue }
                     let energy = boxEnergy(grey, prior)
                     let spike = motionSpike(boxHistory, energy), rise = motionRise(boxHistory, energy)

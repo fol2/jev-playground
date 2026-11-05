@@ -195,5 +195,8 @@ func runSelfTests() throws {
           !motionRise(calmBox, 3.0), motionRise(calmBox, 3.7), !motionSpike(calmBox, 2.96) else {
         print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
     }
-    print("Forty-seven local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    let water = [UInt8](repeating: 20, count: 40*40*4)
+    var orbBox = water; for i in 0..<5 { orbBox[i*4] = 120; orbBox[i*4+2] = 230 }
+    guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }
+    print("Forty-eight local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

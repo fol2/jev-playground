@@ -34,7 +34,7 @@ let policy: Set<String> = ["AGENTS.md", "CLAUDE.md", "REVIEW.md", ".gitignore", 
                            "docs/agents/ai-sdlc.md", "docs/architecture.md", ".github/workflows/ai-sdlc.yml",
                            ".github/workflows/ai-sdlc-maintain.yml"]
 let fishingCode: Set<String> = Set("""
-    analyse.swift background.swift build.sh decision.swift dotenv.swift jev.swift live.swift loot.swift motion.swift
+    analyse.swift background.swift build.sh decision.swift dotenv.swift jev.swift jev_vision.swift live.swift loot.swift motion.swift
     probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
     probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
     record.swift run_test_a.swift self_tests.swift setup_camera.sh setup_camera.swift

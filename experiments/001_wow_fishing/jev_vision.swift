@@ -79,3 +79,15 @@ func motionRise(_ history: [Double], _ energy: Double) -> Bool {
     guard history.count >= 10 else { return false }
     return energy > max(history.sorted()[history.count/2]*3, 3.3)
 }
+
+// The spell orb is bright blue-purple; the float and night water never are. A box frame that
+// contains orb pixels (or follows one) says nothing about the float. ponytail: colour floor
+// from 5 Nov frames; re-check if the orb or water colour changes.
+func orbInBox(_ rgba: [UInt8]) -> Bool {
+    var count = 0
+    for i in stride(from: 0, to: rgba.count - 3, by: 4) {
+        let r = Int(rgba[i]), b = Int(rgba[i+2])
+        if b > 170 && b - r > 60 { count += 1; if count >= 3 { return true } }
+    }
+    return false
+}
