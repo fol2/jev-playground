@@ -54,6 +54,17 @@ func event(_ e: JSON) -> String { e["event"]?.string ?? "" }
 /// Run Test A (rules) or B (Jev) and return the summary it wrote. A timeout or an interruption ends the
 /// run with that status; any other error still writes the summary, then propagates.
 @discardableResult
+// After a verified catch keep only the frames from 2 s before the bite: failures keep every frame,
+// and catches keep enough positive examples to replay rule changes. Frames are named by seconds.
+func pruneCaughtFrames(_ runPath: String, biteSeconds: Double, keep: Double = 2) {
+    let frames = URL(fileURLWithPath: runPath).appendingPathComponent("frames")
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: frames.path)) ?? [] {
+        if let t = Double(name.replacingOccurrences(of: ".jpg", with: "")), t < biteSeconds - keep {
+            try? FileManager.default.removeItem(at: frames.appendingPathComponent(name))
+        }
+    }
+}
+
 // "Your skill in Fishing has increased to 54." (OCR may read "to" as "io"); nil for any other line.
 func fishingSkill(_ line: String) -> Int? {
     guard let range = line.range(of: #"Fishing has increased [ti]o (\d+)"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
@@ -177,6 +188,10 @@ func runTestA(_ arguments: [String], root: URL, environment: [String: String], h
                     ("run_path", events.first { event($0) == "ready" }?["output"] ?? .null),
                     ("item", loot?["item"] ?? .null), ("labels_observed", loot.map { $0["labels_observed"] ?? .array([]) } ?? .array([])),
                     ("loot_clicks", loot.map { $0["loot_clicks"] ?? .int(1) } ?? .int(0))])
+                if loot != nil, let path = cycle["run_path"]?.string,
+                   let bite = events.first(where: { event($0) == "bite_candidate" })?["seconds"]?.number {
+                    pruneCaughtFrames(path, biteSeconds: bite)
+                }
                 cycles.append(cycle)
                 record = record.setting("cycles", .array(cycles))
                 host.say(cycle.text())

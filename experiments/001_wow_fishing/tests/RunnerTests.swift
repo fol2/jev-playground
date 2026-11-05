@@ -75,6 +75,15 @@ struct RunnerTests {
         (record, calls, _) = run(pass, [catchAt(10, "Mud Snapper"), catchAt(11, "Smallfish"), catchAt(12, "Mud Snapper")],
                                  arguments: ["--background", "--jev", "--until-item", "mud snapper:2"])
         check(record["status"] == .string("goal_reached") && calls.count == 4, "--until-item counts matching catches")
+        let prune = FileManager.default.temporaryDirectory.appendingPathComponent("prune-\(UUID().uuidString)")
+        try! FileManager.default.createDirectory(at: prune.appendingPathComponent("frames"), withIntermediateDirectories: true)
+        for t in ["003.000", "010.900", "011.000", "012.500"] {
+            try! Data().write(to: prune.appendingPathComponent("frames/\(t).jpg"))
+        }
+        pruneCaughtFrames(prune.path, biteSeconds: 13)
+        check((try! FileManager.default.contentsOfDirectory(atPath: prune.appendingPathComponent("frames").path)).sorted()
+              == ["011.000.jpg", "012.500.jpg"], "a catch keeps only the 2 s before the bite")
+        try? FileManager.default.removeItem(at: prune)
         check(fishingSkill("Your skill in Fishing has increased to 54.") == 54 && fishingSkill("You receive loot") == nil,
               "skill parser reads only the skill line")
         check(record["perfect_run"] == .bool(true), "a caught fish over the whole interval is a perfect run")
