@@ -91,3 +91,17 @@ func orbInBox(_ rgba: [UInt8]) -> Bool {
     }
     return false
 }
+
+// Box change with orb pixels masked out: a pixel counts only when it is not orb-coloured
+// (core or dim glow) in either frame. Returns nil when over half the box is orb.
+func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8]) -> Double? {
+    func orb(_ p: [UInt8], _ i: Int) -> Bool { let r = Int(p[i]), b = Int(p[i+2]); return b > 90 && b - r > 40 }
+    func grey(_ p: [UInt8], _ i: Int) -> Double { 0.299*Double(p[i]) + 0.587*Double(p[i+1]) + 0.114*Double(p[i+2]) }
+    var sum = 0.0, used = 0, total = 0
+    for i in stride(from: 0, to: min(current.count, previous.count) - 3, by: 4) {
+        total += 1
+        if orb(current, i) || orb(previous, i) { continue }
+        sum += abs(grey(current, i) - grey(previous, i)); used += 1
+    }
+    return used * 2 >= total ? sum / Double(used) : nil
+}

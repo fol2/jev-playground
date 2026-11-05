@@ -198,5 +198,10 @@ func runSelfTests() throws {
     let water = [UInt8](repeating: 20, count: 40*40*4)
     var orbBox = water; for i in 0..<5 { orbBox[i*4] = 120; orbBox[i*4+2] = 230 }
     guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }
-    print("Forty-eight local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    var orbNow = water; for i in 0..<800 { orbNow[i*4] = 60; orbNow[i*4+2] = 140 }
+    guard maskedBoxEnergy(water, water) == 0, maskedBoxEnergy(orbNow, water) == 0,
+          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true else {
+        print("Regression: masked box energy counts orb pixels or misses real change"); exit(1)
+    }
+    print("Forty-nine local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

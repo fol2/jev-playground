@@ -645,7 +645,7 @@ struct Fishing {
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
             try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var jevBox: CGRect?, boxPrevious: [Double]?, boxHistory: [Double] = [], boxHits = 0
+            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], boxHits = 0
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
@@ -806,14 +806,14 @@ struct Fishing {
                 guard background <= 8 else { emit("stopped_camera_motion"); return }
                 // Jev-box motion: after Jev located the float, watch only change inside its box.
                 if let box = jevBox, let patch = image.cropping(to: box) {
-                    let grey = greyPixels(patch)
-                    defer { boxPrevious = grey }
-                    if orbInBox(imagePixels(patch, width: patch.width, height: patch.height)) {
-                        boxPrevious = nil; boxHits = 0  // the next frame's change is the orb leaving
+                    let rgba = imagePixels(patch, width: patch.width, height: patch.height)
+                    defer { boxPreviousRGBA = rgba }
+                    guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
+                    // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
+                    guard let energy = maskedBoxEnergy(rgba, prior) else {
+                        boxHits = 0
                         emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
                     }
-                    guard let prior = boxPrevious, prior.count == grey.count else { continue }
-                    let energy = boxEnergy(grey, prior)
                     let spike = motionSpike(boxHistory, energy), rise = motionRise(boxHistory, energy)
                     emit("sample", ["box_energy": energy, "background_change": background, "spike": spike,
                                     "capture_seconds": captureAt-started])
