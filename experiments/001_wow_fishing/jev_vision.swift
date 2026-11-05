@@ -61,23 +61,12 @@ func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
                     confidence: second.confidence, seconds: ProcessInfo.processInfo.systemUptime-at)
 }
 
-// Motion energy in the Jev box: mean absolute grey change between consecutive frames.
-func boxEnergy(_ current: [Double], _ previous: [Double]) -> Double {
-    zip(current, previous).reduce(0) { $0 + abs($1.0 - $1.1) } / Double(max(current.count, 1))
-}
-
 // A bite is a spike far above the box's own calm history (bobbing included), not an absolute level.
-// ponytail: 5 Nov night casts: bites 4.6, 8.5, 9.6; calm bobbing peaked at 2.96 (frames checked).
+// ponytail: 5 Nov night replay: real bites peak 4.47-9.8; bob animation 3.55, orb masked; 19/22 fire, 0/4 false.
 func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
     guard history.count >= 10 else { return false }
     let median = history.sorted()[history.count/2]
     return energy > max(median*4, 4)
-}
-
-// Two frames in a row above 3x the calm median also count (a slower plunge).
-func motionRise(_ history: [Double], _ energy: Double) -> Bool {
-    guard history.count >= 10 else { return false }
-    return energy > max(history.sorted()[history.count/2]*3, 3.3)
 }
 
 // The spell orb is bright blue-purple; the float and night water never are. A box frame that

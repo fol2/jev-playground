@@ -191,8 +191,7 @@ func runSelfTests() throws {
     }
     // Jev-box motion: calm bobbing never spikes; a splash several times the calm level does.
     let calmBox = [1.1, 1.4, 0.9, 1.6, 1.2, 1.0, 1.5, 1.3, 0.8, 1.2, 1.4]
-    guard !motionSpike(Array(calmBox.prefix(9)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9),
-          !motionRise(calmBox, 3.0), motionRise(calmBox, 3.7), !motionSpike(calmBox, 2.96) else {
+    guard !motionSpike(Array(calmBox.prefix(9)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9), !motionSpike(calmBox, 3.55) else {
         print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
     }
     let water = [UInt8](repeating: 20, count: 40*40*4)

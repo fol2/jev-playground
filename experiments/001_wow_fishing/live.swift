@@ -645,7 +645,7 @@ struct Fishing {
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
             try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], boxHits = 0
+            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = []
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
@@ -811,15 +811,15 @@ struct Fishing {
                     guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
                     // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
                     guard let energy = maskedBoxEnergy(rgba, prior) else {
-                        boxHits = 0
                         emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
                     }
-                    let spike = motionSpike(boxHistory, energy), rise = motionRise(boxHistory, energy)
+                    let spike = motionSpike(boxHistory, energy)
                     emit("sample", ["box_energy": energy, "background_change": background, "spike": spike,
                                     "capture_seconds": captureAt-started])
-                    boxHits = rise && background < 3 ? boxHits + 1 : 0
-                    if !rise { boxHistory.append(energy) }
-                    if (spike && background < 3) || boxHits >= 2 {
+                    // One frame above the spike floor: the float's own bob animation peaks near 3.5 for
+                    // two frames (5 Nov), real bites peak at 4.5-9.8, so a two-frame lower rule was cut.
+                    if !spike { boxHistory.append(energy) }
+                    if spike && background < 3 {
                         let point = CGPoint(x: bounds.minX+crop.minX+box.midX*crop.width/Double(width),
                                             y: bounds.minY+crop.minY+box.midY*crop.height/Double(height))
                         save(patch, directory.appendingPathComponent("signal.jpg"))
