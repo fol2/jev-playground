@@ -41,11 +41,32 @@ private func jevBox(_ image: CGImage, key: String, note: String) async -> (x: Do
     return ((l+r)/2, (t+b)/2, visible, float["confidence"] as? Double ?? 0)
 }
 
+// With "Interact Key Icons: Show All", WoW draws a small gold gear icon above the one object the
+// player can interact with: our own float, never another player's. 6 Nov: found in both icon casts
+// (3-7 pixels, 53-58 px above the float) and in none of eight casts without the setting.
+func interactIconCentroid(_ image: CGImage) -> CGPoint? {
+    let w = image.width, h = image.height, pixels = imagePixels(image, width: w, height: h)
+    var n = 0, sx = 0, sy = 0
+    for y in 0..<h { for x in 0..<w {
+        let i = (y*w + x)*4, r = Int(pixels[i]), g = Int(pixels[i+1]), b = Int(pixels[i+2])
+        if r > 180 && g > 120 && b < 110 && r - b > 100 { n += 1; sx += x; sy += y }
+    } }
+    return n >= 3 ? CGPoint(x: Double(sx)/Double(n), y: Double(sy)/Double(n)) : nil
+}
+
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.
 // On 5 Nov night frames the first look was 25-40 px off (or on the orb); the second was within 4 px.
 func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
     let at = ProcessInfo.processInfo.systemUptime
-    guard let first = await jevBox(image, key: key, note: "") else { return nil }
+    // Our float sits just below the interact icon: start the enlarged look there, so other players'
+    // floats are outside the crop. Without the icon, Jev's whole-playfield look decides as before.
+    let first: (x: Double, y: Double)
+    if let icon = interactIconCentroid(image) {
+        first = (icon.x / Double(image.width), (icon.y + 45) / Double(image.height))
+    } else {
+        guard let look = await jevBox(image, key: key, note: "") else { return nil }
+        first = (look.x, look.y)
+    }
     let side = Double(min(200, image.width, image.height))
     let sub = CGRect(x: min(max(first.x*Double(image.width)-side/2, 0), Double(image.width)-side),
                      y: min(max(first.y*Double(image.height)-side/2, 0), Double(image.height)-side),

@@ -210,5 +210,15 @@ func runSelfTests() throws {
     guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
         print("Regression: the Equipped comparison tooltip confirmed a non-rod item"); exit(1)
     }
-    print("Fifty local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // The interact icon: a few gold pixels are found at their centre; dark water alone has none.
+    let darkWater = CGContext(data: nil, width: 60, height: 60, bitsPerComponent: 8, bytesPerRow: 240,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    darkWater.setFillColor(CGColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1)); darkWater.fill(CGRect(x: 0, y: 0, width: 60, height: 60))
+    let noIcon = darkWater.makeImage()!
+    darkWater.setFillColor(CGColor(red: 0.69, green: 0.50, blue: 0.28, alpha: 1)); darkWater.fill(CGRect(x: 29, y: 19, width: 3, height: 3))
+    guard interactIconCentroid(noIcon) == nil, let icon = interactIconCentroid(darkWater.makeImage()!),
+          abs(icon.x - 30) < 1.5, abs(icon.y - 39) < 1.5 || abs(icon.y - 20) < 1.5 else {
+        print("Regression: interact icon centroid wrong or found on plain water"); exit(1)
+    }
+    print("Fifty-one local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
