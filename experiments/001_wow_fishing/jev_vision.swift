@@ -41,11 +41,32 @@ private func jevBox(_ image: CGImage, key: String, note: String) async -> (x: Do
     return ((l+r)/2, (t+b)/2, visible, float["confidence"] as? Double ?? 0)
 }
 
+// With "Interact Key Icons: Show All", WoW draws a small gold gear icon above the one object the
+// player can interact with: our own float, never another player's. 6 Nov: found in both icon casts
+// (3-7 pixels, 53-58 px above the float) and in none of eight casts without the setting.
+func interactIconCentroid(_ image: CGImage) -> CGPoint? {
+    let w = image.width, h = image.height, pixels = imagePixels(image, width: w, height: h)
+    var n = 0, sx = 0, sy = 0
+    for y in 0..<h { for x in 0..<w {
+        let i = (y*w + x)*4, r = Int(pixels[i]), g = Int(pixels[i+1]), b = Int(pixels[i+2])
+        if r > 180 && g > 120 && b < 110 && r - b > 100 { n += 1; sx += x; sy += y }
+    } }
+    return n >= 3 ? CGPoint(x: Double(sx)/Double(n), y: Double(sy)/Double(n)) : nil
+}
+
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.
 // On 5 Nov night frames the first look was 25-40 px off (or on the orb); the second was within 4 px.
 func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
     let at = ProcessInfo.processInfo.systemUptime
-    guard let first = await jevBox(image, key: key, note: "") else { return nil }
+    // Our float sits just below the interact icon: start the enlarged look there, so other players'
+    // floats are outside the crop. Without the icon, Jev's whole-playfield look decides as before.
+    let first: (x: Double, y: Double)
+    if let icon = interactIconCentroid(image) {
+        first = (icon.x / Double(image.width), (icon.y + 45) / Double(image.height))
+    } else {
+        guard let look = await jevBox(image, key: key, note: "") else { return nil }
+        first = (look.x, look.y)
+    }
     let side = Double(min(200, image.width, image.height))
     let sub = CGRect(x: min(max(first.x*Double(image.width)-side/2, 0), Double(image.width)-side),
                      y: min(max(first.y*Double(image.height)-side/2, 0), Double(image.height)-side),
@@ -95,4 +116,98 @@ func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8]) -> Double? {
         sum += abs(grey(current, i) - grey(previous, i)); used += 1
     }
     return used * 2 >= total ? sum / Double(used) : nil
+}
+
+private func scaled(_ image: CGImage, _ rect: CGRect, width: Int) -> CGImage? {
+    guard let patch = image.cropping(to: rect.integral) else { return nil }
+    let height = max(280, Int(Double(width) * rect.height / rect.width))
+    guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width*4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.interpolationQuality = .high
+    context.draw(patch, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage()
+}
+
+private func jevAnyBox(_ image: CGImage, key: String, context: String, instructions: String,
+                       requirePresent: Bool = true) async -> (l: Double, t: Double, r: Double, b: Double)? {
+    let data = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else { return nil }
+    let ref = "b4a9e1c3-\(UUID().uuidString.prefix(8))"
+    let body: [String: Any] = ["model": "jev-latest", "state": ["screen": ref, "context": context],
+        "assets": [ref: ["type": "image", "format": "jpg", "data_base64": (data as Data).base64EncodedString()]],
+        "questions": ["target": ["type": "box", "instructions": instructions],
+                      "present": ["type": "noul", "instructions": "Is the thing described here visible in `screen`: " + instructions + "?"]]]
+    var request = URLRequest(url: URL(string: "https://api.typesafe.ai/v1/systemone")!, timeoutInterval: 5)
+    request.httpMethod = "POST"
+    request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("true", forHTTPHeaderField: "TypeSafe-Danger-Zone-Images")
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    guard let (reply, response) = try? await URLSession.shared.data(for: request),
+          (response as? HTTPURLResponse)?.statusCode == 200,
+          let json = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+          let target = (json["answers"] as? [String: Any])?["target"] as? [String: Any],
+          let box = target["box"] as? [String: Double],
+          let l = box["left"], let r = box["right"], let t = box["top"], let b = box["bottom"] else { return nil }
+    // A box is always returned; without the thing on screen it points somewhere else (6 Nov: the action bar).
+    let present = ((json["answers"] as? [String: Any])?["present"] as? [String: Any])?["noul"] as? Double ?? 0
+    return !requirePresent || present >= 0.7 ? (l, t, r, b) : nil
+}
+
+// B toggles the bag, so its state is unknown: ask first (open bag: 0.98 on 6 Nov).
+func jevBagOpen(_ small: CGImage, key: String) async -> Bool {
+    let data = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return false }
+    CGImageDestinationAddImage(dest, small, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else { return false }
+    let ref = "c7d2a9f0-\(UUID().uuidString.prefix(8))"
+    let body: [String: Any] = ["model": "jev-latest", "state": ["screen": ref],
+        "assets": [ref: ["type": "image", "format": "jpg", "data_base64": (data as Data).base64EncodedString()]],
+        "questions": ["open": ["type": "noul", "instructions": "Is the player's bag (an inventory panel with a grid of item slots) open in this World of Warcraft screenshot `screen`?"]]]
+    var request = URLRequest(url: URL(string: "https://api.typesafe.ai/v1/systemone")!, timeoutInterval: 5)
+    request.httpMethod = "POST"
+    request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("true", forHTTPHeaderField: "TypeSafe-Danger-Zone-Images")
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    guard let (reply, response) = try? await URLSession.shared.data(for: request),
+          (response as? HTTPURLResponse)?.statusCode == 200,
+          let json = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+          let open = ((json["answers"] as? [String: Any])?["open"] as? [String: Any])?["noul"] as? Double else { return false }
+    return open >= 0.7
+}
+
+// Two looks, as for the float: a panel in the whole window, then the item in the enlarged panel.
+// Rod in bag on 6 Nov offline: (0.986, 0.818) against the true slot (0.988, 0.817). Returns window
+// fractions; callers still confirm the tooltip before clicking anything.
+func jevLocateInPanel(_ screen: CGImage, key: String, panel panelText: String, item itemText: String) async -> CGPoint? {
+    let full = CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
+    guard let small = scaled(screen, full, width: 1400),
+          let panel = await jevAnyBox(small, key: key, context: "A World of Warcraft screenshot.",
+              instructions: panelText + " in `screen`") else { return nil }
+    let w = Double(screen.width), h = Double(screen.height), pad = 0.01
+    let rect = CGRect(x: max(0, panel.l - pad) * w, y: max(0, panel.t - pad) * h,
+                      width: (min(1, panel.r + pad) - max(0, panel.l - pad)) * w,
+                      height: (min(1, panel.b + pad) - max(0, panel.t - pad)) * h)
+    guard let enlarged = scaled(screen, rect, width: 1100),
+          // The panel step guards against an unopened panel; inside it a small slot's presence score wavers
+          // (6 Nov: a main-hand slot dropped below 0.7), and the caller's tooltip OCR confirms anyway.
+          let item = await jevAnyBox(enlarged, key: key, context: "An enlarged crop of a World of Warcraft interface panel.",
+              instructions: itemText + " in `screen`", requirePresent: false) else { return nil }
+    return CGPoint(x: (rect.minX + (item.l + item.r) / 2 * rect.width) / w, y: (rect.minY + (item.t + item.b) / 2 * rect.height) / h)
+}
+
+func jevLocateRodInBag(_ screen: CGImage, key: String) async -> CGPoint? {
+    let full = CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
+    guard let small = scaled(screen, full, width: 1400), await jevBagOpen(small, key: key) else { return nil }
+    return await jevLocateInPanel(screen, key: key, panel: "the whole open bag (inventory) panel with its grid of item slots",
+                                  item: "the single item slot holding a fishing pole (a long thin fishing rod with a line and hook)")
+}
+
+// The character sheet moves with level and UI scale; find the main-hand slot instead of a fixed point.
+func jevLocateMainHandSlot(_ screen: CGImage, key: String) async -> CGPoint? {
+    await jevLocateInPanel(screen, key: key, panel: "the open character sheet panel (equipment slots around the character model)",
+                           item: "the main hand weapon slot (the left of the weapon slots along the bottom edge, below the character model)")
 }

@@ -38,6 +38,7 @@ let fishingCode: Set<String> = Set("""
     probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
     probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
     record.swift run_test_a.swift self_tests.swift setup_camera.sh setup_camera.swift sync_recordings.sh
+    tooltip-hover-rod.jpg tooltip-hover-sword.jpg
     test_core.sh tests/CoreTests.swift tests/MotionChecks.swift tests/RunnerTests.swift
     """.split(whereSeparator: \.isWhitespace).map { fishingDir + $0 }).union(["data/001_wow_fishing/pilot_20260921/recorder.swift"])
 let motorPaths: Set<String> = Set(
@@ -249,7 +250,7 @@ func contracts(_ at: URL = root) throws {
         // Read as the Python gate read them, workflow["jobs"] and job["steps"]: absent, they hold rather than go unchecked.
         guard let jobs = workflow["jobs"]?.pairs else { throw GateError("workflow has no jobs") }
         for (_, job) in jobs {
-            if job["runs-on"] != .string(name == "ai-sdlc" ? "macos-14" : "ubuntu-24.04") || job["permissions"] != nil || job["container"] != nil {
+            if job["runs-on"] != .string(name == "ai-sdlc" ? "macos-15" : "ubuntu-24.04") || job["permissions"] != nil || job["container"] != nil {
                 throw GateError("workflow runner/permission drift")
             }
             guard let steps = job["steps"]?.items else { throw GateError("workflow job has no steps") }
