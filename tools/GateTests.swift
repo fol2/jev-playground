@@ -178,7 +178,7 @@ struct GateTests {
             ("AGENTS.md", { $0 + String(repeating: "x", count: 6501) }),
             ("CLAUDE.md", { $0.replacingOccurrences(of: "@AGENTS.md", with: "other.md") }),
             (ci, { $0.replacingOccurrences(of: #""contents": "read""#, with: #""contents": "write""#) }),
-            (ci, { $0.replacingOccurrences(of: "macos-14", with: "self-hosted") }),
+            (ci, { $0.replacingOccurrences(of: "macos-15", with: "self-hosted") }),
             (ci, { $0.replacingOccurrences(of: #""persist-credentials": false"#, with: #""persist-credentials": true"#) }),
             (ci, { $0.replacingOccurrences(of: "11d5960a326750d5838078e36cf38b85af677262", with: "v4") }),
             (ci, { $0.replacingOccurrences(of: #""Focus Gate""#, with: #""Optional""#) }),

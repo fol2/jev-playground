@@ -250,7 +250,7 @@ func contracts(_ at: URL = root) throws {
         // Read as the Python gate read them, workflow["jobs"] and job["steps"]: absent, they hold rather than go unchecked.
         guard let jobs = workflow["jobs"]?.pairs else { throw GateError("workflow has no jobs") }
         for (_, job) in jobs {
-            if job["runs-on"] != .string(name == "ai-sdlc" ? "macos-14" : "ubuntu-24.04") || job["permissions"] != nil || job["container"] != nil {
+            if job["runs-on"] != .string(name == "ai-sdlc" ? "macos-15" : "ubuntu-24.04") || job["permissions"] != nil || job["container"] != nil {
                 throw GateError("workflow runner/permission drift")
             }
             guard let steps = job["steps"]?.items else { throw GateError("workflow job has no steps") }
