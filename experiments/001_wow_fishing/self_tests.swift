@@ -202,5 +202,13 @@ func runSelfTests() throws {
           maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true else {
         print("Regression: masked box energy counts orb pixels or misses real change"); exit(1)
     }
-    print("Forty-nine local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Bag tooltips from 6 Nov: the Equipped comparison box must not confirm the hovered item.
+    func tooltip(_ name: String) -> CGImage {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
+        return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
+    }
+    guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
+        print("Regression: the Equipped comparison tooltip confirmed a non-rod item"); exit(1)
+    }
+    print("Fifty local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

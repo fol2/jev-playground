@@ -47,6 +47,22 @@ func containsText(_ image: CGImage, _ terms: [String]) throws -> Bool {
     return terms.contains { normalised.lowercased().contains($0.lowercased()) }
 }
 
+// The hovered bag item's tooltip names the rod. WoW also shows an "Equipped" comparison tooltip
+// beside it, which names the equipped item: on 6 Nov hovering the sword showed "Equipped: Fishing
+// Pole" and the sword was equipped. A "Fishing Pole" line in the Equipped column does not count.
+func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
+    let lines = try readText(image).compactMap { o in o.topCandidates(1).first.map { (text: $0.string, box: o.boundingBox) } }
+    func isRod(_ text: String) -> Bool { ["魚竿", "釣竿", "fishing pole"].contains { text.lowercased().contains($0) } }
+    guard let equipped = lines.first(where: { $0.text.lowercased().hasPrefix("equipped") || $0.text.contains("已裝備") }) else {
+        return lines.contains { isRod($0.text) }  // no comparison box: the only tooltip is the hovered item
+    }
+    // The name rows sit just under the Equipped label (Vision y grows upwards); the comparison box is
+    // on the left, so the hovered item's name is the rightmost name row. Item-type text ("Fishing
+    // Pole" on the Two-Hand row) sits lower and is not a name row.
+    let names = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
+    return names.max(by: { $0.box.minX < $1.box.minX }).map { isRod($0.text) } ?? false
+}
+
 // Pre-go overlay text in the zh-Hant and English clients; the owner's client is English
 // from 22 September 2026 (issue #10). Matching nothing would skip the guard, not fail it.
 let luaErrorText = ["Lua錯誤", "Lua 錯誤", "Lua Error"]
@@ -550,7 +566,7 @@ struct Fishing {
                 var bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
                 // The comparison tooltip can sit at the right edge (x 0.89-0.98 on 6 Nov), hence the wider region.
                 // After Jev located the rod a cell-by-cell scan adds nothing: the tooltip decides, fail closed.
-                if !jevRod, !(try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"])) {
+                if !jevRod, !(try hoveredItemIsRod(bagItem)) {
                     // Bounded default-layout bag search; all preparation stays local.
                     var found = false
                     for row in 0..<5 {
@@ -560,14 +576,14 @@ struct Fishing {
                             try await hover(bagX, bagY)
                             screen = try await capture()
                             bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
-                            if try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) { found = true; break }
+                            if try hoveredItemIsRod(bagItem) { found = true; break }
                         }
                         if found { break }
                     }
                     emit("pre_go_bag_search", ["found": found, "x": bagX, "y": bagY])
                 }
                 save(bagItem, directory.appendingPathComponent("bag-rod.jpg"))
-                guard try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) else {
+                guard try hoveredItemIsRod(bagItem) else {
                     emit("pre_go_bag_rod_unconfirmed"); return
                 }
                 guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
