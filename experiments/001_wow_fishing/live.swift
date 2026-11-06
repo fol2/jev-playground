@@ -467,7 +467,13 @@ struct Fishing {
             // 6 Nov), so also try one slot-half either side.
             func mainHandIsRod(_ name: String) async throws -> Bool {
                 var points = [CGPoint(x: 0.0725, y: 0.460)]
-                if let jevKey = jevLocateKey, let found = await jevLocateMainHandSlot(try await capture(), key: jevKey) {
+                var located: CGPoint?
+                if let jevKey = jevLocateKey {
+                    located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
+                    if located == nil { located = await jevLocateMainHandSlot(try await capture(), key: jevKey) }
+                    if located == nil { emit("pre_go_jev_main_hand_not_found") }
+                }
+                if let found = located {
                     points = [found, CGPoint(x: found.x - 0.012, y: found.y), CGPoint(x: found.x + 0.012, y: found.y)]
                     emit("pre_go_jev_main_hand", ["x": found.x, "y": found.y, "controller": "JEV"])
                 }

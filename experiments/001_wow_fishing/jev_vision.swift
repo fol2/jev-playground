@@ -107,7 +107,8 @@ private func scaled(_ image: CGImage, _ rect: CGRect, width: Int) -> CGImage? {
     return context.makeImage()
 }
 
-private func jevAnyBox(_ image: CGImage, key: String, context: String, instructions: String) async -> (l: Double, t: Double, r: Double, b: Double)? {
+private func jevAnyBox(_ image: CGImage, key: String, context: String, instructions: String,
+                       requirePresent: Bool = true) async -> (l: Double, t: Double, r: Double, b: Double)? {
     let data = NSMutableData()
     guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
     CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
@@ -131,7 +132,7 @@ private func jevAnyBox(_ image: CGImage, key: String, context: String, instructi
           let l = box["left"], let r = box["right"], let t = box["top"], let b = box["bottom"] else { return nil }
     // A box is always returned; without the thing on screen it points somewhere else (6 Nov: the action bar).
     let present = ((json["answers"] as? [String: Any])?["present"] as? [String: Any])?["noul"] as? Double ?? 0
-    return present >= 0.7 ? (l, t, r, b) : nil
+    return !requirePresent || present >= 0.7 ? (l, t, r, b) : nil
 }
 
 // B toggles the bag, so its state is unknown: ask first (open bag: 0.98 on 6 Nov).
@@ -170,8 +171,10 @@ func jevLocateInPanel(_ screen: CGImage, key: String, panel panelText: String, i
                       width: (min(1, panel.r + pad) - max(0, panel.l - pad)) * w,
                       height: (min(1, panel.b + pad) - max(0, panel.t - pad)) * h)
     guard let enlarged = scaled(screen, rect, width: 1100),
+          // The panel step guards against an unopened panel; inside it a small slot's presence score wavers
+          // (6 Nov: a main-hand slot dropped below 0.7), and the caller's tooltip OCR confirms anyway.
           let item = await jevAnyBox(enlarged, key: key, context: "An enlarged crop of a World of Warcraft interface panel.",
-              instructions: itemText + " in `screen`") else { return nil }
+              instructions: itemText + " in `screen`", requirePresent: false) else { return nil }
     return CGPoint(x: (rect.minX + (item.l + item.r) / 2 * rect.width) / w, y: (rect.minY + (item.t + item.b) / 2 * rect.height) / h)
 }
 
