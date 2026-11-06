@@ -460,6 +460,25 @@ struct Fishing {
                 key(code, down: false, flags: flags)
                 try await Task.sleep(for: .milliseconds(300))
             }
+            // Main-hand slot: Jev finds it on the open character sheet (the layout moved by level 11);
+            // without Jev the 2560x1440 default point remains. The tooltip OCR still decides.
+            // Returns whether the main-hand tooltip reads Fishing Pole, saving the last crop under `name`.
+            // Jev's slot point can land on the gap between slots (0.0914 vs slots at 0.081 and 0.102 on
+            // 6 Nov), so also try one slot-half either side.
+            func mainHandIsRod(_ name: String) async throws -> Bool {
+                var points = [CGPoint(x: 0.0725, y: 0.460)]
+                if let jevKey = jevLocateKey, let found = await jevLocateMainHandSlot(try await capture(), key: jevKey) {
+                    points = [found, CGPoint(x: found.x - 0.012, y: found.y), CGPoint(x: found.x + 0.012, y: found.y)]
+                    emit("pre_go_jev_main_hand", ["x": found.x, "y": found.y, "controller": "JEV"])
+                }
+                for point in points {
+                    try await hover(point.x, point.y)
+                    let crop = section(try await capture(), 0.0, 0.15, 0.55, 0.75)
+                    save(crop, directory.appendingPathComponent(name))
+                    if try containsText(crop, ["魚竿", "釣竿", "Fishing Pole"]) { return true }
+                }
+                return false
+            }
             func hover(_ x: Double, _ y: Double) async throws {
                 guard valid() else { throw NSError(domain: "Pre-go lost focus", code: 3) }
                 mouse(.mouseMoved, CGPoint(x: bounds.minX+x*bounds.width, y: bounds.minY+y*bounds.height))
@@ -490,11 +509,7 @@ struct Fishing {
             try await press(8) // C
             screen = try await capture()
             screen = try await dismissCharacterError(screen)
-            try await hover(0.0725, 0.460)
-            screen = try await capture()
-            let equipment = section(screen, 0.075, 0.28, 0.21, 0.19)
-            save(equipment, directory.appendingPathComponent("rod.jpg"))
-            var rod = try containsText(equipment, ["魚竿", "釣竿", "Fishing Pole"])
+            var rod = try await mainHandIsRod("rod.jpg")
             try await press(8) // Close character sheet.
             if !rod {
                 emit("pre_go_switching_from_main_weapon")
@@ -503,15 +518,33 @@ struct Fishing {
                 try await press(11) // B: open combined bag.
                 screen = try await capture()
                 save(screen, directory.appendingPathComponent("bag-before-search.jpg"))
-                var bagX = 0.924, bagY = 0.789
+                var bagX = 0.924, bagY = 0.789, jevRod = false
                 if let match = rodIconCandidate(screen) {
                     bagX = match.x; bagY = match.y
                     emit("pre_go_rod_icon_candidate", ["x": bagX, "y": bagY, "correlation": match.score])
+                } else if let jevKey = jevLocateKey {
+                    // Jev finds the rod by sight; the tooltip below still confirms it before any click.
+                    var found = await jevLocateRodInBag(screen, key: jevKey)
+                    if found == nil {
+                        // B toggles: a bag left open by an earlier stop is now closed. Open it and look once more.
+                        try await press(11)
+                        screen = try await capture()
+                        save(screen, directory.appendingPathComponent("bag-reopened.jpg"))
+                        found = await jevLocateRodInBag(screen, key: jevKey)
+                    }
+                    if let found {
+                        jevRod = true
+                        bagX = found.x; bagY = found.y
+                        emit("pre_go_jev_rod_candidate", ["x": bagX, "y": bagY, "controller": "JEV"])
+                    } else { emit("pre_go_rod_icon_not_found") }
                 } else { emit("pre_go_rod_icon_not_found") }
                 try await hover(bagX, bagY)
                 screen = try await capture()
-                var bagItem = section(screen, 0.60, 0.45, 0.32, 0.48)
-                if !(try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"])) {
+                save(screen, directory.appendingPathComponent("bag-hover.jpg"))
+                var bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
+                // The comparison tooltip can sit at the right edge (x 0.89-0.98 on 6 Nov), hence the wider region.
+                // After Jev located the rod a cell-by-cell scan adds nothing: the tooltip decides, fail closed.
+                if !jevRod, !(try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"])) {
                     // Bounded default-layout bag search; all preparation stays local.
                     var found = false
                     for row in 0..<5 {
@@ -520,7 +553,7 @@ struct Fishing {
                             bagY = 0.894 - Double(row)*0.035
                             try await hover(bagX, bagY)
                             screen = try await capture()
-                            bagItem = section(screen, 0.60, 0.45, 0.32, 0.48)
+                            bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
                             if try containsText(bagItem, ["魚竿", "釣竿", "Fishing Pole"]) { found = true; break }
                         }
                         if found { break }
@@ -539,11 +572,7 @@ struct Fishing {
                 try await press(8) // Reopen equipment and verify actual equipped rod.
                 screen = try await capture()
                 screen = try await dismissCharacterError(screen)
-                try await hover(0.0725, 0.460)
-                screen = try await capture()
-                let equipped = section(screen, 0.075, 0.28, 0.21, 0.19)
-                save(equipped, directory.appendingPathComponent("equipped-rod.jpg"))
-                rod = try containsText(equipped, ["魚竿", "釣竿", "Fishing Pole"])
+                rod = try await mainHandIsRod("equipped-rod.jpg")
                 try await press(8)
             }
             guard rod else { emit("pre_go_rod_unconfirmed"); return }
@@ -648,6 +677,12 @@ struct Fishing {
             var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = []
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
+                // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
+                // float with a background key press, so the owner's cursor is never touched.
+                if ProcessInfo.processInfo.environment["JEV_REEL"] == "interact" {
+                    key(100, down: true); try await Task.sleep(for: .milliseconds(50)); key(100, down: false)
+                    emit("interact_key", ["key": "F8", "desktop_x": point.x, "desktop_y": point.y])
+                } else {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
                 // (5 Nov: an instant background click opened UI menus but never reached the float.)
                 // 3D picking follows the real cursor, so warp it onto the float briefly and put it back
@@ -667,7 +702,8 @@ struct Fishing {
                 try await clickAt(point, .right)
                 try await Task.sleep(for: .milliseconds(100))
                 if let savedCursor { CGWarpMouseCursorPosition(savedCursor) }
-                emit("right_click")
+                }
+                emit("right_click")  // the reel action, whichever input carried it
                 // Diagnostics: did the float react to the click? Two playfield frames shortly after.
                 for (index, wait) in [150, 350].enumerated() {
                     try await Task.sleep(for: .milliseconds(wait))
