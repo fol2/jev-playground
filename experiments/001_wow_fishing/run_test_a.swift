@@ -16,7 +16,8 @@ let hashedSources = ["live.swift", "decision.swift", "self_tests.swift", "motion
                      "probes/background-click/Adapter.swift", "probes/background-click/NativeWindowServerPreparation.swift",
                      "probes/background-click/NativeBackgroundClickTransport.swift"]
 // A held bite that never returns is still an unconfirmed target before any click.
-let retryable: Set<String> = ["stopped_no_visible_float", "stopped_target_lost", "stopped_bite_not_recovered"]
+let retryable: Set<String> = ["stopped_no_visible_float", "stopped_target_lost", "stopped_bite_not_recovered",
+                               "stopped_water_too_shallow"]
 let terminalEvents: Set<String> = ["loot_item_unconfirmed", "loot_not_cleared", "loot_layout_unconfirmed", "loot_batch_limit",
                                    "retrieval_unverified"]
 

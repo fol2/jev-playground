@@ -661,7 +661,9 @@ struct Fishing {
             let failed = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full)
             save(failed, directory.appendingPathComponent("cast-failed.jpg"))
             let words = try readText(section(failed, 0.25, 0.05, 0.50, 0.30)).compactMap { $0.topCandidates(1).first?.string }
-            emit("stopped_cast_not_confirmed", ["screen_text": words]); return
+            // "Water too shallow" (OCR read "WateyHgesOrOw" on 6 Nov): the cast missed deep water, so recast.
+            let shallow = words.contains { let w = $0.lowercased().filter(\.isLetter); return w.contains("shallow") || w.contains("water") }
+            emit(shallow ? "stopped_water_too_shallow" : "stopped_cast_not_confirmed", ["screen_text": words]); return
         }
         emit("cast_channel_verified")
         config.minimumFrameInterval = CMTime(value: 1, timescale: 10)
