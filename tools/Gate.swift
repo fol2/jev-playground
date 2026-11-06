@@ -38,7 +38,7 @@ let fishingCode: Set<String> = Set("""
     probes/background-click/Adapter.swift probes/background-click/NativeBackgroundClickTransport.swift
     probes/background-click/NativeWindowServerPreparation.swift probes/background-click/Probe.swift
     record.swift run_test_a.swift self_tests.swift setup_camera.sh setup_camera.swift sync_recordings.sh
-    tooltip-hover-rod.jpg tooltip-hover-sword.jpg control/FishingControl.swift control/build_app.sh
+    tooltip-hover-rod.jpg tooltip-hover-sword.jpg control/FishingControl.swift control/FishingAgent.swift control/build_app.sh
     test_core.sh tests/CoreTests.swift tests/MotionChecks.swift tests/RunnerTests.swift
     """.split(whereSeparator: \.isWhitespace).map { fishingDir + $0 }).union(["data/001_wow_fishing/pilot_20260921/recorder.swift"])
 let motorPaths: Set<String> = Set(

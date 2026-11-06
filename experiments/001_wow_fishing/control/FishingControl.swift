@@ -1,5 +1,7 @@
 // Jev fishing control panel: start and stop the fishing loop, set its goal, and watch progress live.
-// Native SwiftUI, local only. Reads the runs/ logs the runner writes; launches the same runner binary.
+// Native SwiftUI, local only. Reads the runs/ logs the runner writes. It sends start and stop to the fishing
+// agent (FishingAgent.swift) through runs/001_wow_fishing/control/, so the panel itself needs no Screen
+// Recording or Accessibility permission and survives rebuilds.
 //   sh experiments/001_wow_fishing/control/build_app.sh   (builds the .app and opens it)
 //   open JevFishingControl.app --args -root /path/to/jev-playground
 import AppKit
@@ -88,7 +90,43 @@ final class RunLog {
                   let cycles = s["cycles"] as? [[String: Any]] else { continue }
             out += cycles.map { cast(from: $0, session: name, start: start) }
         }
+        // The running session has no summary yet: its runner prints each cast as a JSON line.
+        if let text = try? String(contentsOf: dir.appendingPathComponent("control/session.log"), encoding: .utf8),
+           let results = text.split(separator: "\n").first(where: { $0.hasPrefix("Test A") }),
+           let path = results.components(separatedBy: "results: ").last,
+           !FileManager.default.fileExists(atPath: path + "/summary.json") {
+            let name = (path as NSString).lastPathComponent
+            let stamp = name.split(separator: "_").dropFirst(2).first.map(String.init) ?? ""
+            let f = DateFormatter(); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; f.timeZone = TimeZone(identifier: "UTC")
+            let start = f.date(from: stamp) ?? Date()
+            for line in text.split(separator: "\n") where line.hasPrefix("{\"number\"") {
+                if let c = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] {
+                    out.append(cast(from: c, session: name, start: start))
+                }
+            }
+        }
         return out.sorted { $0.at < $1.at }
+    }
+
+    /// One agent log line, with the runner's JSON made readable.
+    static func shorten(_ line: String) -> String {
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        let time = parts.first.flatMap { ISO8601DateFormatter().date(from: $0) }
+            .map { DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .medium) } ?? ""
+        let body = parts.count > 1 ? parts[1] : line
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else { return "\(time)  \(body)" }
+        if let n = obj["number"] { return "\(time)  拋竿 \(n)：\(Outcome.label(Self.outcomeKey(obj)))\((obj["item"] as? String).map { " " + $0 } ?? "")" }
+        if let s = obj["status"] { return "\(time)  結果：\(s)，釣到 \(obj["verified_loot_cycles"] ?? 0)" }
+        return "\(time)  \(body)"
+    }
+    static func outcomeKey(_ c: [String: Any]) -> String {
+        switch c["outcome"] as? String ?? "" {
+        case "loot_collected": return "caught"
+        case "retrieval_unverified": return "false_reel"
+        case "timed_out_without_click": return "no_bite"
+        case "target_unconfirmed": return "no_float"
+        default: return "other"
+        }
     }
 
     /// The newest picture of the water: the latest kept frame, else the latest acquired image.
@@ -109,15 +147,15 @@ final class RunLog {
     }
 }
 
-// MARK: - The loop the panel runs
+// MARK: - Talking to the fishing agent
+
+struct AgentStatus: Codable { var state: String; var session: Int; var message: String; var agentPID: Int32; var updated: Date }
 
 @MainActor
 final class Controller: ObservableObject {
     @Published var casts: [Cast] = []
     @Published var frame: NSImage?
-    @Published var running = false          // this panel's loop
-    @Published var externalRunner = false   // a runner started elsewhere (a shell loop)
-    @Published var status = "停咗"
+    @Published var agent: AgentStatus?
     @Published var log: [String] = []
     @Published var targetSkill = 150
     @Published var sessionSeconds = 600
@@ -125,122 +163,61 @@ final class Controller: ObservableObject {
     @Published var syncing = false
 
     let root: URL
+    let controlDir: URL
     private let runLog: RunLog
-    private var process: Process?
-    private var stopRequested = false
     private var timer: Timer?
 
     init(root: URL) {
         self.root = root
+        controlDir = root.appendingPathComponent("runs/001_wow_fishing/control")
         runLog = RunLog(root: root)
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
     }
 
     var skill: Int? { casts.compactMap(\.skill).max() }
     var caught: Int { casts.filter { $0.outcome == "caught" }.count }
     var falseReels: Int { casts.filter { $0.outcome == "false_reel" }.count }
     var rate: Double? { casts.isEmpty ? nil : Double(caught) / Double(casts.count) }
+    /// The agent writes its status every second; older than 5 s means it is not running.
+    var agentAlive: Bool { agent.map { Date().timeIntervalSince($0.updated) < 5 } ?? false }
+    var running: Bool { agentAlive && agent?.state != "idle" }
+    var startCommand: String { "/tmp/jev-fishing-agent \(root.path)" }
 
     func refresh() {
-        let log = runLog
+        let log = runLog, dir = controlDir
         Task.detached {
             let c = log.casts(), f = log.latestFrame()
-            let ext = Self.runnerRunning()
-            await MainActor.run { self.casts = c; self.frame = f; self.externalRunner = ext && !self.running }
+            let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+            let st = (try? Data(contentsOf: dir.appendingPathComponent("status.json"))).flatMap { try? dec.decode(AgentStatus.self, from: $0) }
+            let lines = ((try? String(contentsOf: dir.appendingPathComponent("agent.log"), encoding: .utf8)) ?? "")
+                .split(separator: "\n").suffix(120).reversed().map { RunLog.shorten(String($0)) }
+            await MainActor.run { self.casts = c; self.frame = f; self.agent = st; self.log = lines }
         }
     }
 
-    nonisolated static func runnerRunning() -> Bool {
-        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep"); p.arguments = ["-f", "jev-fishing-run"]
-        p.standardOutput = Pipe(); try? p.run(); p.waitUntilExit()
-        return p.terminationStatus == 0
-    }
-
-    private func note(_ line: String) {
-        let t = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        log.insert("\(t)  \(line)", at: 0); if log.count > 200 { log.removeLast(log.count - 200) }
-    }
-
-    func start() {
-        guard !running, !externalRunner else { return }
-        running = true; stopRequested = false
-        note("開始：目標技能 \(targetSkill)，每節 \(sessionSeconds) 秒，收線用 \(useInteractKey ? "F8 鍵" : "游標")")
-        Task { await loop() }
-    }
-
-    /// Stops after the current cast: the runner finishes an in-flight cast rather than leave a key held.
-    func stop() {
-        stopRequested = true; status = "停緊（等呢下拋竿完）"
-        process?.interrupt()
-        note("要求停止")
-    }
-
-    private func loop() async {
-        var reviewStops = 0
-        for session in 1...60 {
-            if stopRequested { break }
-            if let s = skill, s >= targetSkill { note("已經到目標技能 \(s)"); break }
-            status = "第 \(session) 節跑緊"
-            let result = await runSession()
-            note("第 \(session) 節：\(result)")
-            refresh()
-            if result.contains("goal_reached") { note("到咗目標技能"); break }
-            if result.contains("pre_go_failed") || result.contains("Stopped") { note("準備失敗，停低等你睇"); break }
-            reviewStops = result.contains("stopped_for_review") ? reviewStops + 1 : 0
-            if reviewStops >= 6 { note("連續 6 節要覆核，停低"); break }
+    private func send(_ action: String) {
+        let command: [String: Any] = ["id": Int(Date().timeIntervalSince1970 * 1000), "action": action,
+                                      "target": targetSkill, "seconds": sessionSeconds, "interact": useInteractKey]
+        if let data = try? JSONSerialization.data(withJSONObject: command) {
+            try? data.write(to: controlDir.appendingPathComponent("command.json"), options: .atomic)
         }
-        running = false; process = nil; status = "停咗"
+        refresh()
     }
-
-    private func runSession() async -> String {
-        await withCheckedContinuation { (done: CheckedContinuation<String, Never>) in
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-            p.arguments = ["-di", "/tmp/jev-fishing-run", "--background", "--seconds", String(sessionSeconds), "--until-skill", String(targetSkill)]
-            p.currentDirectoryURL = root
-            var env = ProcessInfo.processInfo.environment
-            env["JEV_LOCATE"] = "1"; env["JEV_REEL"] = useInteractKey ? "interact" : nil
-            p.environment = env
-            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-            final class Last: @unchecked Sendable { var line = "" }
-            let last = Last()
-            pipe.fileHandleForReading.readabilityHandler = { h in
-                guard let text = String(data: h.availableData, encoding: .utf8), !text.isEmpty else { return }
-                for line in text.split(separator: "\n") {
-                    last.line = String(line)
-                    let s = String(line)
-                    Task { @MainActor in self.note(Self.shorten(s)) }
-                }
-            }
-            p.terminationHandler = { _ in
-                pipe.fileHandleForReading.readabilityHandler = nil
-                done.resume(returning: last.line)
-            }
-            do { try p.run(); Task { @MainActor in self.process = p } }
-            catch { done.resume(returning: "Stopped: \(error.localizedDescription)") }
-        }
-    }
-
-    nonisolated static func shorten(_ line: String) -> String {
-        guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { return line }
-        if let n = obj["number"] { return "拋竿 \(n)：\(obj["outcome"] ?? "")\((obj["item"] as? String).map { " " + $0 } ?? "")" }
-        if let s = obj["status"] { return "結果：\(s)，釣到 \(obj["verified_loot_cycles"] ?? 0)" }
-        return line
-    }
+    func start() { send("start") }
+    /// The agent stops after the current cast: the runner never leaves a key held.
+    func stop() { send("stop") }
 
     func syncNAS() {
         guard !syncing else { return }
-        syncing = true; note("同步去 NAS")
+        syncing = true
         let root = root
         Task.detached {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
             p.arguments = [root.appendingPathComponent("experiments/001_wow_fishing/sync_recordings.sh").path]
-            p.currentDirectoryURL = root; let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+            p.currentDirectoryURL = root; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
             try? p.run(); p.waitUntilExit()
-            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let synced = out.split(separator: "\n").filter { $0.contains("synced") }.count
-            await MainActor.run { self.syncing = false; self.note(p.terminationStatus == 0 ? "NAS 同步完：\(synced) 次拋竿" : "NAS 同步失敗") }
+            await MainActor.run { self.syncing = false; self.refresh() }
         }
     }
 }
@@ -328,17 +305,26 @@ struct ContentView: View {
     var controls: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Circle().fill(c.running ? .green : c.externalRunner ? .orange : .secondary).frame(width: 10, height: 10)
-                Text(c.running ? c.status : c.externalRunner ? "外面有個 loop 跑緊" : "停咗").font(.headline)
+                Circle().fill(!c.agentAlive ? .red : c.running ? .green : .secondary).frame(width: 10, height: 10)
+                Text(!c.agentAlive ? "釣魚 agent 未開" : c.agent?.state == "stopping" ? "停緊（等呢下拋竿完）"
+                     : c.running ? "第 \(c.agent?.session ?? 0) 節跑緊" : "停咗").font(.headline)
+            }
+            if !c.agentAlive {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("喺 Terminal 行呢句開 agent（Terminal 已經有螢幕錄影同輔助使用權限）：").font(.caption).foregroundStyle(.secondary)
+                    Text(c.startCommand).font(.caption.monospaced()).textSelection(.enabled)
+                        .padding(6).background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                    Button("複製指令") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c.startCommand, forType: .string) }
+                }
             }
             Stepper("目標技能：\(c.targetSkill)", value: $c.targetSkill, in: 1...450, step: 5).disabled(c.running)
             Stepper("每節：\(c.sessionSeconds / 60) 分鐘", value: $c.sessionSeconds, in: 60...1800, step: 60).disabled(c.running)
             Toggle("收線用 F8 Interact 鍵（唔郁游標）", isOn: $c.useInteractKey).disabled(c.running)
             HStack {
                 Button { c.start() } label: { Label("開始", systemImage: "play.fill") }
-                    .keyboardShortcut(.return).disabled(c.running || c.externalRunner)
+                    .keyboardShortcut(.return).disabled(!c.agentAlive || c.running)
                 Button(role: .destructive) { c.stop() } label: { Label("停止", systemImage: "stop.fill") }
-                    .disabled(!c.running)
+                    .disabled(!c.running || c.agent?.state == "stopping")
             }
             Button { c.syncNAS() } label: { Label(c.syncing ? "同步緊…" : "同步去 NAS", systemImage: "externaldrive") }
                 .disabled(c.syncing || c.running)
