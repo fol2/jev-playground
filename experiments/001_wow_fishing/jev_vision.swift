@@ -63,16 +63,40 @@ func interactIconCentroid(_ image: CGImage, reference: [UInt8]? = nil) -> CGPoin
         } }
         return false
     }
-    var points: [(x: Int, y: Int)] = []
-    for y in 0..<h { for x in 0..<w {
-        if gold(pixels, (y*w + x)*4) && !(usable && oldGold(x, y)) { points.append((x, y)) }
+    // Count new gold per 8 px cell; the icon is a dense 3x3-cell patch with almost no gold around it.
+    // Sunset glare (7 Nov) shimmers, so it is new gold every frame, but it spreads over a wide area.
+    let cell = 8, cw = (w + cell - 1)/cell, ch = (h + cell - 1)/cell
+    var count = [Int](repeating: 0, count: cw*ch), sx = count, sy = count, all = count
+    var x0 = [Int](repeating: Int.max, count: cw*ch), y0 = x0, x1 = [Int](repeating: -1, count: cw*ch), y1 = x1
+    for y in 0..<h { for x in 0..<w where gold(pixels, (y*w + x)*4) {
+        let c = (y/cell)*cw + x/cell; all[c] += 1
+        if !(usable && oldGold(x, y)) {
+            count[c] += 1; sx[c] += x; sy[c] += y
+            x0[c] = min(x0[c], x); x1[c] = max(x1[c], x); y0[c] = min(y0[c], y); y1[c] = max(y1[c], y)
+        }
     } }
-    // ponytail: O(n^2) over gold pixels; fine while new gold stays in the hundreds.
-    guard points.count >= 3, points.count < 4000 else { return nil }
-    let near = points.map { p in points.filter { abs($0.x-p.x) <= 15 && abs($0.y-p.y) <= 15 } }
-    guard let best = near.max(by: { $0.count < $1.count }), best.count >= 3 else { return nil }
-    return CGPoint(x: Double(best.reduce(0) { $0 + $1.x })/Double(best.count),
-                   y: Double(best.reduce(0) { $0 + $1.y })/Double(best.count))
+    func sum(_ cx: Int, _ cy: Int, _ r: Int, _ a: [Int]) -> Int {
+        var t = 0
+        for yy in max(cy-r, 0)...min(cy+r, ch-1) { for xx in max(cx-r, 0)...min(cx+r, cw-1) { t += a[yy*cw + xx] } }
+        return t
+    }
+    var best: (n: Int, x: Int, y: Int)? = nil
+    for cy in 0..<ch { for cx in 0..<cw where count[cy*cw + cx] > 0 {
+        let local = sum(cx, cy, 1, count)
+        // Isolation counts all gold, old or new: glare stays gold in every frame, the icon's water does not.
+        // ponytail: at most half as much gold again in the 7x7 cells around; tune if a real icon fails.
+        guard local >= 3, sum(cx, cy, 3, all) - sum(cx, cy, 1, all) <= local/2, local > (best?.n ?? 0) else { continue }
+        // The icon is a round badge; a glare glint is a flat streak (7 Nov sunset: 25 x 5 px).
+        var bx0 = Int.max, by0 = Int.max, bx1 = -1, by1 = -1
+        for yy in max(cy-1, 0)...min(cy+1, ch-1) { for xx in max(cx-1, 0)...min(cx+1, cw-1) where count[yy*cw + xx] > 0 {
+            let c = yy*cw + xx; bx0 = min(bx0, x0[c]); bx1 = max(bx1, x1[c]); by0 = min(by0, y0[c]); by1 = max(by1, y1[c])
+        } }
+        let bw = Double(bx1 - bx0 + 1), bh = Double(by1 - by0 + 1)
+        guard bw <= 1.6*bh, bh <= 1.6*bw else { continue }   // icons read 8 x 7; glints 20-24 x 10
+        best = (local, sum(cx, cy, 1, sx), sum(cx, cy, 1, sy))
+    } }
+    guard let best else { return nil }
+    return CGPoint(x: Double(best.x)/Double(best.n), y: Double(best.y)/Double(best.n))
 }
 
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.

@@ -242,5 +242,11 @@ func runSelfTests() throws {
     guard let dayIcon, abs(dayIcon.x - 427) < 8, abs(dayIcon.y - 173) < 8 else {
         print("Regression: daylight interact icon at \(String(describing: dayIcon)), expected near (427, 173)"); exit(1)
     }
-    print("Fifty-one local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Stormwind at sunset (7 Nov): shimmering glare is new gold each frame; the icon is at (579, 78).
+    let sunset = tooltip("icon-sunset-after.jpg"), dusk = tooltip("icon-sunset-before.jpg")
+    let sunIcon = interactIconCentroid(sunset, reference: imagePixels(dusk, width: dusk.width, height: dusk.height))
+    guard let sunIcon, abs(sunIcon.x - 579) < 8, abs(sunIcon.y - 78) < 8 else {
+        print("Regression: sunset interact icon at \(String(describing: sunIcon)), expected near (579, 78)"); exit(1)
+    }
+    print("Fifty-two local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
