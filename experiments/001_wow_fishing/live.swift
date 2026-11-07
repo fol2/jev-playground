@@ -725,7 +725,7 @@ struct Fishing {
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
             try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
+            var orbMask: Bool?, jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
@@ -904,7 +904,11 @@ struct Fishing {
                     defer { boxPreviousRGBA = rgba }
                     guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
                     // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
-                    guard let energy = maskedBoxEnergy(rgba, prior) else {
+                    if orbMask == nil {
+                        orbMask = orbColouredFraction(prior) < 0.5
+                        if orbMask == false { emit("orb_mask_off_blue_water", ["fraction": orbColouredFraction(prior)]) }
+                    }
+                    guard let energy = maskedBoxEnergy(rgba, prior, mask: orbMask ?? true) else {
                         emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
                     }
                     let spike = motionSpike(boxHistory, energy)

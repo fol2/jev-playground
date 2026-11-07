@@ -208,7 +208,8 @@ func runSelfTests() throws {
     guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }
     var orbNow = water; for i in 0..<800 { orbNow[i*4] = 60; orbNow[i*4+2] = 140 }
     guard maskedBoxEnergy(water, water) == 0, maskedBoxEnergy(orbNow, water) == 0,
-          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true else {
+          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true,
+          orbColouredFraction(water) == 0, orbColouredFraction(orbNow) >= 0.5, maskedBoxEnergy(orbNow, water, mask: false).map({ $0 > 0 }) == true else {
         print("Regression: masked box energy counts orb pixels or misses real change"); exit(1)
     }
     // Bag tooltips from 6 Nov: the Equipped comparison box must not confirm the hovered item.

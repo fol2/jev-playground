@@ -121,8 +121,19 @@ func orbInBox(_ rgba: [UInt8]) -> Bool {
 
 // Box change with orb pixels masked out: a pixel counts only when it is not orb-coloured
 // (core or dim glow) in either frame. Returns nil when over half the box is orb.
-func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8]) -> Double? {
-    func orb(_ p: [UInt8], _ i: Int) -> Bool { let r = Int(p[i]), b = Int(p[i+2]); return b > 90 && b - r > 40 }
+// Daylight Stormwind water (7 Nov) is itself "orb-coloured": when the first box frame after acquisition
+// is mostly that colour, the water is blue and the cast runs without the orb mask (mask: false).
+func orbColouredFraction(_ rgba: [UInt8]) -> Double {
+    var hits = 0, total = 0
+    for i in stride(from: 0, to: rgba.count - 3, by: 4) {
+        total += 1; if orbColoured(rgba, i) { hits += 1 }
+    }
+    return total == 0 ? 0 : Double(hits)/Double(total)
+}
+func orbColoured(_ p: [UInt8], _ i: Int) -> Bool { let r = Int(p[i]), b = Int(p[i+2]); return b > 90 && b - r > 40 }
+
+func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8], mask: Bool = true) -> Double? {
+    func orb(_ p: [UInt8], _ i: Int) -> Bool { mask && orbColoured(p, i) }
     func grey(_ p: [UInt8], _ i: Int) -> Double { 0.299*Double(p[i]) + 0.587*Double(p[i+1]) + 0.114*Double(p[i+2]) }
     var sum = 0.0, used = 0, total = 0
     for i in stride(from: 0, to: min(current.count, previous.count) - 3, by: 4) {
