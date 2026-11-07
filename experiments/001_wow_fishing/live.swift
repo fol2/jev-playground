@@ -523,6 +523,7 @@ struct Fishing {
             emit(shallow ? "stopped_water_too_shallow" : "stopped_cast_not_confirmed", ["screen_text": words]); return
         }
         emit("cast_channel_verified")
+        let barAt = ProcessInfo.processInfo.systemUptime  // the float hunt gets its 6 s from here, not from the key press
         config.minimumFrameInterval = CMTime(value: 1, timescale: 10)
         config.queueDepth = 3
         let source = LatestFrame()
@@ -701,7 +702,7 @@ struct Fishing {
                 guard valid() else { emit("stopped_focus_or_geometry"); return }
                 let iterationAt = ProcessInfo.processInfo.systemUptime
                 if loop.expired(at: iterationAt) { emit("stopped_bite_not_recovered"); return }
-                if target == nil && iterationAt-castAt > 6 {
+                if target == nil && iterationAt-barAt > 6 {
                     emit("stopped_no_visible_float"); return
                 }
                 guard let (image, timestamp) = source.latest() else {
