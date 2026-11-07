@@ -177,12 +177,14 @@ func interruptedDry(_ command: [String]) throws {
     }
 }
 
-/// The saved-frame corpus, shared by every worktree of this clone. A hosted runner has none: it stays local.
+/// The saved-frame corpus, shared by every worktree of this clone. A hosted runner has none, and since
+/// 7 Nov the owner keeps no pictures locally either: without a saved frame the check is skipped.
 func savedFrames() throws -> URL? {
     let common = try gitText("rev-parse", "--path-format=absolute", "--git-common-dir")
     let frames = URL(fileURLWithPath: common).deletingLastPathComponent().appendingPathComponent("runs/002_wow_visual")
-    var directory: ObjCBool = false
-    return FileManager.default.fileExists(atPath: frames.path, isDirectory: &directory) && directory.boolValue ? frames : nil
+    let files = FileManager.default.enumerator(atPath: frames.path)
+    let hasFrame = files?.contains { ["png", "jpg"].contains(URL(fileURLWithPath: ($0 as? String) ?? "").pathExtension) } ?? false
+    return hasFrame ? frames : nil
 }
 
 /// Readings keyed by frame, in the order read.
