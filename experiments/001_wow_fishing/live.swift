@@ -8,6 +8,16 @@ import Vision
 import VideoToolbox
 
 // Native capture requires an output delegate. Retain one frame, not a video or queue.
+// One small HEVC video per cast replaces per-frame pictures (7 Nov owner). The M4's media engine
+// encodes it, so the game loses no CPU or GPU; AV1 has no hardware encoder on Apple silicon.
+final class CastRecording: NSObject, SCRecordingOutputDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    var finished: Bool { lock.lock(); defer { lock.unlock() }; return done }
+    func recordingOutputDidFinishRecording(_ output: SCRecordingOutput) { lock.lock(); done = true; lock.unlock() }
+    func recordingOutput(_ output: SCRecordingOutput, didFailWithError error: any Error) { lock.lock(); done = true; lock.unlock() }
+}
+
 final class LatestFrame: NSObject, SCStreamOutput, @unchecked Sendable {
     private let lock = NSLock()
     private var frame: (CGImage, Double)?
@@ -45,22 +55,6 @@ func containsText(_ image: CGImage, _ terms: [String]) throws -> Bool {
     // OCR case varies ("LUA ERROR"). Spacing is kept: removing it would join neighbouring
     // words, such as "Fishing" and "Polearm", into a term; spacing variants are listed instead.
     return terms.contains { normalised.lowercased().contains($0.lowercased()) }
-}
-
-// The hovered bag item's tooltip names the rod. WoW also shows an "Equipped" comparison tooltip
-// beside it, which names the equipped item: on 6 Nov hovering the sword showed "Equipped: Fishing
-// Pole" and the sword was equipped. A "Fishing Pole" line in the Equipped column does not count.
-func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
-    let lines = try readText(image).compactMap { o in o.topCandidates(1).first.map { (text: $0.string, box: o.boundingBox) } }
-    func isRod(_ text: String) -> Bool { ["魚竿", "釣竿", "fishing pole"].contains { text.lowercased().contains($0) } }
-    guard let equipped = lines.first(where: { $0.text.lowercased().hasPrefix("equipped") || $0.text.contains("已裝備") }) else {
-        return lines.contains { isRod($0.text) }  // no comparison box: the only tooltip is the hovered item
-    }
-    // The name rows sit just under the Equipped label (Vision y grows upwards); the comparison box is
-    // on the left, so the hovered item's name is the rightmost name row. Item-type text ("Fishing
-    // Pole" on the Two-Hand row) sits lower and is not a name row.
-    let names = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
-    return names.max(by: { $0.box.minX < $1.box.minX }).map { isRod($0.text) } ?? false
 }
 
 // Pre-go overlay text in the zh-Hant and English clients; the owner's client is English
@@ -148,43 +142,6 @@ func pageIsTwo(_ page: CGImage) -> Bool {
     return zip(expected, actual).filter { $0 != $1 }.count <= 14
 }
 
-// Recognise the known rod icon from one bag image; tooltip OCR confirms identity.
-func rodIconCandidate(_ image: CGImage) -> (x: Double, y: Double, score: Double)? {
-    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("rod-icon.png")
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let reference = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-    func vector(_ image: CGImage) -> [Double] {
-        var pixels = [UInt8](repeating: 0, count: 16*16*4)
-        pixels.withUnsafeMutableBytes { bytes in
-            let context = CGContext(data: bytes.baseAddress, width: 16, height: 16,
-                bitsPerComponent: 8, bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
-            context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
-        }
-        var grey = [Double]()
-        for i in 0..<256 {
-            grey.append(Double(pixels[i*4]) + Double(pixels[i*4+1]) + Double(pixels[i*4+2]))
-        }
-        let mean = grey.reduce(0,+)/256
-        let centred = grey.map { $0-mean }
-        let length = sqrt(centred.reduce(0) { $0+$1*$1 })
-        return centred.map { $0/max(1,length) }
-    }
-    let expected = vector(reference)
-    var best: (x: Double, y: Double, score: Double)?
-    let side = 32*Double(image.width)/2560
-    for row in 0..<5 {
-        for column in 0..<10 {
-            let x = 0.805+Double(column)*0.0197, y = 0.894-Double(row)*0.035
-            guard let patch = image.cropping(to: CGRect(x: x*Double(image.width)-side/2,
-                y: y*Double(image.height)-side/2, width: side, height: side)) else { continue }
-            let score = zip(expected, vector(patch)).reduce(0) { $0+$1.0*$1.1 }
-            if score > (best?.score ?? -1) { best = (x,y,score) }
-        }
-    }
-    return best.flatMap { $0.score >= 0.75 ? $0 : nil }
-}
-
 func compactFloatShape(_ width: Int, _ height: Int) -> Bool {
     height <= 3*width
 }
@@ -259,7 +216,11 @@ func changedObjects(_ pixels: [UInt8], reference: [UInt8], width: Int, height: I
     return result
 }
 
+// Pictures are opt-in (JEV_PICTURES=1, 7 Nov owner): events.jsonl carries every number the rules
+// and replays use, about 25 KB a cast against 6 MB with frames.
+let savePictures = ProcessInfo.processInfo.environment["JEV_PICTURES"] == "1"
 func save(_ image: CGImage, _ url: URL) {
+    guard savePictures else { return }
     let jpeg = url.pathExtension == "jpg"
     let type = jpeg ? UTType.jpeg.identifier : UTType.png.identifier
     if let destination = CGImageDestinationCreateWithURL(url as CFURL, type as CFString, 1, nil) {
@@ -343,10 +304,12 @@ struct Fishing {
             }
             let beforeSource=CGImageSourceCreateWithURL(URL(fileURLWithPath:CommandLine.arguments[argument+1]) as CFURL,nil)!
             let before=CGImageSourceCreateImageAtIndex(beforeSource,0,nil)!
+            let reference = imagePixels(before,width:image.width,height:image.height)
             for b in changedObjects(imagePixels(image,width:image.width,height:image.height),
-                                    reference:imagePixels(before,width:image.width,height:image.height),width:image.width,height:image.height) {
+                                    reference:reference,width:image.width,height:image.height) {
                 print("object x=\(b.x) y=\(b.y) area=\(b.area) novelty=\(b.novelty)")
             }
+            if let float = floatBelowIcon(image, reference: reference) { print("float x=\(float.x) y=\(float.y)") }
             return
         }
         if let argument = CommandLine.arguments.firstIndex(of: "--jev-fixture"), argument+1 < CommandLine.arguments.count {
@@ -476,48 +439,10 @@ struct Fishing {
                 key(code, down: false, flags: flags)
                 try await Task.sleep(for: .milliseconds(300))
             }
-            // Main-hand slot: Jev finds it on the open character sheet (the layout moved by level 11);
-            // without Jev the 2560x1440 default point remains. The tooltip OCR still decides.
-            // Returns whether the main-hand tooltip reads Fishing Pole, saving the last crop under `name`.
-            // Jev's slot point can land on the gap between slots (0.0914 vs slots at 0.081 and 0.102 on
-            // 6 Nov), so also try one slot-half either side.
-            func mainHandIsRod(_ name: String) async throws -> Bool {
-                var points = [CGPoint(x: 0.0725, y: 0.460)]
-                var located: CGPoint?
-                if let jevKey = jevLocateKey {
-                    located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
-                    if located == nil { located = await jevLocateMainHandSlot(try await capture(), key: jevKey) }
-                    if located == nil { emit("pre_go_jev_main_hand_not_found") }
-                }
-                if let found = located {
-                    points = [found, CGPoint(x: found.x - 0.012, y: found.y), CGPoint(x: found.x + 0.012, y: found.y)]
-                    emit("pre_go_jev_main_hand", ["x": found.x, "y": found.y, "controller": "JEV"])
-                }
-                for point in points {
-                    try await hover(point.x, point.y)
-                    let crop = section(try await capture(), 0.0, 0.15, 0.55, 0.75)
-                    save(crop, directory.appendingPathComponent(name))
-                    if try containsText(crop, ["魚竿", "釣竿", "Fishing Pole"]) { return true }
-                }
-                return false
-            }
             func hover(_ x: Double, _ y: Double) async throws {
                 guard valid() else { throw NSError(domain: "Pre-go lost focus", code: 3) }
                 mouse(.mouseMoved, CGPoint(x: bounds.minX+x*bounds.width, y: bounds.minY+y*bounds.height))
                 try await Task.sleep(for: .milliseconds(450))
-            }
-            func dismissCharacterError(_ screen: CGImage) async throws -> CGImage {
-                guard try containsText(overlayBand(screen), luaErrorText) else { return screen }
-                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
-                try await clickAt(CGPoint(x: bounds.minX+0.776*bounds.width,
-                                         y: bounds.minY+0.349*bounds.height), .left)
-                try await Task.sleep(for: .milliseconds(300))
-                let after = try await capture()
-                guard try !containsText(overlayBand(after), luaErrorText) else {
-                    throw NSError(domain: "Pre-go character error still open", code: 3)
-                }
-                emit("dismissed_character_beta_error")
-                return after
             }
             var screen = try await capture()
             save(screen, directory.appendingPathComponent("pre-go.jpg"))
@@ -527,78 +452,8 @@ struct Fishing {
             if try containsText(overlayBand(screen), blockingOverlayText) {
                 emit("pre_go_blocked_overlay"); return
             }
-            // Character sheet, then read the equipped main-hand item tooltip.
-            try await press(8) // C
-            screen = try await capture()
-            screen = try await dismissCharacterError(screen)
-            var rod = try await mainHandIsRod("rod.jpg")
-            try await press(8) // Close character sheet.
-            if !rod {
-                emit("pre_go_switching_from_main_weapon")
-                // Recognise the rod icon first; tooltip search is the fallback.
-                // Verify the tooltip before equipping; never click an unknown item.
-                try await press(11) // B: open combined bag.
-                screen = try await capture()
-                save(screen, directory.appendingPathComponent("bag-before-search.jpg"))
-                var bagX = 0.924, bagY = 0.789, jevRod = false
-                if let match = rodIconCandidate(screen) {
-                    bagX = match.x; bagY = match.y
-                    emit("pre_go_rod_icon_candidate", ["x": bagX, "y": bagY, "correlation": match.score])
-                } else if let jevKey = jevLocateKey {
-                    // Jev finds the rod by sight; the tooltip below still confirms it before any click.
-                    var found = await jevLocateRodInBag(screen, key: jevKey)
-                    if found == nil {
-                        // B toggles: a bag left open by an earlier stop is now closed. Open it and look once more.
-                        try await press(11)
-                        screen = try await capture()
-                        save(screen, directory.appendingPathComponent("bag-reopened.jpg"))
-                        found = await jevLocateRodInBag(screen, key: jevKey)
-                    }
-                    if let found {
-                        jevRod = true
-                        bagX = found.x; bagY = found.y
-                        emit("pre_go_jev_rod_candidate", ["x": bagX, "y": bagY, "controller": "JEV"])
-                    } else { emit("pre_go_rod_icon_not_found") }
-                } else { emit("pre_go_rod_icon_not_found") }
-                try await hover(bagX, bagY)
-                screen = try await capture()
-                save(screen, directory.appendingPathComponent("bag-hover.jpg"))
-                var bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
-                // The comparison tooltip can sit at the right edge (x 0.89-0.98 on 6 Nov), hence the wider region.
-                // After Jev located the rod a cell-by-cell scan adds nothing: the tooltip decides, fail closed.
-                if !jevRod, !(try hoveredItemIsRod(bagItem)) {
-                    // Bounded default-layout bag search; all preparation stays local.
-                    var found = false
-                    for row in 0..<5 {
-                        for column in (0..<10).reversed() {
-                            bagX = 0.805 + Double(column)*0.0197
-                            bagY = 0.894 - Double(row)*0.035
-                            try await hover(bagX, bagY)
-                            screen = try await capture()
-                            bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
-                            if try hoveredItemIsRod(bagItem) { found = true; break }
-                        }
-                        if found { break }
-                    }
-                    emit("pre_go_bag_search", ["found": found, "x": bagX, "y": bagY])
-                }
-                save(bagItem, directory.appendingPathComponent("bag-rod.jpg"))
-                guard try hoveredItemIsRod(bagItem) else {
-                    emit("pre_go_bag_rod_unconfirmed"); return
-                }
-                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
-                try await clickAt(CGPoint(x: bounds.minX+bagX*bounds.width,
-                                         y: bounds.minY+bagY*bounds.height), .right)
-                try await Task.sleep(for: .milliseconds(400))
-                try await press(11) // Close bag.
-                try await press(8) // Reopen equipment and verify actual equipped rod.
-                screen = try await capture()
-                screen = try await dismissCharacterError(screen)
-                rod = try await mainHandIsRod("equipped-rod.jpg")
-                try await press(8)
-            }
-            guard rod else { emit("pre_go_rod_unconfirmed"); return }
-            emit("pre_go_rod_verified")
+            // No rod check: the cast itself is the check (no Fishing bar, no fishing). 7 Nov: reading the
+            // character sheet and bags failed often and once equipped the Shiny Bauble.
             try await press(19, .maskShift) // Same configured page for both policies.
             try await hover(0.227, 0.981)
             screen = try await capture()
@@ -663,7 +518,9 @@ struct Fishing {
         channelConfig.showsCursor = false
         var channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
         var confirmed = try fishingChannelConfirmed(channel)
-        for _ in 0..<2 where !confirmed {
+        // 7 Nov: right after pre-go the bar can take over a second to appear; six casts were called failed
+        // at 0.5 s although they went out. Wait up to 3 s.
+        for _ in 0..<12 where !confirmed {
             guard valid() else { emit("stopped_before_cast_verification"); return }
             try await Task.sleep(for: .milliseconds(200))
             channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
@@ -682,13 +539,21 @@ struct Fishing {
             emit(shallow ? "stopped_water_too_shallow" : "stopped_cast_not_confirmed", ["screen_text": words]); return
         }
         emit("cast_channel_verified")
+        let barAt = ProcessInfo.processInfo.systemUptime  // the float hunt gets its 6 s from here, not from the key press
         config.minimumFrameInterval = CMTime(value: 1, timescale: 10)
         config.queueDepth = 3
         let source = LatestFrame()
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
         try stream.addStreamOutput(source, type: .screen,
                                    sampleHandlerQueue: DispatchQueue(label: "fishing.frames"))
+        let recordingSettings = SCRecordingOutputConfiguration()
+        recordingSettings.outputURL = directory.appendingPathComponent("cast.mp4")
+        recordingSettings.outputFileType = .mp4
+        recordingSettings.videoCodecType = .hevc
+        let recordingLog = CastRecording()
+        try stream.addRecordingOutput(SCRecordingOutput(configuration: recordingSettings, delegate: recordingLog))
         try await stream.startCapture()
+        emit("recording_started")  // video time 0 is about this event's seconds
         func observe() async throws {
             var target: Blob?, tracker: FloatTracker?, previous: [UInt8]?, priorImage: CGImage?
             var candidateTracks: [(latest: Blob, origin: Blob, frames: Int)] = []
@@ -697,16 +562,40 @@ struct Fishing {
             var lastRequest = -100.0, lastTimestamp = -1.0
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
-            try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = []
+            if savePictures { try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true) }
+            var orbMask: Bool?, floatBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
+            var jevTried = false
+            // Watch a 40 px box on the located float; the bite rule reads change inside it.
+            func acquireBox(_ p: CGPoint, novelty: Double, controller: String, _ image: CGImage) {
+                let side = 40.0
+                floatBox = CGRect(x: min(max(p.x-side/2, 0), Double(width)-side),
+                                  y: min(max(p.y-side/2, 0), Double(height)-side), width: side, height: side)
+                target = Blob(x: p.x, y: p.y, area: 0, novelty: novelty)
+                emit("target_acquired", ["x": p.x, "y": p.y, "area": 0, "novelty": novelty, "controller": controller])
+                save(image, directory.appendingPathComponent("acquired.jpg"))
+                emit("post_cast_target_candidate_observed")
+            }
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
                 // float with a background key press, so the owner's cursor is never touched.
-                if ProcessInfo.processInfo.environment["JEV_REEL"] == "interact" {
+                let reelMode = ProcessInfo.processInfo.environment["JEV_REEL"] ?? ""
+                if reelMode == "interact" || reelMode == "both" {
                     key(100, down: true); try await Task.sleep(for: .milliseconds(50)); key(100, down: false)
                     emit("interact_key", ["key": "F8", "desktop_x": point.x, "desktop_y": point.y])
-                } else {
+                }
+                // Closed loop: a reel that took effect ends the Fishing channel. 7 Nov canal: F8 left the float
+                // in place while the owner had the game in front; then the cursor right-click still has the bite.
+                var keyHadNoEffect = false
+                if reelMode == "interact" {
+                    try await Task.sleep(for: .milliseconds(250))
+                    let bar = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
+                    keyHadNoEffect = try fishingChannelConfirmed(bar)
+                    emit("reel_effect", ["channel_ended": !keyHadNoEffect])
+                }
+                // JEV_REEL=both (7 Nov experiment): at real Stormwind bites F8 sometimes left no loot although the
+                // icon sat on our float; a cursor right-click follows F8 to test whether F8 alone is the gap.
+                if reelMode != "interact" || keyHadNoEffect {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
                 // (5 Nov: an instant background click opened UI menus but never reached the float.)
                 // 3D picking follows the real cursor, so warp it onto the float briefly and put it back
@@ -769,11 +658,10 @@ struct Fishing {
                 var layout = try lootLayout(lootImage)
                 guard layout != nil else {
                     save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
-                    let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
-                    let chatAfter = section(after,0.01,0.72,0.30,0.20)
-                    save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
+                    var text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                    var chatAfter = section(after,0.01,0.72,0.30,0.20)
                     let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                    let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    var afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
                     // Auto-loot never shows a window: a new "You receive loot" chat line is the evidence.
                     // OCR drops letters ("You receive oot"), and the same fish repeats: compare the
                     // sequence of loot-like lines, which changes when the chat gains a new one.
@@ -781,11 +669,30 @@ struct Fishing {
                         // Skill lines too: the same fish twice leaves the loot lines identical (5 Nov, skill 59).
                         words.filter { let w = $0.lowercased(); return w.contains("receive") || w.contains("increased") || $0.contains("拾取") }
                     }
+                    // The loot line can land after this first read (Stormwind, 7 Nov: two real catches were
+                    // reported unverified); read the chat once more 1.5 s later before giving up.
+                    if lootLines(afterWords) == lootLines(beforeWords) {
+                        try await Task.sleep(for: .milliseconds(1500))
+                        if let later = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full) {
+                            after = later
+                            text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                            chatAfter = section(after,0.01,0.72,0.30,0.20)
+                            afterWords = ((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                            emit("chat_reread", ["chat_after_ocr": afterWords])
+                        }
+                    }
+                    save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
                     if let line = lootLines(afterWords).last, lootLines(afterWords) != lootLines(beforeWords) {
                         save(chatAfter, directory.appendingPathComponent("collected.jpg"))
                         emit("loot_collected", ["item": line, "labels_observed": [line], "loot_clicks": 0,
                             "completion_method": "chat_loot_line_after_auto_loot", "chat_after_ocr": afterWords])
                         return
+                    }
+                    // "Your fish got away!": the bite was real and reeled in time, but the skill was too low for
+                    // this water (Darkshore at skill ~1, 7 Nov). Recast; it is not a detection failure.
+                    let shown = text.compactMap { $0.topCandidates(1).first?.string } + afterWords
+                    if shown.contains(where: { $0.lowercased().contains("got away") || $0.contains("逃脫") || $0.contains("跑掉") }) {
+                        emit("fish_got_away", ["screen_text": shown]); return
                     }
                     emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
                         "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
@@ -829,7 +736,7 @@ struct Fishing {
                 guard valid() else { emit("stopped_focus_or_geometry"); return }
                 let iterationAt = ProcessInfo.processInfo.systemUptime
                 if loop.expired(at: iterationAt) { emit("stopped_bite_not_recovered"); return }
-                if target == nil && iterationAt-castAt > 6 {
+                if target == nil && iterationAt-barAt > 6 {
                     emit("stopped_no_visible_float"); return
                 }
                 guard let (image, timestamp) = source.latest() else {
@@ -865,22 +772,29 @@ struct Fishing {
                 // The acquisition image is no longer valid after a camera change.
                 // Stop for review instead of adding a second, guess-based acquisition path.
                 guard background <= 8 else { emit("stopped_camera_motion"); return }
-                // Jev-box motion: after Jev located the float, watch only change inside its box.
-                if let box = jevBox, let patch = image.cropping(to: box) {
+                // Box motion: once the float is located, watch only change inside its box.
+                if let box = floatBox, let patch = image.cropping(to: box) {
                     let rgba = imagePixels(patch, width: patch.width, height: patch.height)
                     defer { boxPreviousRGBA = rgba }
                     guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
                     // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
-                    guard let energy = maskedBoxEnergy(rgba, prior) else {
+                    if orbMask == nil {
+                        // Judge the water from the whole playfield, not the box: one box frame flips near 0.5.
+                        // Daylight Stormwind reads ~0.20, night Darkshore and Valanaar 0.00-0.01 (7 Nov).
+                        let fraction = orbColouredFraction(pixels)
+                        orbMask = fraction < 0.08
+                        if orbMask == false { emit("orb_mask_off_blue_water", ["fraction": fraction]) }
+                    }
+                    guard let energy = maskedBoxEnergy(rgba, prior, mask: orbMask ?? true) else {
                         emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue
                     }
                     let spike = motionSpike(boxHistory, energy)
                     emit("sample", ["box_energy": energy, "background_change": background, "spike": spike,
                                     "capture_seconds": captureAt-started])
-                    // One frame above the spike floor: the float's own bob animation peaks near 3.5 for
-                    // two frames (5 Nov), real bites peak at 4.5-9.8, so a two-frame lower rule was cut.
-                    if !spike { boxHistory.append(energy) }
-                    if spike && background < 3 {
+                    // Every sample feeds the history: the adaptive rule needs the frames just before a bite.
+                    let steady = sceneSteady(backgroundHistory, background)
+                    boxHistory.append(energy); backgroundHistory.append(background)
+                    if spike && steady {
                         let point = CGPoint(x: bounds.minX+crop.minX+box.midX*crop.width/Double(width),
                                             y: bounds.minY+crop.minY+box.midY*crop.height/Double(height))
                         save(patch, directory.appendingPathComponent("signal.jpg"))
@@ -895,22 +809,22 @@ struct Fishing {
                 let candidate: Blob?
                 if let tracker {
                     candidate = tracker.observe(image)
-                } else if iterationAt-castAt > 2, let jevKey = jevLocateKey {
-                    // Jev finds the float in the cropped playfield; the pixel tracker takes over from here.
-                    guard let found = await jevLocateFloat(image, key: jevKey) else {
+                } else if iterationAt-castAt > 2, let float = floatBelowIcon(image, reference: referencePixels),
+                          supportsMotionTemplate(float, width: width, height: height) {
+                    // The interact icon marks our own float: no provider call is needed.
+                    acquireBox(float, novelty: 1, controller: "RULE", image)
+                    continue
+                } else if iterationAt-castAt > 4, !jevTried, let jevKey = jevLocateKey {
+                    // Fallback once per cast when no icon showed (JEV_LOCATE=1 only).
+                    jevTried = true
+                    guard let found = await jevLocateFloat(image, key: jevKey, reference: referencePixels) else {
                         emit("jev_locate_error"); continue
                     }
                     emit("jev_locate", ["x": found.x, "y": found.y, "visible": found.visible,
                                         "confidence": found.confidence, "jev_seconds": found.seconds, "controller": "JEV"])
                     guard found.visible >= jevFloatMinimum,
                           supportsMotionTemplate(CGPoint(x: found.x, y: found.y), width: width, height: height) else { continue }
-                    let side = 40.0
-                    jevBox = CGRect(x: min(max(found.x-side/2, 0), Double(width)-side),
-                                    y: min(max(found.y-side/2, 0), Double(height)-side), width: side, height: side)
-                    target = Blob(x: found.x, y: found.y, area: 0, novelty: found.visible)
-                    emit("target_acquired", ["x": found.x, "y": found.y, "area": 0, "novelty": found.visible, "controller": "JEV"])
-                    save(image, directory.appendingPathComponent("acquired.jpg"))
-                    emit("post_cast_target_candidate_observed")
+                    acquireBox(CGPoint(x: found.x, y: found.y), novelty: found.visible, controller: "JEV", image)
                     continue // the Jev call made this frame stale; track from the next fresh one
                 } else if iterationAt-castAt > 2 {
                     // Let the float materialise before ranking new objects against moving scenery.
@@ -1011,11 +925,16 @@ struct Fishing {
             }
             emit("timed_out_without_click")
         }
+        // The file is complete only after the recording output finishes: wait up to 2 s for it.
+        func stop() async {
+            try? await stream.stopCapture()
+            for _ in 0..<20 where !recordingLog.finished { try? await Task.sleep(for: .milliseconds(100)) }
+        }
         do {
             try await observe()
-            try await stream.stopCapture()
+            await stop()
         } catch {
-            try? await stream.stopCapture()
+            await stop()
             throw error
         }
     }

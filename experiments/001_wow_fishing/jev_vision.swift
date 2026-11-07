@@ -1,6 +1,6 @@
-// Jev vision acquisition: Jev finds the float in the cropped playfield (Box question);
-// the existing pixel tracker and bite rule take over from that point.
-// Turn on with JEV_LOCATE=1. Needs Jev 1.14 and the TypeSafe images header.
+// Float acquisition: the interact icon marks our float (no provider call); the bite rule then
+// watches a box on it. Jev's Box question is an opt-in fallback when no icon shows (JEV_LOCATE=1;
+// needs Jev 1.14 and the TypeSafe images header).
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -44,25 +44,80 @@ private func jevBox(_ image: CGImage, key: String, note: String) async -> (x: Do
 // With "Interact Key Icons: Show All", WoW draws a small gold gear icon above the one object the
 // player can interact with: our own float, never another player's. 6 Nov: found in both icon casts
 // (3-7 pixels, 53-58 px above the float) and in none of eight casts without the setting.
-func interactIconCentroid(_ image: CGImage) -> CGPoint? {
+// Stormwind by day (7 Nov) is full of gold (lamps, roofs, flowers, tracker text), so a whole-frame
+// centroid lands on the buildings. With a pre-cast `reference` frame of the same size, only gold that
+// is new since the cast counts; the icon is then the densest 15 px cluster of those pixels.
+func interactIconCentroid(_ image: CGImage, reference: [UInt8]? = nil) -> CGPoint? {
     let w = image.width, h = image.height, pixels = imagePixels(image, width: w, height: h)
-    var n = 0, sx = 0, sy = 0
-    for y in 0..<h { for x in 0..<w {
-        let i = (y*w + x)*4, r = Int(pixels[i]), g = Int(pixels[i+1]), b = Int(pixels[i+2])
-        if r > 180 && g > 120 && b < 110 && r - b > 100 { n += 1; sx += x; sy += y }
+    // Daylight icon pixels read R 135-220, R-B 95-110 (7 Nov); with a reference the looser colour is safe.
+    let usable = reference.map { $0.count == pixels.count } ?? false
+    func gold(_ p: [UInt8], _ i: Int) -> Bool {
+        let r = Int(p[i]), g = Int(p[i+1]), b = Int(p[i+2])
+        return usable ? r > 140 && g > 90 && b < 130 && r - b > 80 : r > 180 && g > 120 && b < 110 && r - b > 100
+    }
+    // Gold already within 2 px in the reference is scenery (a lamp shifts a pixel between frames).
+    func oldGold(_ x: Int, _ y: Int) -> Bool {
+        for dy in -2...2 { for dx in -2...2 {
+            let xx = x+dx, yy = y+dy
+            if xx >= 0, yy >= 0, xx < w, yy < h, gold(reference!, (yy*w+xx)*4) { return true }
+        } }
+        return false
+    }
+    // Count new gold per 8 px cell; the icon is a dense 3x3-cell patch with almost no gold around it.
+    // Sunset glare (7 Nov) shimmers, so it is new gold every frame, but it spreads over a wide area.
+    let cell = 8, cw = (w + cell - 1)/cell, ch = (h + cell - 1)/cell
+    var count = [Int](repeating: 0, count: cw*ch), sx = count, sy = count, all = count
+    var x0 = [Int](repeating: Int.max, count: cw*ch), y0 = x0, x1 = [Int](repeating: -1, count: cw*ch), y1 = x1
+    for y in 0..<h { for x in 0..<w where gold(pixels, (y*w + x)*4) {
+        let c = (y/cell)*cw + x/cell; all[c] += 1
+        if !(usable && oldGold(x, y)) {
+            count[c] += 1; sx[c] += x; sy[c] += y
+            x0[c] = min(x0[c], x); x1[c] = max(x1[c], x); y0[c] = min(y0[c], y); y1[c] = max(y1[c], y)
+        }
     } }
-    return n >= 3 ? CGPoint(x: Double(sx)/Double(n), y: Double(sy)/Double(n)) : nil
+    func sum(_ cx: Int, _ cy: Int, _ r: Int, _ a: [Int]) -> Int {
+        var t = 0
+        for yy in max(cy-r, 0)...min(cy+r, ch-1) { for xx in max(cx-r, 0)...min(cx+r, cw-1) { t += a[yy*cw + xx] } }
+        return t
+    }
+    var found: [(n: Int, x: Double, y: Double)] = []
+    for cy in 0..<ch { for cx in 0..<cw where count[cy*cw + cx] > 0 {
+        let local = sum(cx, cy, 1, count)
+        // Isolation counts all gold, old or new: glare stays gold in every frame, the icon's water does not.
+        // ponytail: at most half as much gold again in the 7x7 cells around; tune if a real icon fails.
+        guard local >= 3, sum(cx, cy, 3, all) - sum(cx, cy, 1, all) <= local/2 else { continue }
+        // The icon is a round badge; a glare glint is a flat streak (7 Nov sunset: 25 x 5 px).
+        var bx0 = Int.max, by0 = Int.max, bx1 = -1, by1 = -1
+        for yy in max(cy-1, 0)...min(cy+1, ch-1) { for xx in max(cx-1, 0)...min(cx+1, cw-1) where count[yy*cw + xx] > 0 {
+            let c = yy*cw + xx; bx0 = min(bx0, x0[c]); bx1 = max(bx1, x1[c]); by0 = min(by0, y0[c]); by1 = max(by1, y1[c])
+        } }
+        let bw = Double(bx1 - bx0 + 1), bh = Double(by1 - by0 + 1)
+        guard bw <= 1.6*bh, bh <= 1.6*bw else { continue }   // icons read 8 x 7; glints 20-24 x 10
+        found.append((local, Double(sum(cx, cy, 1, sx))/Double(local), Double(sum(cx, cy, 1, sy))/Double(local)))
+    } }
+    // A sunset-lit float is new round gold too (7 Nov canal: 19 of 185 casts). The icon always sits
+    // straight above the float, so of a stacked pair the upper one is the icon; else the densest wins.
+    let stacked = found.filter { up in found.contains { abs($0.x-up.x) < 10 && abs($0.y-up.y-iconToFloat) < 15 } }
+    guard let best = stacked.max(by: { $0.n < $1.n }) ?? found.max(by: { $0.n < $1.n }) else { return nil }
+    return CGPoint(x: best.x, y: best.y)
+}
+
+// The float sits straight below the icon: 7 Nov replay of 150 casts against Jev's float box read
+// dx 0 +/- 5 and dy 58 +/- 3 frame pixels at every height on screen (frames are half the crop's size).
+let iconToFloat = 58.0
+func floatBelowIcon(_ image: CGImage, reference: [UInt8]?) -> CGPoint? {
+    interactIconCentroid(image, reference: reference).map { CGPoint(x: $0.x, y: $0.y + iconToFloat) }
 }
 
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.
 // On 5 Nov night frames the first look was 25-40 px off (or on the orb); the second was within 4 px.
-func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
+func jevLocateFloat(_ image: CGImage, key: String, reference: [UInt8]? = nil) async -> JevFloat? {
     let at = ProcessInfo.processInfo.systemUptime
     // Our float sits just below the interact icon: start the enlarged look there, so other players'
     // floats are outside the crop. Without the icon, Jev's whole-playfield look decides as before.
     let first: (x: Double, y: Double)
-    if let icon = interactIconCentroid(image) {
-        first = (icon.x / Double(image.width), (icon.y + 45) / Double(image.height))
+    if let icon = interactIconCentroid(image, reference: reference) {
+        first = (icon.x / Double(image.width), (icon.y + iconToFloat) / Double(image.height))
     } else {
         guard let look = await jevBox(image, key: key, note: "") else { return nil }
         first = (look.x, look.y)
@@ -89,7 +144,22 @@ func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
     guard history.count >= 22 else { return false }
     let median = history.sorted()[history.count/2]
     // Floor 5: ring ripples and the bob reached 3.55-4.96 (frames checked); catches 4.47 once, else 5.3-12.8.
-    return energy > max(median*4, 5)
+    if energy > max(median*4, 5) { return true }
+    // Adaptive to the water: choppy shallow water (Darkshore, 7 Nov) lifts the median to 4-5 and a bite
+    // reaches only 2x it. Compare the last three frames' mean with this cast's own p95 before them:
+    // 15 eye-labelled Darkshore bites reached 1.2-1.7x, wave noise 1.0-1.15x. Replay: 14/15 bites, 2 false
+    // fires in 17 casts; the 38 calm-water catches fire at the same frame as before.
+    let base = history.dropLast(2).sorted()
+    let p95 = base[min(base.count-1, Int(0.95*Double(base.count)))], baseMedian = base[base.count/2]
+    let last3 = Array(history.suffix(2)) + [energy]
+    return last3.reduce(0, +)/3 > max(p95*1.15, 5) && last3.allSatisfy { $0 > baseMedian }
+}
+
+// The whole-picture change the click tolerates: 3 in calm water, but choppy water alone reaches 2.5-4.2
+// during bites (7 Nov), so allow 1.5x this cast's own median.
+func sceneSteady(_ history: [Double], _ background: Double) -> Bool {
+    let median = history.isEmpty ? 0 : history.sorted()[history.count/2]
+    return background < max(3, median*1.5)
 }
 
 // The spell orb is bright blue-purple; the float and night water never are. A box frame that
@@ -106,8 +176,19 @@ func orbInBox(_ rgba: [UInt8]) -> Bool {
 
 // Box change with orb pixels masked out: a pixel counts only when it is not orb-coloured
 // (core or dim glow) in either frame. Returns nil when over half the box is orb.
-func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8]) -> Double? {
-    func orb(_ p: [UInt8], _ i: Int) -> Bool { let r = Int(p[i]), b = Int(p[i+2]); return b > 90 && b - r > 40 }
+// Daylight Stormwind water (7 Nov) is itself "orb-coloured": when the playfield is broadly that colour,
+// the water is blue and the cast runs without the orb mask (mask: false).
+func orbColouredFraction(_ rgba: [UInt8]) -> Double {
+    var hits = 0, total = 0
+    for i in stride(from: 0, to: rgba.count - 3, by: 4) {
+        total += 1; if orbColoured(rgba, i) { hits += 1 }
+    }
+    return total == 0 ? 0 : Double(hits)/Double(total)
+}
+func orbColoured(_ p: [UInt8], _ i: Int) -> Bool { let r = Int(p[i]), b = Int(p[i+2]); return b > 90 && b - r > 40 }
+
+func maskedBoxEnergy(_ current: [UInt8], _ previous: [UInt8], mask: Bool = true) -> Double? {
+    func orb(_ p: [UInt8], _ i: Int) -> Bool { mask && orbColoured(p, i) }
     func grey(_ p: [UInt8], _ i: Int) -> Double { 0.299*Double(p[i]) + 0.587*Double(p[i+1]) + 0.114*Double(p[i+2]) }
     var sum = 0.0, used = 0, total = 0
     for i in stride(from: 0, to: min(current.count, previous.count) - 3, by: 4) {
@@ -197,17 +278,4 @@ func jevLocateInPanel(_ screen: CGImage, key: String, panel panelText: String, i
           let item = await jevAnyBox(enlarged, key: key, context: "An enlarged crop of a World of Warcraft interface panel.",
               instructions: itemText + " in `screen`", requirePresent: false) else { return nil }
     return CGPoint(x: (rect.minX + (item.l + item.r) / 2 * rect.width) / w, y: (rect.minY + (item.t + item.b) / 2 * rect.height) / h)
-}
-
-func jevLocateRodInBag(_ screen: CGImage, key: String) async -> CGPoint? {
-    let full = CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
-    guard let small = scaled(screen, full, width: 1400), await jevBagOpen(small, key: key) else { return nil }
-    return await jevLocateInPanel(screen, key: key, panel: "the whole open bag (inventory) panel with its grid of item slots",
-                                  item: "the single item slot holding a fishing pole (a long thin fishing rod with a line and hook)")
-}
-
-// The character sheet moves with level and UI scale; find the main-hand slot instead of a fixed point.
-func jevLocateMainHandSlot(_ screen: CGImage, key: String) async -> CGPoint? {
-    await jevLocateInPanel(screen, key: key, panel: "the open character sheet panel (equipment slots around the character model)",
-                           item: "the main hand weapon slot (the left of the weapon slots along the bottom edge, below the character model)")
 }

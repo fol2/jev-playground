@@ -75,6 +75,25 @@ A attempt achieved 4/7 verified cycles, including an unconfirmed/possibly occlud
 the earlier A 2/3 and B 0/1 regression snapshots. See the [visual audit](visual-audit.md).
 None of those runs tested this candidate.
 
+## Control: CLI first, panel on top
+
+The agent owns the live loop; the panel and the CLI only write `command.json` and read
+`status.json` under `runs/001_wow_fishing/control/`. From the repository root:
+
+```sh
+swiftc -parse-as-library -O experiments/001_wow_fishing/control/FishingAgent.swift -o /tmp/jev-fishing-agent
+caffeinate -di /tmp/jev-fishing-agent "$PWD"           # the agent (needs Screen Recording, Accessibility)
+/tmp/jev-fishing-agent start --target 150 --seconds 600  # add --cursor to reel by right-click, not F8
+/tmp/jev-fishing-agent status
+/tmp/jev-fishing-agent stop
+```
+
+The float is located from the interact icon, with no provider call: on 7 Nov the float sat
+58 +/- 3 frame pixels straight below the icon in 150 replayed casts, and the icon rule agreed
+with Jev's float box within 12 px in 174 of 187 casts. In the six largest disagreements Jev was
+wrong five times (it boxed the icon or another player's float). `JEV_LOCATE=1` adds a single Jev
+look per cast, only when no icon shows.
+
 ## Operating and evidence
 
 Do not infer live readiness from passing offline checks. The [shared/Test A playbook](playbook.md)

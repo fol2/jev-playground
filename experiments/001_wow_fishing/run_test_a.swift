@@ -11,7 +11,7 @@ import Foundation
 let runnerRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 let liveBinary = "/tmp/jev-fishing-live"
 let hashedSources = ["live.swift", "decision.swift", "self_tests.swift", "motion.swift", "motion-fixtures.png", "jev.swift", "loot.swift",
-                     "loot-close.png", "loot-layout.png", "build.sh", "page-two.png", "page-two-live.png", "page-one-live.png", "tooltip-hover-rod.jpg", "tooltip-hover-sword.jpg", "rod-icon.png", "split-bobber.png",
+                     "loot-close.png", "loot-layout.png", "build.sh", "page-two.png", "page-two-live.png", "page-one-live.png", "split-bobber.png",
                      "split-bobber-before.png", "bobber-no-red.png", "bobber-no-red-before.png", "run_test_a.swift", "jev_vision.swift",
                      "probes/background-click/Adapter.swift", "probes/background-click/NativeWindowServerPreparation.swift",
                      "probes/background-click/NativeBackgroundClickTransport.swift"]

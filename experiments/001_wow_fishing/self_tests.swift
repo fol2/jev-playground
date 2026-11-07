@@ -194,21 +194,28 @@ func runSelfTests() throws {
     guard !motionSpike(Array(calmBox.prefix(21)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9), !motionSpike(calmBox, 3.55) else {
         print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
     }
+    // Choppy shallow water (live_1794017228, 7 Nov): median 4.7, one wave frame 7.6, bite 12.1/10.5/9.8.
+    let choppy = Array(repeating: [4.5, 5.0, 4.2, 5.4, 4.8, 3.9, 5.1, 4.6, 5.6, 4.4, 4.7], count: 2).flatMap { $0 }
+    guard !motionSpike(choppy, 7.6), !motionSpike(choppy + [4.6, 9.0], 4.8), motionSpike(choppy + [12.1, 10.5], 9.8) else {
+        print("Regression: sustained bite motion on choppy water is missed, or one wave frame fires"); exit(1)
+    }
+    guard sceneSteady([], 2.9), !sceneSteady([], 3.1), sceneSteady(Array(repeating: 2.7, count: 30), 3.9),
+          !sceneSteady(Array(repeating: 2.7, count: 30), 4.2) else {
+        print("Regression: the steady-scene gate does not follow the water's own background change"); exit(1)
+    }
     let water = [UInt8](repeating: 20, count: 40*40*4)
     var orbBox = water; for i in 0..<5 { orbBox[i*4] = 120; orbBox[i*4+2] = 230 }
     guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }
     var orbNow = water; for i in 0..<800 { orbNow[i*4] = 60; orbNow[i*4+2] = 140 }
     guard maskedBoxEnergy(water, water) == 0, maskedBoxEnergy(orbNow, water) == 0,
-          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true else {
+          maskedBoxEnergy(orbBox.map { _ in 200 }, water).map({ $0 > 100 }) == true,
+          orbColouredFraction(water) == 0, orbColouredFraction(orbNow) >= 0.5, maskedBoxEnergy(orbNow, water, mask: false).map({ $0 > 0 }) == true else {
         print("Regression: masked box energy counts orb pixels or misses real change"); exit(1)
     }
     // Bag tooltips from 6 Nov: the Equipped comparison box must not confirm the hovered item.
     func tooltip(_ name: String) -> CGImage {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
         return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
-    }
-    guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
-        print("Regression: the Equipped comparison tooltip confirmed a non-rod item"); exit(1)
     }
     // The interact icon: a few gold pixels are found at their centre; dark water alone has none.
     let darkWater = CGContext(data: nil, width: 60, height: 60, bitsPerComponent: 8, bytesPerRow: 240,
@@ -220,5 +227,24 @@ func runSelfTests() throws {
           abs(icon.x - 30) < 1.5, abs(icon.y - 39) < 1.5 || abs(icon.y - 20) < 1.5 else {
         print("Regression: interact icon centroid wrong or found on plain water"); exit(1)
     }
-    print("Fifty-one local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Stormwind by day (7 Nov): gold lamps, roofs and tracker text everywhere; only new gold is the icon (427, 173).
+    let daylight = tooltip("icon-daylight-after.jpg"), before = tooltip("icon-daylight-before.jpg")
+    let dayIcon = interactIconCentroid(daylight, reference: imagePixels(before, width: before.width, height: before.height))
+    guard let dayIcon, abs(dayIcon.x - 427) < 8, abs(dayIcon.y - 173) < 8 else {
+        print("Regression: daylight interact icon at \(String(describing: dayIcon)), expected near (427, 173)"); exit(1)
+    }
+    // Stormwind at sunset (7 Nov): shimmering glare is new gold each frame; the icon is at (579, 78).
+    let sunset = tooltip("icon-sunset-after.jpg"), dusk = tooltip("icon-sunset-before.jpg")
+    let sunIcon = interactIconCentroid(sunset, reference: imagePixels(dusk, width: dusk.width, height: dusk.height))
+    guard let sunIcon, abs(sunIcon.x - 579) < 8, abs(sunIcon.y - 78) < 8 else {
+        print("Regression: sunset interact icon at \(String(describing: sunIcon)), expected near (579, 78)"); exit(1)
+    }
+    // Canal at sunset (7 Nov): the lit float is new round gold too; the icon is the upper of the pair,
+    // and the float found below it matches Jev's float box (635, 184) in that cast.
+    let stacked = tooltip("icon-stacked-after.jpg"), clear = tooltip("icon-stacked-before.jpg")
+    let float = floatBelowIcon(stacked, reference: imagePixels(clear, width: clear.width, height: clear.height))
+    guard let float, abs(float.x - 635) < 8, abs(float.y - 184) < 8 else {
+        print("Regression: float below a stacked icon at \(String(describing: float)), expected near (635, 184)"); exit(1)
+    }
+    print("Fifty-two local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }
