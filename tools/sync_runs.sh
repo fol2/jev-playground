@@ -1,8 +1,8 @@
 #!/bin/sh
-# Move run data to the NAS by default: copy each item under runs/, check that the NAS holds the same
-# file count and bytes, then delete the local copy. Kept local: runs/models (the engine loads them)
-# and runs/001_wow_fishing/control (the live agent's files). Items changed in the last 10 minutes
-# may belong to a live run and wait for the next sync.
+# Runtime stays local, evidence goes to the NAS: copy each item under runs/, check that every local
+# file is on the NAS with the same size, then delete the local copy. Kept local (runtime): runs/models,
+# the fishing agent's control folder, and 002's working memory and perception models. Items changed
+# in the last 10 minutes may belong to a live run and wait for the next sync.
 #   sh tools/sync_runs.sh [--keep-local]
 set -eu
 cd "$(dirname "$0")/.."
@@ -14,7 +14,8 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 for item in runs/recordings/* runs/001_wow_fishing/* runs/002_wow_visual/*; do
   [ -e "$item" ] || continue
-  case "$item" in runs/001_wow_fishing/control) continue ;; esac
+  # Runtime stays local, evidence goes to the NAS.
+  case "$item" in runs/001_wow_fishing/control|runs/002_wow_visual/memory|runs/002_wow_visual/perception) continue ;; esac
   [ -z "$(find "$item" -mmin -10 -print -quit)" ] || { echo "$item busy, skipped"; continue; }
   case "$item" in
     runs/recordings/*) dest=$nas_root ;;

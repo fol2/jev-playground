@@ -206,7 +206,11 @@ func changedObjects(_ pixels: [UInt8], reference: [UInt8], width: Int, height: I
     return result
 }
 
+// Pictures are opt-in (JEV_PICTURES=1, 7 Nov owner): events.jsonl carries every number the rules
+// and replays use, about 25 KB a cast against 6 MB with frames.
+let savePictures = ProcessInfo.processInfo.environment["JEV_PICTURES"] == "1"
 func save(_ image: CGImage, _ url: URL) {
+    guard savePictures else { return }
     let jpeg = url.pathExtension == "jpg"
     let type = jpeg ? UTType.jpeg.identifier : UTType.png.identifier
     if let destination = CGImageDestinationCreateWithURL(url as CFURL, type as CFString, 1, nil) {
@@ -541,7 +545,7 @@ struct Fishing {
             var lastRequest = -100.0, lastTimestamp = -1.0
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
-            try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
+            if savePictures { try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true) }
             var orbMask: Bool?, floatBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
             var jevTried = false
             // Watch a 40 px box on the located float; the bite rule reads change inside it.
