@@ -796,11 +796,10 @@ struct Fishing {
                 var layout = try lootLayout(lootImage)
                 guard layout != nil else {
                     save(after,directory.appendingPathComponent("retrieval-failed.jpg"))
-                    let text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
-                    let chatAfter = section(after,0.01,0.72,0.30,0.20)
-                    save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
+                    var text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                    var chatAfter = section(after,0.01,0.72,0.30,0.20)
                     let beforeWords=((try? readText(chatBefore)) ?? []).compactMap { $0.topCandidates(1).first?.string }
-                    let afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    var afterWords=((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
                     // Auto-loot never shows a window: a new "You receive loot" chat line is the evidence.
                     // OCR drops letters ("You receive oot"), and the same fish repeats: compare the
                     // sequence of loot-like lines, which changes when the chat gains a new one.
@@ -808,6 +807,19 @@ struct Fishing {
                         // Skill lines too: the same fish twice leaves the loot lines identical (5 Nov, skill 59).
                         words.filter { let w = $0.lowercased(); return w.contains("receive") || w.contains("increased") || $0.contains("拾取") }
                     }
+                    // The loot line can land after this first read (Stormwind, 7 Nov: two real catches were
+                    // reported unverified); read the chat once more 1.5 s later before giving up.
+                    if lootLines(afterWords) == lootLines(beforeWords) {
+                        try await Task.sleep(for: .milliseconds(1500))
+                        if let later = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: full) {
+                            after = later
+                            text = (try? readText(section(after,0.25,0.05,0.5,0.3))) ?? []
+                            chatAfter = section(after,0.01,0.72,0.30,0.20)
+                            afterWords = ((try? readText(chatAfter)) ?? []).compactMap { $0.topCandidates(1).first?.string }
+                            emit("chat_reread", ["chat_after_ocr": afterWords])
+                        }
+                    }
+                    save(chatAfter,directory.appendingPathComponent("chat-after.jpg"))
                     if let line = lootLines(afterWords).last, lootLines(afterWords) != lootLines(beforeWords) {
                         save(chatAfter, directory.appendingPathComponent("collected.jpg"))
                         emit("loot_collected", ["item": line, "labels_observed": [line], "loot_clicks": 0,
