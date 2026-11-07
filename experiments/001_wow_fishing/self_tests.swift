@@ -212,9 +212,14 @@ func runSelfTests() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
         return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
     }
-    guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try hoveredItemIsRod(tooltip("tooltip-hover-rod-tracker.jpg")),
-          try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
-        print("Regression: the Equipped comparison tooltip confirmed a non-rod item"); exit(1)
+    for (name, rod) in [("tooltip-hover-rod.jpg", true), ("tooltip-hover-rod-tracker.jpg", true), ("tooltip-hover-sword.jpg", false)]
+        where try hoveredItemIsRod(tooltip(name)) != rod {
+        // CI's Vision boxes differ from local ones: print them so a CI failure can be diagnosed.
+        for o in try readText(tooltip(name)) where o.boundingBox.minY > 0.1 {
+            let b = o.boundingBox
+            print(String(format: "%.3f %.3f %.3f %.3f ", b.minX, b.minY, b.maxX, b.maxY) + (o.topCandidates(1).first?.string ?? ""))
+        }
+        print("Regression: \(name) should read rod=\(rod)"); exit(1)
     }
     // The interact icon: a few gold pixels are found at their centre; dark water alone has none.
     let darkWater = CGContext(data: nil, width: 60, height: 60, bitsPerComponent: 8, bytesPerRow: 240,
