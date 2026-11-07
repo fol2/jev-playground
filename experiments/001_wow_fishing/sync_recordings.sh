@@ -18,6 +18,7 @@ events = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 names = [e.get("event") for e in events]
 bite = next((e["seconds"] for e in events if e.get("event") == "bite_candidate"), None)
 if "loot_collected" in names: label = "caught"
+elif "fish_got_away" in names: label = "fish_got_away"
 elif "right_click" in names: label = "false_reel"
 elif "stopped_no_visible_float" in names: label = "no_float"
 elif "timed_out_without_click" in names: label = "no_bite_seen"

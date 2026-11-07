@@ -814,6 +814,12 @@ struct Fishing {
                             "completion_method": "chat_loot_line_after_auto_loot", "chat_after_ocr": afterWords])
                         return
                     }
+                    // "Your fish got away!": the bite was real and reeled in time, but the skill was too low for
+                    // this water (Darkshore at skill ~1, 7 Nov). Recast; it is not a detection failure.
+                    let shown = text.compactMap { $0.topCandidates(1).first?.string } + afterWords
+                    if shown.contains(where: { $0.lowercased().contains("got away") || $0.contains("逃脫") || $0.contains("跑掉") }) {
+                        emit("fish_got_away", ["screen_text": shown]); return
+                    }
                     emit("retrieval_unverified", ["screen_text": text.compactMap { $0.topCandidates(1).first?.string },
                         "chat_before_ocr": beforeWords, "chat_after_ocr": afterWords]); return
                 }
