@@ -40,7 +40,7 @@ let fishingCode: Set<String> = Set("""
     record.swift run_test_a.swift self_tests.swift setup_camera.sh setup_camera.swift sync_recordings.sh
     control/FishingControl.swift control/FishingAgent.swift control/build_app.sh
     test_core.sh tests/CoreTests.swift tests/MotionChecks.swift tests/RunnerTests.swift
-    """.split(whereSeparator: \.isWhitespace).map { fishingDir + $0 }).union(["data/001_wow_fishing/pilot_20260921/recorder.swift"])
+    """.split(whereSeparator: \.isWhitespace).map { fishingDir + $0 }).union(["data/001_wow_fishing/pilot_20260921/recorder.swift", "tools/sync_runs.sh"])
 let motorPaths: Set<String> = Set(
     ["Motor.swift", "MotorTests.swift", "Probe.swift", "README.md"].map { motorDir + $0 }
     + ["Seek.swift", "Plate.swift", "SeekTests.swift", "SeekProbe.swift", "README.md"].map { seekDir + $0 }
