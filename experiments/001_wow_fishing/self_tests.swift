@@ -239,5 +239,12 @@ func runSelfTests() throws {
     guard let sunIcon, abs(sunIcon.x - 579) < 8, abs(sunIcon.y - 78) < 8 else {
         print("Regression: sunset interact icon at \(String(describing: sunIcon)), expected near (579, 78)"); exit(1)
     }
-    print("Fifty-one local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
+    // Canal at sunset (7 Nov): the lit float is new round gold too; the icon is the upper of the pair,
+    // and the float found below it matches Jev's float box (635, 184) in that cast.
+    let stacked = tooltip("icon-stacked-after.jpg"), clear = tooltip("icon-stacked-before.jpg")
+    let float = floatBelowIcon(stacked, reference: imagePixels(clear, width: clear.width, height: clear.height))
+    guard let float, abs(float.x - 635) < 8, abs(float.y - 184) < 8 else {
+        print("Regression: float below a stacked icon at \(String(describing: float)), expected near (635, 184)"); exit(1)
+    }
+    print("Fifty-two local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

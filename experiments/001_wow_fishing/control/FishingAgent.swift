@@ -22,7 +22,21 @@ struct Status: Codable {
 @main
 struct FishingAgent {
     static func main() async {
-        let root = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? FileManager.default.currentDirectoryPath)
+        // The CLI is the base: `start|stop|status` write and read the same files the panel does.
+        let args = Array(CommandLine.arguments.dropFirst())
+        if let verb = args.first, ["start", "stop", "status"].contains(verb) {
+            let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("runs/001_wow_fishing/control")
+            func value(_ flag: String) -> Int? { args.firstIndex(of: flag).flatMap { $0+1 < args.count ? Int(args[$0+1]) : nil } }
+            if verb != "status" {
+                let c = Command(id: Int(Date().timeIntervalSince1970*1000), action: verb, target: value("--target"),
+                                seconds: value("--seconds"), interact: !args.contains("--cursor"))
+                try? JSONEncoder().encode(c).write(to: dir.appendingPathComponent("command.json"), options: .atomic)
+                try? await Task.sleep(for: .seconds(2))   // the agent polls every second
+            }
+            print((try? String(contentsOf: dir.appendingPathComponent("status.json"), encoding: .utf8)) ?? "no agent status (run from the repository root)")
+            return
+        }
+        let root = URL(fileURLWithPath: args.first ?? FileManager.default.currentDirectoryPath)
         let agent = Agent(root: root)
         await agent.run()
     }
@@ -129,7 +143,8 @@ actor Agent {
         p.arguments = ["-di", "/tmp/jev-fishing-run", "--background", "--seconds", String(status.seconds), "--until-skill", String(status.target)]
         p.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
-        env["JEV_LOCATE"] = "1"; env["JEV_REEL"] = ProcessInfo.processInfo.environment["JEV_REEL_MODE"] ?? (status.interact ? "interact" : nil)
+        // The float comes from the interact icon (no provider call); set JEV_LOCATE=1 for a Jev fallback.
+        env["JEV_REEL"] = ProcessInfo.processInfo.environment["JEV_REEL_MODE"] ?? (status.interact ? "interact" : nil)
         p.environment = env
         let out = root.appendingPathComponent("runs/001_wow_fishing/control/session.log")
         FileManager.default.createFile(atPath: out.path, contents: nil)

@@ -1,6 +1,6 @@
-// Jev vision acquisition: Jev finds the float in the cropped playfield (Box question);
-// the existing pixel tracker and bite rule take over from that point.
-// Turn on with JEV_LOCATE=1. Needs Jev 1.14 and the TypeSafe images header.
+// Float acquisition: the interact icon marks our float (no provider call); the bite rule then
+// watches a box on it. Jev's Box question is an opt-in fallback when no icon shows (JEV_LOCATE=1;
+// needs Jev 1.14 and the TypeSafe images header).
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -80,12 +80,12 @@ func interactIconCentroid(_ image: CGImage, reference: [UInt8]? = nil) -> CGPoin
         for yy in max(cy-r, 0)...min(cy+r, ch-1) { for xx in max(cx-r, 0)...min(cx+r, cw-1) { t += a[yy*cw + xx] } }
         return t
     }
-    var best: (n: Int, x: Int, y: Int)? = nil
+    var found: [(n: Int, x: Double, y: Double)] = []
     for cy in 0..<ch { for cx in 0..<cw where count[cy*cw + cx] > 0 {
         let local = sum(cx, cy, 1, count)
         // Isolation counts all gold, old or new: glare stays gold in every frame, the icon's water does not.
         // ponytail: at most half as much gold again in the 7x7 cells around; tune if a real icon fails.
-        guard local >= 3, sum(cx, cy, 3, all) - sum(cx, cy, 1, all) <= local/2, local > (best?.n ?? 0) else { continue }
+        guard local >= 3, sum(cx, cy, 3, all) - sum(cx, cy, 1, all) <= local/2 else { continue }
         // The icon is a round badge; a glare glint is a flat streak (7 Nov sunset: 25 x 5 px).
         var bx0 = Int.max, by0 = Int.max, bx1 = -1, by1 = -1
         for yy in max(cy-1, 0)...min(cy+1, ch-1) { for xx in max(cx-1, 0)...min(cx+1, cw-1) where count[yy*cw + xx] > 0 {
@@ -93,10 +93,20 @@ func interactIconCentroid(_ image: CGImage, reference: [UInt8]? = nil) -> CGPoin
         } }
         let bw = Double(bx1 - bx0 + 1), bh = Double(by1 - by0 + 1)
         guard bw <= 1.6*bh, bh <= 1.6*bw else { continue }   // icons read 8 x 7; glints 20-24 x 10
-        best = (local, sum(cx, cy, 1, sx), sum(cx, cy, 1, sy))
+        found.append((local, Double(sum(cx, cy, 1, sx))/Double(local), Double(sum(cx, cy, 1, sy))/Double(local)))
     } }
-    guard let best else { return nil }
-    return CGPoint(x: Double(best.x)/Double(best.n), y: Double(best.y)/Double(best.n))
+    // A sunset-lit float is new round gold too (7 Nov canal: 19 of 185 casts). The icon always sits
+    // straight above the float, so of a stacked pair the upper one is the icon; else the densest wins.
+    let stacked = found.filter { up in found.contains { abs($0.x-up.x) < 10 && abs($0.y-up.y-iconToFloat) < 15 } }
+    guard let best = stacked.max(by: { $0.n < $1.n }) ?? found.max(by: { $0.n < $1.n }) else { return nil }
+    return CGPoint(x: best.x, y: best.y)
+}
+
+// The float sits straight below the icon: 7 Nov replay of 150 casts against Jev's float box read
+// dx 0 +/- 5 and dy 58 +/- 3 frame pixels at every height on screen (frames are half the crop's size).
+let iconToFloat = 58.0
+func floatBelowIcon(_ image: CGImage, reference: [UInt8]?) -> CGPoint? {
+    interactIconCentroid(image, reference: reference).map { CGPoint(x: $0.x, y: $0.y + iconToFloat) }
 }
 
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.
@@ -107,7 +117,7 @@ func jevLocateFloat(_ image: CGImage, key: String, reference: [UInt8]? = nil) as
     // floats are outside the crop. Without the icon, Jev's whole-playfield look decides as before.
     let first: (x: Double, y: Double)
     if let icon = interactIconCentroid(image, reference: reference) {
-        first = (icon.x / Double(image.width), (icon.y + 45) / Double(image.height))
+        first = (icon.x / Double(image.width), (icon.y + iconToFloat) / Double(image.height))
     } else {
         guard let look = await jevBox(image, key: key, note: "") else { return nil }
         first = (look.x, look.y)

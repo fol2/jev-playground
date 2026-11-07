@@ -290,10 +290,12 @@ struct Fishing {
             }
             let beforeSource=CGImageSourceCreateWithURL(URL(fileURLWithPath:CommandLine.arguments[argument+1]) as CFURL,nil)!
             let before=CGImageSourceCreateImageAtIndex(beforeSource,0,nil)!
+            let reference = imagePixels(before,width:image.width,height:image.height)
             for b in changedObjects(imagePixels(image,width:image.width,height:image.height),
-                                    reference:imagePixels(before,width:image.width,height:image.height),width:image.width,height:image.height) {
+                                    reference:reference,width:image.width,height:image.height) {
                 print("object x=\(b.x) y=\(b.y) area=\(b.area) novelty=\(b.novelty)")
             }
+            if let float = floatBelowIcon(image, reference: reference) { print("float x=\(float.x) y=\(float.y)") }
             return
         }
         if let argument = CommandLine.arguments.firstIndex(of: "--jev-fixture"), argument+1 < CommandLine.arguments.count {
@@ -540,7 +542,18 @@ struct Fishing {
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
             try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var orbMask: Bool?, jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
+            var orbMask: Bool?, floatBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
+            var jevTried = false
+            // Watch a 40 px box on the located float; the bite rule reads change inside it.
+            func acquireBox(_ p: CGPoint, novelty: Double, controller: String, _ image: CGImage) {
+                let side = 40.0
+                floatBox = CGRect(x: min(max(p.x-side/2, 0), Double(width)-side),
+                                  y: min(max(p.y-side/2, 0), Double(height)-side), width: side, height: side)
+                target = Blob(x: p.x, y: p.y, area: 0, novelty: novelty)
+                emit("target_acquired", ["x": p.x, "y": p.y, "area": 0, "novelty": novelty, "controller": controller])
+                save(image, directory.appendingPathComponent("acquired.jpg"))
+                emit("post_cast_target_candidate_observed")
+            }
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
@@ -738,8 +751,8 @@ struct Fishing {
                 // The acquisition image is no longer valid after a camera change.
                 // Stop for review instead of adding a second, guess-based acquisition path.
                 guard background <= 8 else { emit("stopped_camera_motion"); return }
-                // Jev-box motion: after Jev located the float, watch only change inside its box.
-                if let box = jevBox, let patch = image.cropping(to: box) {
+                // Box motion: once the float is located, watch only change inside its box.
+                if let box = floatBox, let patch = image.cropping(to: box) {
                     let rgba = imagePixels(patch, width: patch.width, height: patch.height)
                     defer { boxPreviousRGBA = rgba }
                     guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
@@ -775,8 +788,14 @@ struct Fishing {
                 let candidate: Blob?
                 if let tracker {
                     candidate = tracker.observe(image)
-                } else if iterationAt-castAt > 2, let jevKey = jevLocateKey {
-                    // Jev finds the float in the cropped playfield; the pixel tracker takes over from here.
+                } else if iterationAt-castAt > 2, let float = floatBelowIcon(image, reference: referencePixels),
+                          supportsMotionTemplate(float, width: width, height: height) {
+                    // The interact icon marks our own float: no provider call is needed.
+                    acquireBox(float, novelty: 1, controller: "RULE", image)
+                    continue
+                } else if iterationAt-castAt > 4, !jevTried, let jevKey = jevLocateKey {
+                    // Fallback once per cast when no icon showed (JEV_LOCATE=1 only).
+                    jevTried = true
                     guard let found = await jevLocateFloat(image, key: jevKey, reference: referencePixels) else {
                         emit("jev_locate_error"); continue
                     }
@@ -784,13 +803,7 @@ struct Fishing {
                                         "confidence": found.confidence, "jev_seconds": found.seconds, "controller": "JEV"])
                     guard found.visible >= jevFloatMinimum,
                           supportsMotionTemplate(CGPoint(x: found.x, y: found.y), width: width, height: height) else { continue }
-                    let side = 40.0
-                    jevBox = CGRect(x: min(max(found.x-side/2, 0), Double(width)-side),
-                                    y: min(max(found.y-side/2, 0), Double(height)-side), width: side, height: side)
-                    target = Blob(x: found.x, y: found.y, area: 0, novelty: found.visible)
-                    emit("target_acquired", ["x": found.x, "y": found.y, "area": 0, "novelty": found.visible, "controller": "JEV"])
-                    save(image, directory.appendingPathComponent("acquired.jpg"))
-                    emit("post_cast_target_candidate_observed")
+                    acquireBox(CGPoint(x: found.x, y: found.y), novelty: found.visible, controller: "JEV", image)
                     continue // the Jev call made this frame stale; track from the next fresh one
                 } else if iterationAt-castAt > 2 {
                     // Let the float materialise before ranking new objects against moving scenery.
