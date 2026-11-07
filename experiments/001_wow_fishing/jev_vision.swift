@@ -90,11 +90,21 @@ func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
     let median = history.sorted()[history.count/2]
     // Floor 5: ring ripples and the bob reached 3.55-4.96 (frames checked); catches 4.47 once, else 5.3-12.8.
     if energy > max(median*4, 5) { return true }
-    // Choppy shallow water (Darkshore, 7 Nov) lifts the median to 4-5, so a bite reaches only 2-3x it.
-    // A bite then holds above 1.8x for three frames or more; a wave spike lasts one. The 5 Nov casts
-    // fire at the same frame as before (replayed on 38 catches). ponytail: replayed on 6 choppy casts only.
-    let floor = max(median*1.8, 5)
-    return energy > floor && history.suffix(2).allSatisfy { $0 > floor }
+    // Adaptive to the water: choppy shallow water (Darkshore, 7 Nov) lifts the median to 4-5 and a bite
+    // reaches only 2x it. Compare the last three frames' mean with this cast's own p95 before them:
+    // 15 eye-labelled Darkshore bites reached 1.2-1.7x, wave noise 1.0-1.15x. Replay: 14/15 bites, 2 false
+    // fires in 17 casts; the 38 calm-water catches fire at the same frame as before.
+    let base = history.dropLast(2).sorted()
+    let p95 = base[min(base.count-1, Int(0.95*Double(base.count)))], baseMedian = base[base.count/2]
+    let last3 = Array(history.suffix(2)) + [energy]
+    return last3.reduce(0, +)/3 > max(p95*1.15, 5) && last3.allSatisfy { $0 > baseMedian }
+}
+
+// The whole-picture change the click tolerates: 3 in calm water, but choppy water alone reaches 2.5-4.2
+// during bites (7 Nov), so allow 1.5x this cast's own median.
+func sceneSteady(_ history: [Double], _ background: Double) -> Bool {
+    let median = history.isEmpty ? 0 : history.sorted()[history.count/2]
+    return background < max(3, median*1.5)
 }
 
 // The spell orb is bright blue-purple; the float and night water never are. A box frame that

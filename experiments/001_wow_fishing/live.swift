@@ -725,7 +725,7 @@ struct Fishing {
             var submittedChange = false
             let frames = directory.appendingPathComponent("frames")
             try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
-            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = []
+            var jevBox: CGRect?, boxPreviousRGBA: [UInt8]?, boxHistory: [Double] = [], backgroundHistory: [Double] = []
             // Right-click the float, then verify loot exactly as before (shared by rules and Jev-box motion).
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
@@ -904,10 +904,10 @@ struct Fishing {
                     let spike = motionSpike(boxHistory, energy)
                     emit("sample", ["box_energy": energy, "background_change": background, "spike": spike,
                                     "capture_seconds": captureAt-started])
-                    // One frame above the spike floor: the float's own bob animation peaks near 3.5 for
-                    // two frames (5 Nov), real bites peak at 4.5-9.8, so a two-frame lower rule was cut.
-                    if !spike { boxHistory.append(energy) }
-                    if spike && background < 3 {
+                    // Every sample feeds the history: the adaptive rule needs the frames just before a bite.
+                    let steady = sceneSteady(backgroundHistory, background)
+                    boxHistory.append(energy); backgroundHistory.append(background)
+                    if spike && steady {
                         let point = CGPoint(x: bounds.minX+crop.minX+box.midX*crop.width/Double(width),
                                             y: bounds.minY+crop.minY+box.midY*crop.height/Double(height))
                         save(patch, directory.appendingPathComponent("signal.jpg"))
