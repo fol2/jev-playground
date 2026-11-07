@@ -905,8 +905,11 @@ struct Fishing {
                     guard let prior = boxPreviousRGBA, prior.count == rgba.count else { continue }
                     // Orb pixels (spell effect) are masked out; a mostly-orb box says nothing.
                     if orbMask == nil {
-                        orbMask = orbColouredFraction(prior) < 0.5
-                        if orbMask == false { emit("orb_mask_off_blue_water", ["fraction": orbColouredFraction(prior)]) }
+                        // Judge the water from the whole playfield, not the box: one box frame flips near 0.5.
+                        // Daylight Stormwind reads ~0.20, night Darkshore and Valanaar 0.00-0.01 (7 Nov).
+                        let fraction = orbColouredFraction(pixels)
+                        orbMask = fraction < 0.08
+                        if orbMask == false { emit("orb_mask_off_blue_water", ["fraction": fraction]) }
                     }
                     guard let energy = maskedBoxEnergy(rgba, prior, mask: orbMask ?? true) else {
                         emit("sample", ["orb_in_box": true, "capture_seconds": captureAt-started]); continue

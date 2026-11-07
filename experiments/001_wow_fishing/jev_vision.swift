@@ -142,8 +142,8 @@ func orbInBox(_ rgba: [UInt8]) -> Bool {
 
 // Box change with orb pixels masked out: a pixel counts only when it is not orb-coloured
 // (core or dim glow) in either frame. Returns nil when over half the box is orb.
-// Daylight Stormwind water (7 Nov) is itself "orb-coloured": when the first box frame after acquisition
-// is mostly that colour, the water is blue and the cast runs without the orb mask (mask: false).
+// Daylight Stormwind water (7 Nov) is itself "orb-coloured": when the playfield is broadly that colour,
+// the water is blue and the cast runs without the orb mask (mask: false).
 func orbColouredFraction(_ rgba: [UInt8]) -> Double {
     var hits = 0, total = 0
     for i in stride(from: 0, to: rgba.count - 3, by: 4) {
