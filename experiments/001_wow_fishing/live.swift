@@ -934,7 +934,7 @@ struct Fishing {
                     candidate = tracker.observe(image)
                 } else if iterationAt-castAt > 2, let jevKey = jevLocateKey {
                     // Jev finds the float in the cropped playfield; the pixel tracker takes over from here.
-                    guard let found = await jevLocateFloat(image, key: jevKey) else {
+                    guard let found = await jevLocateFloat(image, key: jevKey, reference: referencePixels) else {
                         emit("jev_locate_error"); continue
                     }
                     emit("jev_locate", ["x": found.x, "y": found.y, "visible": found.visible,

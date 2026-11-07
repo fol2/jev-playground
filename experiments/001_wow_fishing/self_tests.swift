@@ -236,5 +236,11 @@ func runSelfTests() throws {
           abs(icon.x - 30) < 1.5, abs(icon.y - 39) < 1.5 || abs(icon.y - 20) < 1.5 else {
         print("Regression: interact icon centroid wrong or found on plain water"); exit(1)
     }
+    // Stormwind by day (7 Nov): gold lamps, roofs and tracker text everywhere; only new gold is the icon (427, 173).
+    let daylight = tooltip("icon-daylight-after.jpg"), before = tooltip("icon-daylight-before.jpg")
+    let dayIcon = interactIconCentroid(daylight, reference: imagePixels(before, width: before.width, height: before.height))
+    guard let dayIcon, abs(dayIcon.x - 427) < 8, abs(dayIcon.y - 173) < 8 else {
+        print("Regression: daylight interact icon at \(String(describing: dayIcon)), expected near (427, 173)"); exit(1)
+    }
     print("Fifty-one local decision, acquisition, overlay-text and retained-image checks passed; no UI, capture or provider calls.")
 }

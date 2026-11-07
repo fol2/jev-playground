@@ -44,24 +44,45 @@ private func jevBox(_ image: CGImage, key: String, note: String) async -> (x: Do
 // With "Interact Key Icons: Show All", WoW draws a small gold gear icon above the one object the
 // player can interact with: our own float, never another player's. 6 Nov: found in both icon casts
 // (3-7 pixels, 53-58 px above the float) and in none of eight casts without the setting.
-func interactIconCentroid(_ image: CGImage) -> CGPoint? {
+// Stormwind by day (7 Nov) is full of gold (lamps, roofs, flowers, tracker text), so a whole-frame
+// centroid lands on the buildings. With a pre-cast `reference` frame of the same size, only gold that
+// is new since the cast counts; the icon is then the densest 15 px cluster of those pixels.
+func interactIconCentroid(_ image: CGImage, reference: [UInt8]? = nil) -> CGPoint? {
     let w = image.width, h = image.height, pixels = imagePixels(image, width: w, height: h)
-    var n = 0, sx = 0, sy = 0
+    // Daylight icon pixels read R 135-220, R-B 95-110 (7 Nov); with a reference the looser colour is safe.
+    let usable = reference.map { $0.count == pixels.count } ?? false
+    func gold(_ p: [UInt8], _ i: Int) -> Bool {
+        let r = Int(p[i]), g = Int(p[i+1]), b = Int(p[i+2])
+        return usable ? r > 140 && g > 90 && b < 130 && r - b > 80 : r > 180 && g > 120 && b < 110 && r - b > 100
+    }
+    // Gold already within 2 px in the reference is scenery (a lamp shifts a pixel between frames).
+    func oldGold(_ x: Int, _ y: Int) -> Bool {
+        for dy in -2...2 { for dx in -2...2 {
+            let xx = x+dx, yy = y+dy
+            if xx >= 0, yy >= 0, xx < w, yy < h, gold(reference!, (yy*w+xx)*4) { return true }
+        } }
+        return false
+    }
+    var points: [(x: Int, y: Int)] = []
     for y in 0..<h { for x in 0..<w {
-        let i = (y*w + x)*4, r = Int(pixels[i]), g = Int(pixels[i+1]), b = Int(pixels[i+2])
-        if r > 180 && g > 120 && b < 110 && r - b > 100 { n += 1; sx += x; sy += y }
+        if gold(pixels, (y*w + x)*4) && !(usable && oldGold(x, y)) { points.append((x, y)) }
     } }
-    return n >= 3 ? CGPoint(x: Double(sx)/Double(n), y: Double(sy)/Double(n)) : nil
+    // ponytail: O(n^2) over gold pixels; fine while new gold stays in the hundreds.
+    guard points.count >= 3, points.count < 4000 else { return nil }
+    let near = points.map { p in points.filter { abs($0.x-p.x) <= 15 && abs($0.y-p.y) <= 15 } }
+    guard let best = near.max(by: { $0.count < $1.count }), best.count >= 3 else { return nil }
+    return CGPoint(x: Double(best.reduce(0) { $0 + $1.x })/Double(best.count),
+                   y: Double(best.reduce(0) { $0 + $1.y })/Double(best.count))
 }
 
 // Two looks: the whole playfield crop, then an enlarged sub-crop around the first answer.
 // On 5 Nov night frames the first look was 25-40 px off (or on the orb); the second was within 4 px.
-func jevLocateFloat(_ image: CGImage, key: String) async -> JevFloat? {
+func jevLocateFloat(_ image: CGImage, key: String, reference: [UInt8]? = nil) async -> JevFloat? {
     let at = ProcessInfo.processInfo.systemUptime
     // Our float sits just below the interact icon: start the enlarged look there, so other players'
     // floats are outside the crop. Without the icon, Jev's whole-playfield look decides as before.
     let first: (x: Double, y: Double)
-    if let icon = interactIconCentroid(image) {
+    if let icon = interactIconCentroid(image, reference: reference) {
         first = (icon.x / Double(image.width), (icon.y + 45) / Double(image.height))
     } else {
         guard let look = await jevBox(image, key: key, note: "") else { return nil }
