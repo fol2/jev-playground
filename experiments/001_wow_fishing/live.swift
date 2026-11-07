@@ -502,7 +502,9 @@ struct Fishing {
         channelConfig.showsCursor = false
         var channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
         var confirmed = try fishingChannelConfirmed(channel)
-        for _ in 0..<2 where !confirmed {
+        // 7 Nov: right after pre-go the bar can take over a second to appear; six casts were called failed
+        // at 0.5 s although they went out. Wait up to 3 s.
+        for _ in 0..<12 where !confirmed {
             guard valid() else { emit("stopped_before_cast_verification"); return }
             try await Task.sleep(for: .milliseconds(200))
             channel = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)

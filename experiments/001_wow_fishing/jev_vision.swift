@@ -269,4 +269,3 @@ func jevLocateInPanel(_ screen: CGImage, key: String, panel panelText: String, i
               instructions: itemText + " in `screen`", requirePresent: false) else { return nil }
     return CGPoint(x: (rect.minX + (item.l + item.r) / 2 * rect.width) / w, y: (rect.minY + (item.t + item.b) / 2 * rect.height) / h)
 }
-
