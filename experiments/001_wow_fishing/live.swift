@@ -56,11 +56,14 @@ func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
     guard let equipped = lines.first(where: { $0.text.lowercased().hasPrefix("equipped") || $0.text.contains("已裝備") }) else {
         return lines.contains { isRod($0.text) }  // no comparison box: the only tooltip is the hovered item
     }
-    // The name rows sit just under the Equipped label (Vision y grows upwards); the comparison box is
-    // on the left, so the hovered item's name is the rightmost name row. Item-type text ("Fishing
-    // Pole" on the Two-Hand row) sits lower and is not a name row.
-    let names = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
-    return names.max(by: { $0.box.minX < $1.box.minX }).map { isRod($0.text) } ?? false
+    // The comparison box's name row sits just under the Equipped label (Vision y grows upwards). The
+    // hovered item's name is the nearest row to its right on the same line; text further right can
+    // be a quest tracker behind the tooltip (Nels Folx, 7 November 2026), so "rightmost" is wrong.
+    let band = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
+    guard let compared = band.filter({ abs($0.box.minX - equipped.box.minX) < 0.01 })
+        .max(by: { $0.box.maxY < $1.box.maxY }) else { return false }
+    return band.filter { abs($0.box.minY - compared.box.minY) < 0.008 && $0.box.minX > compared.box.maxX }
+        .min(by: { $0.box.minX < $1.box.minX }).map { isRod($0.text) } ?? false
 }
 
 // Pre-go overlay text in the zh-Hant and English clients; the owner's client is English

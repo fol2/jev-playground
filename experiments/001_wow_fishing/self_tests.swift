@@ -207,7 +207,8 @@ func runSelfTests() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
         return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
     }
-    guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
+    guard try hoveredItemIsRod(tooltip("tooltip-hover-rod.jpg")), try hoveredItemIsRod(tooltip("tooltip-hover-rod-tracker.jpg")),
+          try !hoveredItemIsRod(tooltip("tooltip-hover-sword.jpg")) else {
         print("Regression: the Equipped comparison tooltip confirmed a non-rod item"); exit(1)
     }
     // The interact icon: a few gold pixels are found at their centre; dark water alone has none.
