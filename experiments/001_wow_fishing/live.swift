@@ -47,38 +47,6 @@ func containsText(_ image: CGImage, _ terms: [String]) throws -> Bool {
     return terms.contains { normalised.lowercased().contains($0.lowercased()) }
 }
 
-// The hovered bag item's tooltip names the rod. WoW also shows an "Equipped" comparison tooltip
-// beside it, which names the equipped item: on 6 Nov hovering the sword showed "Equipped: Fishing
-// Pole" and the sword was equipped. A "Fishing Pole" line in the Equipped column does not count.
-func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
-    let lines = try readText(image).compactMap { o in o.topCandidates(1).first.map { (text: $0.string, box: o.boundingBox) } }
-    func isRod(_ text: String) -> Bool { ["魚竿", "釣竿", "fishing pole"].contains { text.lowercased().contains($0) } }
-    guard let equipped = lines.first(where: { $0.text.lowercased().hasPrefix("equipped") || $0.text.contains("已裝備") }) else {
-        // No comparison box: the only tooltip is the hovered item. Description lines name the rod too
-        // ("Use: When applied to your fishing pole", Shiny Bauble, 7 Nov: pre-go right-clicked it), so
-        // only a short name or item-type row counts.
-        return lines.contains { line in
-            let t = line.text.lowercased()
-            return isRod(line.text) && !["use", "applied", "your", "increases"].contains { t.contains($0) } && t.count <= 24
-        }
-    }
-    // The comparison box's name row sits just under the Equipped label (Vision y grows upwards). The
-    // hovered item's name is the nearest row to its right on the same line; text further right can
-    // be a quest tracker behind the tooltip (Nels Folx, 7 November 2026), so "rightmost" is wrong.
-    let band = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
-    // Tolerances scale with the row height: CI's Vision boxes differ from local ones by a few thousandths.
-    let row = equipped.box.height
-    guard let compared = band.filter({ abs($0.box.minX - equipped.box.minX) < row })
-        .max(by: { $0.box.maxY < $1.box.maxY }) else { return false }
-    let sameRow = band.filter { abs($0.box.midY - compared.box.midY) < row*0.6 && $0.box.minX > compared.box.maxX }
-    // The hovered box's left column; its type row ("Two-Hand") can share that column, so take the
-    // row nearest the compared name's height.
-    guard let left = sameRow.map({ $0.box.minX }).min() else { return false }
-    return sameRow.filter { $0.box.minX < left + row }
-        .min(by: { abs($0.box.midY - compared.box.midY) < abs($1.box.midY - compared.box.midY) })
-        .map { isRod($0.text) } ?? false
-}
-
 // Pre-go overlay text in the zh-Hant and English clients; the owner's client is English
 // from 22 September 2026 (issue #10). Matching nothing would skip the guard, not fail it.
 let luaErrorText = ["Lua錯誤", "Lua 錯誤", "Lua Error"]
@@ -162,43 +130,6 @@ func pageIsTwo(_ page: CGImage) -> Bool {
     }
     let expected = mask(reference), actual = mask(glyph)
     return zip(expected, actual).filter { $0 != $1 }.count <= 14
-}
-
-// Recognise the known rod icon from one bag image; tooltip OCR confirms identity.
-func rodIconCandidate(_ image: CGImage) -> (x: Double, y: Double, score: Double)? {
-    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("rod-icon.png")
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let reference = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-    func vector(_ image: CGImage) -> [Double] {
-        var pixels = [UInt8](repeating: 0, count: 16*16*4)
-        pixels.withUnsafeMutableBytes { bytes in
-            let context = CGContext(data: bytes.baseAddress, width: 16, height: 16,
-                bitsPerComponent: 8, bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
-            context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
-        }
-        var grey = [Double]()
-        for i in 0..<256 {
-            grey.append(Double(pixels[i*4]) + Double(pixels[i*4+1]) + Double(pixels[i*4+2]))
-        }
-        let mean = grey.reduce(0,+)/256
-        let centred = grey.map { $0-mean }
-        let length = sqrt(centred.reduce(0) { $0+$1*$1 })
-        return centred.map { $0/max(1,length) }
-    }
-    let expected = vector(reference)
-    var best: (x: Double, y: Double, score: Double)?
-    let side = 32*Double(image.width)/2560
-    for row in 0..<5 {
-        for column in 0..<10 {
-            let x = 0.805+Double(column)*0.0197, y = 0.894-Double(row)*0.035
-            guard let patch = image.cropping(to: CGRect(x: x*Double(image.width)-side/2,
-                y: y*Double(image.height)-side/2, width: side, height: side)) else { continue }
-            let score = zip(expected, vector(patch)).reduce(0) { $0+$1.0*$1.1 }
-            if score > (best?.score ?? -1) { best = (x,y,score) }
-        }
-    }
-    return best.flatMap { $0.score >= 0.75 ? $0 : nil }
 }
 
 func compactFloatShape(_ width: Int, _ height: Int) -> Bool {
@@ -492,61 +423,10 @@ struct Fishing {
                 key(code, down: false, flags: flags)
                 try await Task.sleep(for: .milliseconds(300))
             }
-            // Main-hand slot: Jev finds it on the open character sheet (the layout moved by level 11);
-            // without Jev the 2560x1440 default point remains. The tooltip OCR still decides.
-            // Returns whether the main-hand tooltip reads Fishing Pole, saving the last crop under `name`.
-            // Jev's slot point can land on the gap between slots (0.0914 vs slots at 0.081 and 0.102 on
-            // 6 Nov), so also try one slot-half either side.
-            func mainHandIsRod(_ name: String) async throws -> Bool {
-                // Fallbacks: the slot at Nels Folx's sheet (0.081, 0.460, 7 Nov) and the older default.
-                var points = [CGPoint(x: 0.081, y: 0.460), CGPoint(x: 0.0725, y: 0.460), CGPoint(x: 0.0915, y: 0.460)]
-                var located: CGPoint?
-                if let jevKey = jevLocateKey {
-                    located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
-                    if located == nil { located = await jevLocateMainHandSlot(try await capture(), key: jevKey) }
-                    if located == nil {
-                        // C toggles: a sheet left open by an earlier run was just closed (7 Nov). Toggle once more.
-                        emit("pre_go_jev_main_hand_not_found")
-                        try await press(8)
-                        located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
-                        emit("pre_go_sheet_toggled_again", ["found": located != nil])
-                    }
-                }
-                if let found = located {
-                    points = [found, CGPoint(x: found.x - 0.012, y: found.y), CGPoint(x: found.x + 0.012, y: found.y)]
-                    emit("pre_go_jev_main_hand", ["x": found.x, "y": found.y, "controller": "JEV"])
-                }
-                for point in points {
-                    try await hover(point.x, point.y)
-                    let crop = section(try await capture(), 0.0, 0.15, 0.55, 0.75)
-                    save(crop, directory.appendingPathComponent(name))
-                    if try containsText(crop, ["魚竿", "釣竿", "Fishing Pole"]) { return true }
-                }
-                // Unread is not "not a rod": a missed slot once sent pre-go to the bag, where it right-clicked
-                // the Shiny Bauble (7 Nov). Only a slot Jev located may lead to a weapon swap.
-                guard located != nil || jevLocateKey == nil else {
-                    emit("pre_go_main_hand_unread")
-                    throw NSError(domain: "Pre-go could not read the main-hand slot", code: 3)
-                }
-                return false
-            }
             func hover(_ x: Double, _ y: Double) async throws {
                 guard valid() else { throw NSError(domain: "Pre-go lost focus", code: 3) }
                 mouse(.mouseMoved, CGPoint(x: bounds.minX+x*bounds.width, y: bounds.minY+y*bounds.height))
                 try await Task.sleep(for: .milliseconds(450))
-            }
-            func dismissCharacterError(_ screen: CGImage) async throws -> CGImage {
-                guard try containsText(overlayBand(screen), luaErrorText) else { return screen }
-                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
-                try await clickAt(CGPoint(x: bounds.minX+0.776*bounds.width,
-                                         y: bounds.minY+0.349*bounds.height), .left)
-                try await Task.sleep(for: .milliseconds(300))
-                let after = try await capture()
-                guard try !containsText(overlayBand(after), luaErrorText) else {
-                    throw NSError(domain: "Pre-go character error still open", code: 3)
-                }
-                emit("dismissed_character_beta_error")
-                return after
             }
             var screen = try await capture()
             save(screen, directory.appendingPathComponent("pre-go.jpg"))
@@ -556,78 +436,8 @@ struct Fishing {
             if try containsText(overlayBand(screen), blockingOverlayText) {
                 emit("pre_go_blocked_overlay"); return
             }
-            // Character sheet, then read the equipped main-hand item tooltip.
-            try await press(8) // C
-            screen = try await capture()
-            screen = try await dismissCharacterError(screen)
-            var rod = try await mainHandIsRod("rod.jpg")
-            try await press(8) // Close character sheet.
-            if !rod {
-                emit("pre_go_switching_from_main_weapon")
-                // Recognise the rod icon first; tooltip search is the fallback.
-                // Verify the tooltip before equipping; never click an unknown item.
-                try await press(11) // B: open combined bag.
-                screen = try await capture()
-                save(screen, directory.appendingPathComponent("bag-before-search.jpg"))
-                var bagX = 0.924, bagY = 0.789, jevRod = false
-                if let match = rodIconCandidate(screen) {
-                    bagX = match.x; bagY = match.y
-                    emit("pre_go_rod_icon_candidate", ["x": bagX, "y": bagY, "correlation": match.score])
-                } else if let jevKey = jevLocateKey {
-                    // Jev finds the rod by sight; the tooltip below still confirms it before any click.
-                    var found = await jevLocateRodInBag(screen, key: jevKey)
-                    if found == nil {
-                        // B toggles: a bag left open by an earlier stop is now closed. Open it and look once more.
-                        try await press(11)
-                        screen = try await capture()
-                        save(screen, directory.appendingPathComponent("bag-reopened.jpg"))
-                        found = await jevLocateRodInBag(screen, key: jevKey)
-                    }
-                    if let found {
-                        jevRod = true
-                        bagX = found.x; bagY = found.y
-                        emit("pre_go_jev_rod_candidate", ["x": bagX, "y": bagY, "controller": "JEV"])
-                    } else { emit("pre_go_rod_icon_not_found") }
-                } else { emit("pre_go_rod_icon_not_found") }
-                try await hover(bagX, bagY)
-                screen = try await capture()
-                save(screen, directory.appendingPathComponent("bag-hover.jpg"))
-                var bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
-                // The comparison tooltip can sit at the right edge (x 0.89-0.98 on 6 Nov), hence the wider region.
-                // After Jev located the rod a cell-by-cell scan adds nothing: the tooltip decides, fail closed.
-                if !jevRod, !(try hoveredItemIsRod(bagItem)) {
-                    // Bounded default-layout bag search; all preparation stays local.
-                    var found = false
-                    for row in 0..<5 {
-                        for column in (0..<10).reversed() {
-                            bagX = 0.805 + Double(column)*0.0197
-                            bagY = 0.894 - Double(row)*0.035
-                            try await hover(bagX, bagY)
-                            screen = try await capture()
-                            bagItem = section(screen, 0.55, 0.45, 0.45, 0.50)
-                            if try hoveredItemIsRod(bagItem) { found = true; break }
-                        }
-                        if found { break }
-                    }
-                    emit("pre_go_bag_search", ["found": found, "x": bagX, "y": bagY])
-                }
-                save(bagItem, directory.appendingPathComponent("bag-rod.jpg"))
-                guard try hoveredItemIsRod(bagItem) else {
-                    emit("pre_go_bag_rod_unconfirmed"); return
-                }
-                guard valid() else { throw NSError(domain: "Pre-go lost focus or geometry", code: 3) }
-                try await clickAt(CGPoint(x: bounds.minX+bagX*bounds.width,
-                                         y: bounds.minY+bagY*bounds.height), .right)
-                try await Task.sleep(for: .milliseconds(400))
-                try await press(11) // Close bag.
-                try await press(8) // Reopen equipment and verify actual equipped rod.
-                screen = try await capture()
-                screen = try await dismissCharacterError(screen)
-                rod = try await mainHandIsRod("equipped-rod.jpg")
-                try await press(8)
-            }
-            guard rod else { emit("pre_go_rod_unconfirmed"); return }
-            emit("pre_go_rod_verified")
+            // No rod check: the cast itself is the check (no Fishing bar, no fishing). 7 Nov: reading the
+            // character sheet and bags failed often and once equipped the Shiny Bauble.
             try await press(19, .maskShift) // Same configured page for both policies.
             try await hover(0.227, 0.981)
             screen = try await capture()
@@ -649,23 +459,6 @@ struct Fishing {
                 emit("pre_go_page_two_unconfirmed"); return
             }
             emit("pre_go_controls_verified", ["page": 2, "slot": 1])
-            // F8 reel check: key bindings can be per character (Nels Folx, 7 Nov: F8 left the float in
-            // place). Cast, let the float land, press F8: interacting with our float ends the channel;
-            // an unbound key leaves it running.
-            if ProcessInfo.processInfo.environment["JEV_REEL"] == "interact" {
-                func channel() async throws -> CGImage { section(try await capture(), 0.44, 0.83, 0.14, 0.05) }
-                try await press(18)
-                try await Task.sleep(for: .seconds(3))
-                guard try fishingChannelConfirmed(try await channel()) else { emit("pre_go_interact_probe_not_cast"); return }
-                try await press(100) // F8
-                try await Task.sleep(for: .milliseconds(1200))
-                let after = try await channel()
-                save(after, directory.appendingPathComponent("interact-probe.jpg"))
-                guard !(try fishingChannelConfirmed(after)) else {
-                    emit("pre_go_interact_key_no_effect", ["fix": "bind Interact With Target to F8 for this character"]); return
-                }
-                emit("pre_go_interact_verified")
-            }
             // Water/line of sight cannot be certified from a colour mask. The real
             // acceptance gate is a stable, visible float shortly after the cast.
             emit("pre_go_pass", ["water": "requires_post_cast_visible_float", "output": directory.path])

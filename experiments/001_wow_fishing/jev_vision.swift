@@ -270,15 +270,3 @@ func jevLocateInPanel(_ screen: CGImage, key: String, panel panelText: String, i
     return CGPoint(x: (rect.minX + (item.l + item.r) / 2 * rect.width) / w, y: (rect.minY + (item.t + item.b) / 2 * rect.height) / h)
 }
 
-func jevLocateRodInBag(_ screen: CGImage, key: String) async -> CGPoint? {
-    let full = CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
-    guard let small = scaled(screen, full, width: 1400), await jevBagOpen(small, key: key) else { return nil }
-    return await jevLocateInPanel(screen, key: key, panel: "the whole open bag (inventory) panel with its grid of item slots",
-                                  item: "the single item slot holding a fishing pole (a long thin fishing rod with a line and hook)")
-}
-
-// The character sheet moves with level and UI scale; find the main-hand slot instead of a fixed point.
-func jevLocateMainHandSlot(_ screen: CGImage, key: String) async -> CGPoint? {
-    await jevLocateInPanel(screen, key: key, panel: "the open character sheet panel (equipment slots around the character model)",
-                           item: "the main hand weapon slot (the left of the weapon slots along the bottom edge, below the character model)")
-}
