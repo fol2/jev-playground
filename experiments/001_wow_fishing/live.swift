@@ -54,7 +54,13 @@ func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
     let lines = try readText(image).compactMap { o in o.topCandidates(1).first.map { (text: $0.string, box: o.boundingBox) } }
     func isRod(_ text: String) -> Bool { ["魚竿", "釣竿", "fishing pole"].contains { text.lowercased().contains($0) } }
     guard let equipped = lines.first(where: { $0.text.lowercased().hasPrefix("equipped") || $0.text.contains("已裝備") }) else {
-        return lines.contains { isRod($0.text) }  // no comparison box: the only tooltip is the hovered item
+        // No comparison box: the only tooltip is the hovered item. Description lines name the rod too
+        // ("Use: When applied to your fishing pole", Shiny Bauble, 7 Nov: pre-go right-clicked it), so
+        // only a short name or item-type row counts.
+        return lines.contains { line in
+            let t = line.text.lowercased()
+            return isRod(line.text) && !["use", "applied", "your", "increases"].contains { t.contains($0) } && t.count <= 24
+        }
     }
     // The comparison box's name row sits just under the Equipped label (Vision y grows upwards). The
     // hovered item's name is the nearest row to its right on the same line; text further right can
@@ -492,12 +498,19 @@ struct Fishing {
             // Jev's slot point can land on the gap between slots (0.0914 vs slots at 0.081 and 0.102 on
             // 6 Nov), so also try one slot-half either side.
             func mainHandIsRod(_ name: String) async throws -> Bool {
-                var points = [CGPoint(x: 0.0725, y: 0.460)]
+                // Fallbacks: the slot at Nels Folx's sheet (0.081, 0.460, 7 Nov) and the older default.
+                var points = [CGPoint(x: 0.081, y: 0.460), CGPoint(x: 0.0725, y: 0.460), CGPoint(x: 0.0915, y: 0.460)]
                 var located: CGPoint?
                 if let jevKey = jevLocateKey {
                     located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
                     if located == nil { located = await jevLocateMainHandSlot(try await capture(), key: jevKey) }
-                    if located == nil { emit("pre_go_jev_main_hand_not_found") }
+                    if located == nil {
+                        // C toggles: a sheet left open by an earlier run was just closed (7 Nov). Toggle once more.
+                        emit("pre_go_jev_main_hand_not_found")
+                        try await press(8)
+                        located = await jevLocateMainHandSlot(try await capture(), key: jevKey)
+                        emit("pre_go_sheet_toggled_again", ["found": located != nil])
+                    }
                 }
                 if let found = located {
                     points = [found, CGPoint(x: found.x - 0.012, y: found.y), CGPoint(x: found.x + 0.012, y: found.y)]
@@ -508,6 +521,12 @@ struct Fishing {
                     let crop = section(try await capture(), 0.0, 0.15, 0.55, 0.75)
                     save(crop, directory.appendingPathComponent(name))
                     if try containsText(crop, ["魚竿", "釣竿", "Fishing Pole"]) { return true }
+                }
+                // Unread is not "not a rod": a missed slot once sent pre-go to the bag, where it right-clicked
+                // the Shiny Bauble (7 Nov). Only a slot Jev located may lead to a weapon swap.
+                guard located != nil || jevLocateKey == nil else {
+                    emit("pre_go_main_hand_unread")
+                    throw NSError(domain: "Pre-go could not read the main-hand slot", code: 3)
                 }
                 return false
             }

@@ -217,7 +217,7 @@ func runSelfTests() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
         return CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
     }
-    for (name, rod) in [("tooltip-hover-rod.jpg", true), ("tooltip-hover-rod-tracker.jpg", true), ("tooltip-hover-sword.jpg", false)]
+    for (name, rod) in [("tooltip-hover-rod.jpg", true), ("tooltip-hover-rod-tracker.jpg", true), ("tooltip-hover-sword.jpg", false), ("tooltip-hover-bauble.jpg", false)]
         where try hoveredItemIsRod(tooltip(name)) != rod {
         // CI's Vision boxes differ from local ones: print them so a CI failure can be diagnosed.
         for o in try readText(tooltip(name)) where o.boundingBox.minY > 0.1 {
