@@ -60,10 +60,17 @@ func hoveredItemIsRod(_ image: CGImage) throws -> Bool {
     // hovered item's name is the nearest row to its right on the same line; text further right can
     // be a quest tracker behind the tooltip (Nels Folx, 7 November 2026), so "rightmost" is wrong.
     let band = lines.filter { $0.box.maxY < equipped.box.minY + 0.005 && $0.box.maxY > equipped.box.minY - 0.06 }
-    guard let compared = band.filter({ abs($0.box.minX - equipped.box.minX) < 0.01 })
+    // Tolerances scale with the row height: CI's Vision boxes differ from local ones by a few thousandths.
+    let row = equipped.box.height
+    guard let compared = band.filter({ abs($0.box.minX - equipped.box.minX) < row })
         .max(by: { $0.box.maxY < $1.box.maxY }) else { return false }
-    return band.filter { abs($0.box.minY - compared.box.minY) < 0.008 && $0.box.minX > compared.box.maxX }
-        .min(by: { $0.box.minX < $1.box.minX }).map { isRod($0.text) } ?? false
+    let sameRow = band.filter { abs($0.box.midY - compared.box.midY) < row*0.6 && $0.box.minX > compared.box.maxX }
+    // The hovered box's left column; its type row ("Two-Hand") can share that column, so take the
+    // row nearest the compared name's height.
+    guard let left = sameRow.map({ $0.box.minX }).min() else { return false }
+    return sameRow.filter { $0.box.minX < left + row }
+        .min(by: { abs($0.box.midY - compared.box.midY) < abs($1.box.midY - compared.box.midY) })
+        .map { isRod($0.text) } ?? false
 }
 
 // Pre-go overlay text in the zh-Hant and English clients; the owner's client is English
