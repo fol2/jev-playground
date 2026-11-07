@@ -754,9 +754,18 @@ struct Fishing {
                     key(100, down: true); try await Task.sleep(for: .milliseconds(50)); key(100, down: false)
                     emit("interact_key", ["key": "F8", "desktop_x": point.x, "desktop_y": point.y])
                 }
+                // Closed loop: a reel that took effect ends the Fishing channel. 7 Nov canal: F8 left the float
+                // in place while the owner had the game in front; then the cursor right-click still has the bite.
+                var keyHadNoEffect = false
+                if reelMode == "interact" {
+                    try await Task.sleep(for: .milliseconds(250))
+                    let bar = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: channelConfig)
+                    keyHadNoEffect = try fishingChannelConfirmed(bar)
+                    emit("reel_effect", ["channel_ended": !keyHadNoEffect])
+                }
                 // JEV_REEL=both (7 Nov experiment): at real Stormwind bites F8 sometimes left no loot although the
                 // icon sat on our float; a cursor right-click follows F8 to test whether F8 alone is the gap.
-                if reelMode != "interact" {
+                if reelMode != "interact" || keyHadNoEffect {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
                 // (5 Nov: an instant background click opened UI menus but never reached the float.)
                 // 3D picking follows the real cursor, so warp it onto the float briefly and put it back
