@@ -194,6 +194,11 @@ func runSelfTests() throws {
     guard !motionSpike(Array(calmBox.prefix(21)), 9), !motionSpike(calmBox, 2.5), motionSpike(calmBox, 9), !motionSpike(calmBox, 3.55) else {
         print("Regression: Jev-box motion spike fires on calm water or misses a splash"); exit(1)
     }
+    // Choppy shallow water (live_1794017228, 7 Nov): median 4.7, one wave frame 7.6, bite 12.1/10.5/9.8.
+    let choppy = Array(repeating: [4.5, 5.0, 4.2, 5.4, 4.8, 3.9, 5.1, 4.6, 5.6, 4.4, 4.7], count: 2).flatMap { $0 }
+    guard !motionSpike(choppy, 7.6), !motionSpike(choppy + [4.6, 9.0], 4.8), motionSpike(choppy + [12.1, 10.5], 9.8) else {
+        print("Regression: sustained bite motion on choppy water is missed, or one wave frame fires"); exit(1)
+    }
     let water = [UInt8](repeating: 20, count: 40*40*4)
     var orbBox = water; for i in 0..<5 { orbBox[i*4] = 120; orbBox[i*4+2] = 230 }
     guard !orbInBox(water), orbInBox(orbBox) else { print("Regression: orb colour test wrong"); exit(1) }

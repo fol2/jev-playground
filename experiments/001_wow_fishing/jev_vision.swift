@@ -89,7 +89,12 @@ func motionSpike(_ history: [Double], _ energy: Double) -> Bool {
     guard history.count >= 22 else { return false }
     let median = history.sorted()[history.count/2]
     // Floor 5: ring ripples and the bob reached 3.55-4.96 (frames checked); catches 4.47 once, else 5.3-12.8.
-    return energy > max(median*4, 5)
+    if energy > max(median*4, 5) { return true }
+    // Choppy shallow water (Darkshore, 7 Nov) lifts the median to 4-5, so a bite reaches only 2-3x it.
+    // A bite then holds above 1.8x for three frames or more; a wave spike lasts one. The 5 Nov casts
+    // fire at the same frame as before (replayed on 38 catches). ponytail: replayed on 6 choppy casts only.
+    let floor = max(median*1.8, 5)
+    return energy > floor && history.suffix(2).allSatisfy { $0 > floor }
 }
 
 // The spell orb is bright blue-purple; the float and night water never are. A box frame that
