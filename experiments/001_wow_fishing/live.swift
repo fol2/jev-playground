@@ -630,6 +630,23 @@ struct Fishing {
                 emit("pre_go_page_two_unconfirmed"); return
             }
             emit("pre_go_controls_verified", ["page": 2, "slot": 1])
+            // F8 reel check: key bindings can be per character (Nels Folx, 7 Nov: F8 left the float in
+            // place). Cast, let the float land, press F8: interacting with our float ends the channel;
+            // an unbound key leaves it running.
+            if ProcessInfo.processInfo.environment["JEV_REEL"] == "interact" {
+                func channel() async throws -> CGImage { section(try await capture(), 0.44, 0.83, 0.14, 0.05) }
+                try await press(18)
+                try await Task.sleep(for: .seconds(3))
+                guard try fishingChannelConfirmed(try await channel()) else { emit("pre_go_interact_probe_not_cast"); return }
+                try await press(100) // F8
+                try await Task.sleep(for: .milliseconds(1200))
+                let after = try await channel()
+                save(after, directory.appendingPathComponent("interact-probe.jpg"))
+                guard !(try fishingChannelConfirmed(after)) else {
+                    emit("pre_go_interact_key_no_effect", ["fix": "bind Interact With Target to F8 for this character"]); return
+                }
+                emit("pre_go_interact_verified")
+            }
             // Water/line of sight cannot be certified from a colour mask. The real
             // acceptance gate is a stable, visible float shortly after the cast.
             emit("pre_go_pass", ["water": "requires_post_cast_visible_float", "output": directory.path])
