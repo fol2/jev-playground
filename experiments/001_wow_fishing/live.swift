@@ -730,10 +730,14 @@ struct Fishing {
             func reel(_ point: CGPoint, _ image: CGImage) async throws {
                 // JEV_REEL=interact: WoW's Interact key (bound to F8 in the game) reels the soft-targeted
                 // float with a background key press, so the owner's cursor is never touched.
-                if ProcessInfo.processInfo.environment["JEV_REEL"] == "interact" {
+                let reelMode = ProcessInfo.processInfo.environment["JEV_REEL"] ?? ""
+                if reelMode == "interact" || reelMode == "both" {
                     key(100, down: true); try await Task.sleep(for: .milliseconds(50)); key(100, down: false)
                     emit("interact_key", ["key": "F8", "desktop_x": point.x, "desktop_y": point.y])
-                } else {
+                }
+                // JEV_REEL=both (7 Nov experiment): at real Stormwind bites F8 sometimes left no loot although the
+                // icon sat on our float; a cursor right-click follows F8 to test whether F8 alone is the gap.
+                if reelMode != "interact" {
                 // WoW picks world objects from the cursor on a later rendered frame: hover first, then click.
                 // (5 Nov: an instant background click opened UI menus but never reached the float.)
                 // 3D picking follows the real cursor, so warp it onto the float briefly and put it back

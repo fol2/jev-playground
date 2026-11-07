@@ -129,7 +129,7 @@ actor Agent {
         p.arguments = ["-di", "/tmp/jev-fishing-run", "--background", "--seconds", String(status.seconds), "--until-skill", String(status.target)]
         p.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
-        env["JEV_LOCATE"] = "1"; env["JEV_REEL"] = status.interact ? "interact" : nil
+        env["JEV_LOCATE"] = "1"; env["JEV_REEL"] = ProcessInfo.processInfo.environment["JEV_REEL_MODE"] ?? (status.interact ? "interact" : nil)
         p.environment = env
         let out = root.appendingPathComponent("runs/001_wow_fishing/control/session.log")
         FileManager.default.createFile(atPath: out.path, contents: nil)
