@@ -8,6 +8,16 @@ import Vision
 import VideoToolbox
 
 // Native capture requires an output delegate. Retain one frame, not a video or queue.
+// One small HEVC video per cast replaces per-frame pictures (7 Nov owner). The M4's media engine
+// encodes it, so the game loses no CPU or GPU; AV1 has no hardware encoder on Apple silicon.
+final class CastRecording: NSObject, SCRecordingOutputDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    var finished: Bool { lock.lock(); defer { lock.unlock() }; return done }
+    func recordingOutputDidFinishRecording(_ output: SCRecordingOutput) { lock.lock(); done = true; lock.unlock() }
+    func recordingOutput(_ output: SCRecordingOutput, didFailWithError error: any Error) { lock.lock(); done = true; lock.unlock() }
+}
+
 final class LatestFrame: NSObject, SCStreamOutput, @unchecked Sendable {
     private let lock = NSLock()
     private var frame: (CGImage, Double)?
@@ -536,7 +546,14 @@ struct Fishing {
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
         try stream.addStreamOutput(source, type: .screen,
                                    sampleHandlerQueue: DispatchQueue(label: "fishing.frames"))
+        let recordingSettings = SCRecordingOutputConfiguration()
+        recordingSettings.outputURL = directory.appendingPathComponent("cast.mp4")
+        recordingSettings.outputFileType = .mp4
+        recordingSettings.videoCodecType = .hevc
+        let recordingLog = CastRecording()
+        try stream.addRecordingOutput(SCRecordingOutput(configuration: recordingSettings, delegate: recordingLog))
         try await stream.startCapture()
+        emit("recording_started")  // video time 0 is about this event's seconds
         func observe() async throws {
             var target: Blob?, tracker: FloatTracker?, previous: [UInt8]?, priorImage: CGImage?
             var candidateTracks: [(latest: Blob, origin: Blob, frames: Int)] = []
@@ -908,11 +925,16 @@ struct Fishing {
             }
             emit("timed_out_without_click")
         }
+        // The file is complete only after the recording output finishes: wait up to 2 s for it.
+        func stop() async {
+            try? await stream.stopCapture()
+            for _ in 0..<20 where !recordingLog.finished { try? await Task.sleep(for: .milliseconds(100)) }
+        }
         do {
             try await observe()
-            try await stream.stopCapture()
+            await stop()
         } catch {
-            try? await stream.stopCapture()
+            await stop()
             throw error
         }
     }
